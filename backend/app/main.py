@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.core.exceptions import AppException
 from app.core.handlers import app_exception_handler
+from app.routers.articles import router as articles_router
 from app.routers.users import router as users_router
 
 
@@ -25,3 +26,4 @@ async def health_check():
 
 
 app.include_router(users_router)
+app.include_router(articles_router)
