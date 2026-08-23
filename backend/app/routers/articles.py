@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Query
-
 from postgrest.exceptions import APIError
 
 from app.core.exceptions import NotFoundError
@@ -128,7 +127,7 @@ async def get_article(
                 block_type,
                 display_order,
                 media_id,
-                article_block_translations (
+                article_block_translations!inner (
                     text_content,
                     caption
                 ),
@@ -145,6 +144,7 @@ async def get_article(
                 "article_block_translations.language_code",
                 language,
             )
+            .eq("article_id", article["id"])
             .order("display_order")
             .execute()
         )
@@ -154,34 +154,28 @@ async def get_article(
     blocks = []
 
     for block in blocks_response.data or []:
-        block_translation = block.get("article_block_translations")
-        media = block.get("media_assets")
+        block_translation = block["article_block_translations"]
+        block_type = block["block_type"]
 
-        if block["block_type"] == "TEXT":
+        if block_type == "TEXT":
             blocks.append(
                 {
                     "id": block["id"],
-                    "type": block["block_type"],
+                    "type": "TEXT",
                     "display_order": block["display_order"],
-                    "text": (
-                        block_translation["text_content"]
-                        if block_translation
-                        else None
-                    ),
+                    "text": block_translation["text_content"],
                 }
             )
 
-        elif block["block_type"] == "IMAGE":
+        elif block_type == "IMAGE":
+            media = block.get("media_assets")
+
             blocks.append(
                 {
                     "id": block["id"],
-                    "type": block["block_type"],
+                    "type": "IMAGE",
                     "display_order": block["display_order"],
-                    "caption": (
-                        block_translation["caption"]
-                        if block_translation
-                        else None
-                    ),
+                    "caption": block_translation["caption"],
                     "media": media,
                 }
             )
