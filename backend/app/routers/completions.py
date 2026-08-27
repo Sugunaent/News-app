@@ -3,9 +3,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 
 from app.core.exceptions import NotFoundError
-from app.db.supabase import supabase
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.completions import ArticleCompletionResponse
+from app.services.gamification import award_xp
 
 
 router = APIRouter(
@@ -96,7 +96,7 @@ async def complete_article(
         )
 
     completion_response = (
-        supabase
+        auth.client
         .table("article_completions")
         .insert(
             {
@@ -110,6 +110,14 @@ async def complete_article(
     )
 
     data = completion_response.data
+
+    award_xp(
+        user_id=auth.user.id,
+        event_type="ARTICLE_COMPLETED",
+        source_type="ARTICLE_COMPLETION",
+        source_id=article_id,
+        article_id=article_id,
+    )
 
     return ArticleCompletionResponse(
         article_id=data["article_id"],

@@ -12,7 +12,7 @@ from app.schemas.opinions import (
     OpinionResponseData,
     OpinionSubmitResponse,
 )
-
+from app.services.gamification import award_xp
 
 router = APIRouter(
     prefix="/api/v1/opinions",
@@ -34,7 +34,7 @@ def _extract_translation(
 
     if len(translations) > 0 and isinstance(translations[0], dict):
         return translations[0].get(text_key)
-        
+
     return None
 
 
@@ -48,7 +48,6 @@ async def get_article_opinions(
 ):
     client = auth.client
 
-    # 1. Fetch opinion questions belonging to the article
     try:
         questions_res = (
             client.table("opinion_questions")
@@ -72,7 +71,6 @@ async def get_article_opinions(
 
     question_ids = [q["id"] if isinstance(q, dict) else q[0] for q in questions_data]
 
-    # 2. Fetch options for these questions
     options_by_question: dict[str, list] = {}
 
     try:
@@ -104,7 +102,6 @@ async def get_article_opinions(
     except APIError as exc:
         raise NotFoundError("Failed to fetch opinion options") from exc
 
-    # 3. Map database data to response schemas
     formatted_questions = []
 
     for question in questions_data:
@@ -163,7 +160,6 @@ async def submit_opinion_response(
 ):
     client = auth.client
 
-    # 1. Validate opinion question
     try:
         question_res = (
             client.table("opinion_questions")
@@ -179,18 +175,20 @@ async def submit_opinion_response(
         raise NotFoundError("Opinion question not found")
 
     question = question_res.data
-    # Unpack single element if mock wrapped dictionary inside a tuple or list
     if isinstance(question, (list, tuple)):
         if not question:
             raise NotFoundError("Opinion question not found")
         question = question[0]
 
-    # 2. Validate custom-response permission
     if payload.custom_response is not None:
-        if not question.get("allow_custom_response"):
+        allow_custom = (
+            question.get("allow_custom_response")
+            if isinstance(question, dict)
+            else getattr(question, "allow_custom_response", False)
+        )
+        if not allow_custom:
             raise NotFoundError("Custom opinion responses are not allowed")
 
-    # 3. Validate selected option belongs to question
     if payload.selected_option_id is not None:
         try:
             option_res = (
@@ -212,7 +210,6 @@ async def submit_opinion_response(
             if not option_data:
                 raise NotFoundError("Opinion option not found")
 
-    # 4. Store trusted response
     insert_data = {
         "user_id": str(auth.user.id),
         "opinion_question_id": str(question_id),
@@ -254,6 +251,20 @@ async def submit_opinion_response(
             "custom_response": payload.custom_response,
             "created_at": "2026-08-25T00:00:00Z",
         }
+
+    article_id_val = (
+        question.get("article_id")
+        if isinstance(question, dict)
+        else getattr(question, "article_id", None)
+    )
+
+    award_xp(
+        user_id=auth.user.id,
+        event_type="OPINION_SUBMITTED",
+        source_type="OPINION_RESPONSE",
+        source_id=question_id,
+        article_id=article_id_val,
+    )
 
     return OpinionSubmitResponse(
         response=OpinionResponseData(

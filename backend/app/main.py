@@ -9,6 +9,8 @@ from app.routers.progress import router as progress_router
 from app.routers.quizzes import router as quizzes_router
 from app.routers.opinions import router as opinions_router
 from app.routers.completions import router as completions_router
+from app.routers.gamification import router as gamification_router
+from app.routers.home import router as home_router
 
 app = FastAPI(
     title="Cognition News API",
@@ -36,3 +38,5 @@ app.include_router(progress_router)
 app.include_router(quizzes_router)
 app.include_router(opinions_router)
 app.include_router(completions_router)
+app.include_router(gamification_router)
+app.include_router(home_router)

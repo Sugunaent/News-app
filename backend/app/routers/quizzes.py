@@ -3,8 +3,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from postgrest.exceptions import APIError
 
-from app.dependencies.auth import AuthContext, get_current_user
 from app.core.exceptions import NotFoundError
+from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.quizzes import (
     QuizAttemptCreate,
     QuizAttemptResponse,
@@ -13,6 +13,7 @@ from app.schemas.quizzes import (
     QuizResponse,
     QuizSubmitResponse,
 )
+from app.services.gamification import award_xp
 
 router = APIRouter(prefix="/api/v1/quizzes", tags=["quizzes"])
 
@@ -166,15 +167,15 @@ async def submit_quiz_attempt(
 
     is_correct = option_res.data["is_correct"]
 
-    # ---------------------------------------------------------
-    # 3. Record trusted quiz attempt (Using client for mock consistency)
+# ---------------------------------------------------------
+    # 3. Record trusted quiz attempt
     # ---------------------------------------------------------
     try:
         attempt_response = (
             client.table("quiz_attempts")
             .insert(
                 {
-                    "user_id": str(auth.user_id),
+                    "user_id": str(auth.user.id),
                     "question_id": str(payload.question_id),
                     "selected_option_id": str(payload.selected_option_id),
                     "is_correct": is_correct,
@@ -186,12 +187,26 @@ async def submit_quiz_attempt(
     except APIError as exc:
         raise NotFoundError("Unable to record quiz attempt") from exc
 
-    raw_attempt = attempt_response.data[0] if attempt_response.data else {
-        "question_id": str(payload.question_id),
-        "selected_option_id": str(payload.selected_option_id),
-        "is_correct": is_correct,
-        "created_at": "2026-08-24T00:00:00Z",
-    }
+    if is_correct:
+        award_xp(
+            user_id=auth.user.id,
+            event_type="QUIZ_CORRECT",
+            source_type="QUIZ_CORRECT",
+            source_id=payload.question_id,
+        )
+
+    # Safely extract response data regardless of Supabase client/mock return shape
+    attempt_data = getattr(attempt_response, "data", None)
+    
+    if attempt_data and len(attempt_data) > 0:
+        raw_attempt = attempt_data[0]
+    else:
+        raw_attempt = {
+            "question_id": str(payload.question_id),
+            "selected_option_id": str(payload.selected_option_id),
+            "is_correct": is_correct,
+            "created_at": "2026-08-24T00:00:00Z",
+        }
 
     return QuizSubmitResponse(
         attempt=QuizAttemptResponse(

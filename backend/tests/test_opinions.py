@@ -30,7 +30,7 @@ def make_auth_mock():
     return auth
 
 
-def make_query(data):
+def make_query(data, single_item=False):
     """
     Create an isolated Supabase-style query mock.
     """
@@ -43,7 +43,10 @@ def make_query(data):
     query.single.return_value = query
     query.maybe_single.return_value = query
 
-    query.execute.return_value.data = data
+    if single_item and isinstance(data, list):
+        query.execute.return_value.data = data[0] if data else None
+    else:
+        query.execute.return_value.data = data
 
     return query
 
@@ -324,7 +327,7 @@ def test_get_article_opinions_skips_question_without_translation():
 # ============================================================
 
 
-def test_submit_predefined_opinion():
+def test_submit_predefined_opinion(monkeypatch):
     auth = make_auth_mock()
 
     question_query = make_query(
@@ -334,7 +337,8 @@ def test_submit_predefined_opinion():
                 "article_id": ARTICLE_ID,
                 "allow_custom_response": True,
             }
-        ]
+        ],
+        single_item=True,
     )
 
     option_query = make_query(
@@ -343,7 +347,8 @@ def test_submit_predefined_opinion():
                 "id": OPTION_1_ID,
                 "question_id": QUESTION_ID,
             }
-        ]
+        ],
+        single_item=True,
     )
 
     response_query = make_query(
@@ -371,6 +376,7 @@ def test_submit_predefined_opinion():
         return make_query([])
 
     auth.client.table.side_effect = table
+    monkeypatch.setattr("app.routers.opinions.award_xp", lambda **kwargs: None)
 
     app.dependency_overrides[get_current_user] = lambda: auth
 
@@ -395,7 +401,7 @@ def test_submit_predefined_opinion():
         clear_auth_override()
 
 
-def test_submit_custom_opinion():
+def test_submit_custom_opinion(monkeypatch):
     auth = make_auth_mock()
 
     question_query = make_query(
@@ -405,7 +411,8 @@ def test_submit_custom_opinion():
                 "article_id": ARTICLE_ID,
                 "allow_custom_response": True,
             }
-        ]
+        ],
+        single_item=True,
     )
 
     response_query = make_query(
@@ -430,6 +437,7 @@ def test_submit_custom_opinion():
         return make_query([])
 
     auth.client.table.side_effect = table
+    monkeypatch.setattr("app.routers.opinions.award_xp", lambda **kwargs: None)
 
     app.dependency_overrides[get_current_user] = lambda: auth
 
@@ -455,10 +463,10 @@ def test_submit_custom_opinion():
         clear_auth_override()
 
 
-def test_submit_opinion_returns_404_when_question_not_found():
+def test_submit_opinion_returns_404_when_question_not_found(monkeypatch):
     auth = make_auth_mock()
 
-    question_query = make_query([])
+    question_query = make_query([], single_item=True)
 
     def table(name):
         if name == "opinion_questions":
@@ -467,6 +475,7 @@ def test_submit_opinion_returns_404_when_question_not_found():
         return make_query([])
 
     auth.client.table.side_effect = table
+    monkeypatch.setattr("app.routers.opinions.award_xp", lambda **kwargs: None)
 
     app.dependency_overrides[get_current_user] = lambda: auth
 
@@ -487,7 +496,7 @@ def test_submit_opinion_returns_404_when_question_not_found():
         clear_auth_override()
 
 
-def test_submit_opinion_returns_404_when_option_not_found():
+def test_submit_opinion_returns_404_when_option_not_found(monkeypatch):
     auth = make_auth_mock()
 
     question_query = make_query(
@@ -497,10 +506,11 @@ def test_submit_opinion_returns_404_when_option_not_found():
                 "article_id": ARTICLE_ID,
                 "allow_custom_response": True,
             }
-        ]
+        ],
+        single_item=True,
     )
 
-    option_query = make_query([])
+    option_query = make_query([], single_item=True)
 
     def table(name):
         if name == "opinion_questions":
@@ -512,6 +522,7 @@ def test_submit_opinion_returns_404_when_option_not_found():
         return make_query([])
 
     auth.client.table.side_effect = table
+    monkeypatch.setattr("app.routers.opinions.award_xp", lambda **kwargs: None)
 
     app.dependency_overrides[get_current_user] = lambda: auth
 
@@ -532,7 +543,7 @@ def test_submit_opinion_returns_404_when_option_not_found():
         clear_auth_override()
 
 
-def test_submit_opinion_rejects_custom_response_when_disabled():
+def test_submit_opinion_rejects_custom_response_when_disabled(monkeypatch):
     auth = make_auth_mock()
 
     question_query = make_query(
@@ -542,7 +553,8 @@ def test_submit_opinion_rejects_custom_response_when_disabled():
                 "article_id": ARTICLE_ID,
                 "allow_custom_response": False,
             }
-        ]
+        ],
+        single_item=True,
     )
 
     def table(name):
@@ -552,6 +564,7 @@ def test_submit_opinion_rejects_custom_response_when_disabled():
         return make_query([])
 
     auth.client.table.side_effect = table
+    monkeypatch.setattr("app.routers.opinions.award_xp", lambda **kwargs: None)
 
     app.dependency_overrides[get_current_user] = lambda: auth
 

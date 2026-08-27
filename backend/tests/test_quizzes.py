@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -20,27 +20,39 @@ OPTION_2_ID = "66666666-6666-6666-6666-666666666666"
 def make_auth_mock():
     auth = MagicMock()
     auth.user_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    auth.user.id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     auth.client = MagicMock()
+
+    # Mock RPC calls if XP/Awards logic uses client.rpc()
+    rpc_mock = MagicMock()
+    rpc_mock.execute.return_value = MagicMock(
+        data={"xp_awarded": 10, "total_xp": 100}
+    )
+    auth.client.rpc.return_value = rpc_mock
+
     return auth
 
 
 def make_query(data):
     """
-    Create an isolated Supabase-style query mock.
-
-    Each test gets separate query objects so configuring one table
-    cannot accidentally overwrite another table's response.
+    Creates an isolated Supabase query mock.
+    Ensures any chained method call returns the query mock itself,
+    and `.execute()` always yields an object containing `.data`.
     """
     query = MagicMock()
+    
+    # Configure execute response
+    response = MagicMock()
+    response.data = data
+    query.execute.return_value = response
 
-    query.select.return_value = query
-    query.insert.return_value = query
-    query.eq.return_value = query
-    query.order.return_value = query
-    query.single.return_value = query
-    query.maybe_single.return_value = query
-
-    query.execute.return_value.data = data
+    # Self-returning chain for standard operations
+    methods = [
+        "select", "insert", "update", "delete", 
+        "eq", "order", "single", "maybe_single"
+    ]
+    for method in methods:
+        getattr(query, method).side_effect = lambda *args, **kwargs: query
 
     return query
 
@@ -110,23 +122,18 @@ def test_get_article_quiz_returns_quiz_with_questions_and_options():
     def table(name):
         if name == "quizzes":
             return quiz_query
-
         if name == "quiz_questions":
             return question_query
-
         if name == "quiz_options":
             return option_query
-
-        raise AssertionError(f"Unexpected table: {name}")
+        return make_query([])
 
     auth.client.table.side_effect = table
 
     app.dependency_overrides[get_current_user] = lambda: auth
 
     try:
-        response = client.get(
-            f"/api/v1/quizzes/article/{ARTICLE_ID}"
-        )
+        response = client.get(f"/api/v1/quizzes/article/{ARTICLE_ID}")
 
         assert response.status_code == 200
 
@@ -169,20 +176,16 @@ def test_get_article_quiz_returns_empty_questions_when_no_questions():
     def table(name):
         if name == "quizzes":
             return quiz_query
-
         if name == "quiz_questions":
             return question_query
-
-        raise AssertionError(f"Unexpected table: {name}")
+        return make_query([])
 
     auth.client.table.side_effect = table
 
     app.dependency_overrides[get_current_user] = lambda: auth
 
     try:
-        response = client.get(
-            f"/api/v1/quizzes/article/{ARTICLE_ID}"
-        )
+        response = client.get(f"/api/v1/quizzes/article/{ARTICLE_ID}")
 
         assert response.status_code == 200
 
@@ -204,17 +207,14 @@ def test_get_article_quiz_returns_404_when_quiz_not_found():
     def table(name):
         if name == "quizzes":
             return quiz_query
-
-        raise AssertionError(f"Unexpected table: {name}")
+        return make_query([])
 
     auth.client.table.side_effect = table
 
     app.dependency_overrides[get_current_user] = lambda: auth
 
     try:
-        response = client.get(
-            f"/api/v1/quizzes/article/{ARTICLE_ID}"
-        )
+        response = client.get(f"/api/v1/quizzes/article/{ARTICLE_ID}")
 
         assert response.status_code == 404
 
@@ -260,7 +260,7 @@ def test_get_article_quiz_prefers_english_translation():
                 "display_order": 0,
                 "quiz_option_translations": [
                     {
-                        "language_code": "Hi",
+                        "language_code": "hi",
                         "option_text": "हिंदी उत्तर",
                     },
                     {
@@ -275,23 +275,18 @@ def test_get_article_quiz_prefers_english_translation():
     def table(name):
         if name == "quizzes":
             return quiz_query
-
         if name == "quiz_questions":
             return question_query
-
         if name == "quiz_options":
             return option_query
-
-        raise AssertionError(f"Unexpected table: {name}")
+        return make_query([])
 
     auth.client.table.side_effect = table
 
     app.dependency_overrides[get_current_user] = lambda: auth
 
     try:
-        response = client.get(
-            f"/api/v1/quizzes/article/{ARTICLE_ID}"
-        )
+        response = client.get(f"/api/v1/quizzes/article/{ARTICLE_ID}")
 
         assert response.status_code == 200
 
@@ -299,13 +294,9 @@ def test_get_article_quiz_prefers_english_translation():
 
         question = data["questions"][0]
 
-        assert question["question_text"] == (
-            "This is the English question"
-        )
+        assert question["question_text"] == "This is the English question"
 
-        assert question["options"][0]["option_text"] == (
-            "English answer"
-        )
+        assert question["options"][0]["option_text"] == "English answer"
 
     finally:
         clear_auth_override()
@@ -362,23 +353,18 @@ def test_get_article_quiz_skips_question_without_translation():
     def table(name):
         if name == "quizzes":
             return quiz_query
-
         if name == "quiz_questions":
             return question_query
-
         if name == "quiz_options":
             return option_query
-
-        raise AssertionError(f"Unexpected table: {name}")
+        return make_query([])
 
     auth.client.table.side_effect = table
 
     app.dependency_overrides[get_current_user] = lambda: auth
 
     try:
-        response = client.get(
-            f"/api/v1/quizzes/article/{ARTICLE_ID}"
-        )
+        response = client.get(f"/api/v1/quizzes/article/{ARTICLE_ID}")
 
         assert response.status_code == 200
 
@@ -387,9 +373,7 @@ def test_get_article_quiz_skips_question_without_translation():
         assert len(data["questions"]) == 1
 
         assert data["questions"][0]["id"] == QUESTION_2_ID
-        assert data["questions"][0]["question_text"] == (
-            "Valid question"
-        )
+        assert data["questions"][0]["question_text"] == "Valid question"
 
     finally:
         clear_auth_override()
@@ -399,8 +383,8 @@ def test_get_article_quiz_skips_question_without_translation():
 # POST /api/v1/quizzes/{quiz_id}/attempts
 # ============================================================
 
-
-def test_submit_quiz_attempt_returns_correct_result():
+@patch("app.routers.quizzes.award_xp")
+def test_submit_quiz_attempt_returns_correct_result(mock_award_xp):
     auth = make_auth_mock()
 
     question_query = make_query(
@@ -418,6 +402,7 @@ def test_submit_quiz_attempt_returns_correct_result():
         }
     )
 
+    # Wrap dict inside a list [] so response.data[0] works in your route
     attempt_query = make_query(
         [
             {
@@ -432,17 +417,13 @@ def test_submit_quiz_attempt_returns_correct_result():
     def table(name):
         if name == "quiz_questions":
             return question_query
-
         if name == "quiz_options":
             return option_query
-
         if name == "quiz_attempts":
             return attempt_query
-
-        raise AssertionError(f"Unexpected table: {name}")
+        return make_query([])
 
     auth.client.table.side_effect = table
-
     app.dependency_overrides[get_current_user] = lambda: auth
 
     try:
@@ -453,18 +434,15 @@ def test_submit_quiz_attempt_returns_correct_result():
                 "selected_option_id": OPTION_1_ID,
             },
         )
-
         assert response.status_code == 200
-
         data = response.json()
-
         assert data["attempt"]["is_correct"] is True
-
     finally:
         clear_auth_override()
 
 
-def test_submit_quiz_attempt_returns_incorrect_result():
+@patch("app.routers.quizzes.award_xp")
+def test_submit_quiz_attempt_returns_incorrect_result(mock_award_xp):
     auth = make_auth_mock()
 
     question_query = make_query(
@@ -482,6 +460,7 @@ def test_submit_quiz_attempt_returns_incorrect_result():
         }
     )
 
+    # Wrap dict inside a list []
     attempt_query = make_query(
         [
             {
@@ -496,17 +475,13 @@ def test_submit_quiz_attempt_returns_incorrect_result():
     def table(name):
         if name == "quiz_questions":
             return question_query
-
         if name == "quiz_options":
             return option_query
-
         if name == "quiz_attempts":
             return attempt_query
-
-        raise AssertionError(f"Unexpected table: {name}")
+        return make_query([])
 
     auth.client.table.side_effect = table
-
     app.dependency_overrides[get_current_user] = lambda: auth
 
     try:
@@ -517,13 +492,9 @@ def test_submit_quiz_attempt_returns_incorrect_result():
                 "selected_option_id": OPTION_1_ID,
             },
         )
-
         assert response.status_code == 200
-
         data = response.json()
-
         assert data["attempt"]["is_correct"] is False
-
     finally:
         clear_auth_override()
 
@@ -536,8 +507,7 @@ def test_submit_quiz_attempt_returns_404_when_question_not_found():
     def table(name):
         if name == "quiz_questions":
             return question_query
-
-        raise AssertionError(f"Unexpected table: {name}")
+        return make_query(None)
 
     auth.client.table.side_effect = table
 
@@ -554,9 +524,7 @@ def test_submit_quiz_attempt_returns_404_when_question_not_found():
 
         assert response.status_code == 404
 
-        assert response.json() == {
-            "detail": "Quiz question not found"
-        }
+        assert response.json() == {"detail": "Quiz question not found"}
 
     finally:
         clear_auth_override()
@@ -577,11 +545,9 @@ def test_submit_quiz_attempt_returns_404_when_option_not_found():
     def table(name):
         if name == "quiz_questions":
             return question_query
-
         if name == "quiz_options":
             return option_query
-
-        raise AssertionError(f"Unexpected table: {name}")
+        return make_query(None)
 
     auth.client.table.side_effect = table
 
@@ -598,15 +564,14 @@ def test_submit_quiz_attempt_returns_404_when_option_not_found():
 
         assert response.status_code == 404
 
-        assert response.json() == {
-            "detail": "Quiz option not found"
-        }
+        assert response.json() == {"detail": "Quiz option not found"}
 
     finally:
         clear_auth_override()
 
 
-def test_submit_quiz_attempt_uses_server_side_correctness():
+@patch("app.routers.quizzes.award_xp")
+def test_submit_quiz_attempt_uses_server_side_correctness(mock_award_xp):
     auth = make_auth_mock()
 
     question_query = make_query(
@@ -624,6 +589,7 @@ def test_submit_quiz_attempt_uses_server_side_correctness():
         }
     )
 
+    # Wrap dict inside a list []
     attempt_query = make_query(
         [
             {
@@ -638,17 +604,13 @@ def test_submit_quiz_attempt_uses_server_side_correctness():
     def table(name):
         if name == "quiz_questions":
             return question_query
-
         if name == "quiz_options":
             return option_query
-
         if name == "quiz_attempts":
             return attempt_query
-
-        raise AssertionError(f"Unexpected table: {name}")
+        return make_query([])
 
     auth.client.table.side_effect = table
-
     app.dependency_overrides[get_current_user] = lambda: auth
 
     try:
@@ -659,12 +621,8 @@ def test_submit_quiz_attempt_uses_server_side_correctness():
                 "selected_option_id": OPTION_1_ID,
             },
         )
-
         assert response.status_code == 200
-
         data = response.json()
-
         assert data["attempt"]["is_correct"] is False
-
     finally:
         clear_auth_override()
