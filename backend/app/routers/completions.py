@@ -5,7 +5,10 @@ from fastapi import APIRouter, Depends
 from app.core.exceptions import NotFoundError
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.completions import ArticleCompletionResponse
-from app.services.gamification import award_xp
+from app.services.gamification import (
+    award_badges_for_user,
+    award_xp,
+)
 
 
 router = APIRouter(
@@ -87,6 +90,8 @@ async def complete_article(
         .execute()
     )
 
+    # Completion, XP and badges are all idempotent.
+    # An already-completed article must not trigger another award.
     if existing_response.data:
         data = existing_response.data
 
@@ -111,12 +116,20 @@ async def complete_article(
 
     data = completion_response.data
 
+    # Award completion XP using the server-side XP rule.
     award_xp(
         user_id=auth.user.id,
         event_type="ARTICLE_COMPLETED",
         source_type="ARTICLE_COMPLETION",
         source_id=article_id,
         article_id=article_id,
+    )
+
+    # Evaluate all badge criteria after the newly completed article.
+    # The badge service is responsible for determining which badges
+    # have actually been earned and for preventing duplicates.
+    award_badges_for_user(
+        user_id=auth.user.id,
     )
 
     return ArticleCompletionResponse(

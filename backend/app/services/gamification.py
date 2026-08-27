@@ -180,3 +180,156 @@ def get_gamification_status(user_id: UUID) -> dict:
         "badges": badges,
         "transactions": transactions,
     }
+
+
+def _get_badge_by_name(name: str) -> dict | None:
+    """
+    Find an active badge by its configured name.
+
+    Badge definitions remain database-owned. We only use the
+    established badge names to determine which completion
+    achievements this V1 backend currently supports.
+    """
+
+    response = (
+        supabase
+        .table("badges")
+        .select(
+            "id, name, description, image_asset_id"
+        )
+        .eq("name", name)
+        .eq("is_active", True)
+        .maybe_single()
+        .execute()
+    )
+
+    return response.data
+
+
+def _has_user_badge(
+    *,
+    user_id: UUID,
+    badge_id: UUID,
+) -> bool:
+    response = (
+        supabase
+        .table("user_badges")
+        .select("user_id, badge_id")
+        .eq("user_id", str(user_id))
+        .eq("badge_id", str(badge_id))
+        .maybe_single()
+        .execute()
+    )
+
+    return response.data is not None
+
+
+def _award_badge(
+    *,
+    user_id: UUID,
+    badge: dict,
+) -> dict | None:
+    """
+    Assign one badge to a user.
+
+    The database primary key (user_id, badge_id) provides the
+    final integrity guarantee against duplicate assignments.
+    """
+
+    if _has_user_badge(
+        user_id=user_id,
+        badge_id=UUID(str(badge["id"])),
+    ):
+        return None
+
+    try:
+        response = (
+            supabase
+            .table("user_badges")
+            .insert(
+                {
+                    "user_id": str(user_id),
+                    "badge_id": str(badge["id"]),
+                }
+            )
+            .select(
+                "user_id, badge_id, earned_at"
+            )
+            .single()
+            .execute()
+        )
+
+        return response.data
+
+    except APIError:
+        # A concurrent request may have assigned the same badge
+        # after our existence check.
+        if _has_user_badge(
+            user_id=user_id,
+            badge_id=UUID(str(badge["id"])),
+        ):
+            return None
+
+        raise
+
+
+def award_badges_for_user(user_id: UUID) -> list[dict]:
+    """
+    Evaluate completion-based V1 badge achievements and assign
+    any newly earned badges.
+
+    Currently supported established criteria:
+
+    - First Article
+      -> at least 1 completed article
+
+    - 10 Articles Completed
+      -> at least 10 completed articles
+
+    Badge names remain database-owned; if a corresponding
+    active badge definition does not exist, nothing is awarded.
+    """
+
+    completion_response = (
+        supabase
+        .table("article_completions")
+        .select("article_id")
+        .eq("user_id", str(user_id))
+        .execute()
+    )
+
+    completion_count = len(completion_response.data or [])
+
+    eligible_badges: list[str] = []
+
+    if completion_count >= 1:
+        eligible_badges.append("First Article")
+
+    if completion_count >= 10:
+        eligible_badges.append("10 Articles Completed")
+
+    newly_awarded: list[dict] = []
+
+    for badge_name in eligible_badges:
+        badge = _get_badge_by_name(badge_name)
+
+        if not badge:
+            continue
+
+        assignment = _award_badge(
+            user_id=user_id,
+            badge=badge,
+        )
+
+        if assignment:
+            newly_awarded.append(
+                {
+                    "id": badge["id"],
+                    "name": badge["name"],
+                    "description": badge["description"],
+                    "image_asset_id": badge.get("image_asset_id"),
+                    "earned_at": assignment["earned_at"],
+                }
+            )
+
+    return newly_awarded

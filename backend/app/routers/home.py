@@ -3,6 +3,7 @@ from fastapi import APIRouter, Query
 from app.db.supabase import supabase
 from app.schemas.home import HomeDiscoveryResponse
 
+
 router = APIRouter(
     prefix="/api/v1/home",
     tags=["Home"],
@@ -29,6 +30,7 @@ def _fetch_articles(
     *,
     language: str,
     author_picks: bool = False,
+    category_id: str | None = None,
     limit: int = 10,
 ) -> list[dict]:
     query = (
@@ -40,6 +42,7 @@ def _fetch_articles(
             article_type,
             published_at,
             author_pick_order,
+            is_author_pick,
             categories (
                 id,
                 name,
@@ -56,6 +59,9 @@ def _fetch_articles(
         .eq("status", "PUBLISHED")
         .eq("article_translations.language_code", language)
     )
+
+    if category_id is not None:
+        query = query.eq("category_id", category_id)
 
     if author_picks:
         query = (
@@ -75,6 +81,25 @@ def _fetch_articles(
     ]
 
 
+def _fetch_active_categories() -> list[dict]:
+    response = (
+        supabase
+        .table("categories")
+        .select(
+            """
+            id,
+            name,
+            slug
+            """
+        )
+        .eq("is_active", True)
+        .order("display_order")
+        .execute()
+    )
+
+    return response.data or []
+
+
 @router.get(
     "/discovery",
     response_model=HomeDiscoveryResponse,
@@ -82,6 +107,7 @@ def _fetch_articles(
 async def get_home_discovery(
     language: str = Query(default="en"),
     trending_limit: int = Query(default=10, ge=1, le=50),
+    category_limit: int = Query(default=6, ge=1, le=50),
     authors_picks_limit: int = Query(default=6, ge=1, le=50),
 ):
     trending = _fetch_articles(
@@ -89,6 +115,27 @@ async def get_home_discovery(
         author_picks=False,
         limit=trending_limit,
     )
+
+    categories = _fetch_active_categories()
+
+    category_sections = []
+
+    for category in categories:
+        articles = _fetch_articles(
+            language=language,
+            category_id=category["id"],
+            limit=category_limit,
+        )
+
+        if not articles:
+            continue
+
+        category_sections.append(
+            {
+                "category": category,
+                "articles": articles,
+            }
+        )
 
     authors_picks = _fetch_articles(
         language=language,
@@ -98,5 +145,6 @@ async def get_home_discovery(
 
     return {
         "trending": trending,
+        "category_sections": category_sections,
         "authors_picks": authors_picks,
     }

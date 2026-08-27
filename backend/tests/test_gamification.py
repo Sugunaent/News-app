@@ -488,3 +488,396 @@ def test_award_xp_returns_none_when_no_active_rule():
 
     finally:
         gamification_service.supabase = original_supabase
+
+def test_award_first_article_badge():
+    import app.services.gamification as gamification_service
+
+    supabase_mock = MagicMock()
+
+    completion_query = MagicMock()
+    (
+        completion_query
+        .select.return_value
+        .eq.return_value
+        .execute.return_value.data
+    ) = [
+        {
+            "article_id": str(ARTICLE_ID),
+        }
+    ]
+
+    badge_query = MagicMock()
+    (
+        badge_query
+        .select.return_value
+        .eq.return_value
+        .eq.return_value
+        .maybe_single.return_value
+        .execute.return_value.data
+    ) = {
+        "id": str(BADGE_ID),
+        "name": "First Article",
+        "description": "Completed your first article",
+        "image_asset_id": None,
+    }
+
+    user_badge_check = MagicMock()
+    (
+        user_badge_check
+        .select.return_value
+        .eq.return_value
+        .eq.return_value
+        .maybe_single.return_value
+        .execute.return_value.data
+    ) = None
+
+    user_badge_insert = MagicMock()
+    (
+        user_badge_insert
+        .insert.return_value
+        .select.return_value
+        .single.return_value
+        .execute.return_value.data
+    ) = {
+        "user_id": str(USER_ID),
+        "badge_id": str(BADGE_ID),
+        "earned_at": "2026-08-27T10:00:00+00:00",
+    }
+
+    def table(name):
+        if name == "article_completions":
+            return completion_query
+
+        if name == "badges":
+            return badge_query
+
+        if name == "user_badges":
+            if user_badge_check.select.called:
+                return user_badge_insert
+
+            return user_badge_check
+
+        raise AssertionError(f"Unexpected table: {name}")
+
+    # Explicit call sequencing is easier and more reliable than
+    # inspecting MagicMock call state.
+    user_badges_calls = 0
+
+    def table_with_sequence(name):
+        nonlocal user_badges_calls
+
+        if name == "article_completions":
+            return completion_query
+
+        if name == "badges":
+            return badge_query
+
+        if name == "user_badges":
+            user_badges_calls += 1
+
+            if user_badges_calls == 1:
+                return user_badge_check
+
+            return user_badge_insert
+
+        raise AssertionError(f"Unexpected table: {name}")
+
+    supabase_mock.table.side_effect = table_with_sequence
+
+    original_supabase = gamification_service.supabase
+    gamification_service.supabase = supabase_mock
+
+    try:
+        result = gamification_service.award_badges_for_user(USER_ID)
+
+        assert len(result) == 1
+        assert result[0]["id"] == str(BADGE_ID)
+        assert result[0]["name"] == "First Article"
+
+        inserted_payload = user_badge_insert.insert.call_args.args[0]
+
+        assert inserted_payload == {
+            "user_id": str(USER_ID),
+            "badge_id": str(BADGE_ID),
+        }
+
+    finally:
+        gamification_service.supabase = original_supabase
+
+def test_award_ten_articles_badge():
+    import app.services.gamification as gamification_service
+
+    supabase_mock = MagicMock()
+
+    completion_query = MagicMock()
+    (
+        completion_query
+        .select.return_value
+        .eq.return_value
+        .execute.return_value.data
+    ) = [
+        {"article_id": str(UUID("00000000-0000-0000-0000-000000000001"))},
+        {"article_id": str(UUID("00000000-0000-0000-0000-000000000002"))},
+        {"article_id": str(UUID("00000000-0000-0000-0000-000000000003"))},
+        {"article_id": str(UUID("00000000-0000-0000-0000-000000000004"))},
+        {"article_id": str(UUID("00000000-0000-0000-0000-000000000005"))},
+        {"article_id": str(UUID("00000000-0000-0000-0000-000000000006"))},
+        {"article_id": str(UUID("00000000-0000-0000-0000-000000000007"))},
+        {"article_id": str(UUID("00000000-0000-0000-0000-000000000008"))},
+        {"article_id": str(UUID("00000000-0000-0000-0000-000000000009"))},
+        {"article_id": str(UUID("00000000-0000-0000-0000-000000000010"))},
+    ]
+
+    badge_query = MagicMock()
+    (
+        badge_query
+        .select.return_value
+        .eq.return_value
+        .eq.return_value
+        .maybe_single.return_value
+        .execute.return_value.data
+    ) = {
+        "id": str(BADGE_ID),
+        "name": "10 Articles Completed",
+        "description": "Completed ten articles",
+        "image_asset_id": None,
+    }
+
+    user_badge_check = MagicMock()
+    (
+        user_badge_check
+        .select.return_value
+        .eq.return_value
+        .eq.return_value
+        .maybe_single.return_value
+        .execute.return_value.data
+    ) = None
+
+    user_badge_insert = MagicMock()
+    (
+        user_badge_insert
+        .insert.return_value
+        .select.return_value
+        .single.return_value
+        .execute.return_value.data
+    ) = {
+        "user_id": str(USER_ID),
+        "badge_id": str(BADGE_ID),
+        "earned_at": "2026-08-27T10:00:00+00:00",
+    }
+
+    user_badges_calls = 0
+
+    def table(name):
+        nonlocal user_badges_calls
+
+        if name == "article_completions":
+            return completion_query
+
+        if name == "badges":
+            return badge_query
+
+        if name == "user_badges":
+            user_badges_calls += 1
+
+            if user_badges_calls == 1:
+                return user_badge_check
+
+            return user_badge_insert
+
+        raise AssertionError(f"Unexpected table: {name}")
+
+    supabase_mock.table.side_effect = table
+
+    original_supabase = gamification_service.supabase
+    gamification_service.supabase = supabase_mock
+
+    try:
+        result = gamification_service.award_badges_for_user(USER_ID)
+
+        assert len(result) == 1
+        assert result[0]["name"] == "10 Articles Completed"
+
+    finally:
+        gamification_service.supabase = original_supabase
+
+def test_award_badges_does_nothing_without_completed_articles():
+    import app.services.gamification as gamification_service
+
+    supabase_mock = MagicMock()
+
+    completion_query = MagicMock()
+    (
+        completion_query
+        .select.return_value
+        .eq.return_value
+        .execute.return_value.data
+    ) = []
+
+    supabase_mock.table.return_value = completion_query
+
+    original_supabase = gamification_service.supabase
+    gamification_service.supabase = supabase_mock
+
+    try:
+        result = gamification_service.award_badges_for_user(USER_ID)
+
+        assert result == []
+
+    finally:
+        gamification_service.supabase = original_supabase
+
+def test_award_badge_does_not_duplicate_existing_badge():
+    import app.services.gamification as gamification_service
+
+    supabase_mock = MagicMock()
+
+    completion_query = MagicMock()
+    (
+        completion_query
+        .select.return_value
+        .eq.return_value
+        .execute.return_value.data
+    ) = [
+        {"article_id": str(ARTICLE_ID)}
+    ]
+
+    badge_query = MagicMock()
+    (
+        badge_query
+        .select.return_value
+        .eq.return_value
+        .eq.return_value
+        .maybe_single.return_value
+        .execute.return_value.data
+    ) = {
+        "id": str(BADGE_ID),
+        "name": "First Article",
+        "description": "Completed your first article",
+        "image_asset_id": None,
+    }
+
+    existing_user_badge = MagicMock()
+    (
+        existing_user_badge
+        .select.return_value
+        .eq.return_value
+        .eq.return_value
+        .maybe_single.return_value
+        .execute.return_value.data
+    ) = {
+        "user_id": str(USER_ID),
+        "badge_id": str(BADGE_ID),
+    }
+
+    def table(name):
+        if name == "article_completions":
+            return completion_query
+
+        if name == "badges":
+            return badge_query
+
+        if name == "user_badges":
+            return existing_user_badge
+
+        raise AssertionError(f"Unexpected table: {name}")
+
+    supabase_mock.table.side_effect = table
+
+    original_supabase = gamification_service.supabase
+    gamification_service.supabase = supabase_mock
+
+    try:
+        result = gamification_service.award_badges_for_user(USER_ID)
+
+        assert result == []
+
+        existing_user_badge.insert.assert_not_called()
+
+    finally:
+        gamification_service.supabase = original_supabase
+
+def test_article_completion_awards_badge(monkeypatch):
+    from app.routers import completions
+
+    auth = make_auth_context()
+
+    calls = []
+
+    def fake_award_xp(**kwargs):
+        calls.append(("xp", kwargs))
+
+    def fake_award_badges(user_id):
+        calls.append(("badge", user_id))
+        return [
+            {
+                "id": str(BADGE_ID),
+                "name": "First Article",
+                "description": "Completed your first article",
+                "image_asset_id": None,
+                "earned_at": "2026-08-27T10:00:00+00:00",
+            }
+        ]
+
+    monkeypatch.setattr(
+        completions,
+        "award_xp",
+        fake_award_xp,
+    )
+
+    monkeypatch.setattr(
+        completions,
+        "award_badges_for_user",
+        fake_award_badges,
+    )
+
+    # Reuse the same DB mocks from your existing
+    # test_article_completion_awards_xp test.
+    article_query = MagicMock()
+    article_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = {
+        "id": str(ARTICLE_ID)
+    }
+
+    existing_completion_query = MagicMock()
+    existing_completion_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = None
+
+    insert_completion_query = MagicMock()
+    insert_completion_query.insert.return_value.select.return_value.single.return_value.execute.return_value.data = {
+        "article_id": str(ARTICLE_ID),
+        "completed_at": "2026-08-27T10:00:00+00:00",
+    }
+
+    call_count = 0
+
+    def table_mock(name):
+        nonlocal call_count
+
+        if name == "articles":
+            return article_query
+
+        if name == "article_completions":
+            call_count += 1
+
+            if call_count == 1:
+                return existing_completion_query
+
+            return insert_completion_query
+
+        raise AssertionError(f"Unexpected table: {name}")
+
+    auth.client.table.side_effect = table_mock
+
+    app.dependency_overrides[get_current_user] = lambda: auth
+
+    try:
+        response = client.post(
+            f"/api/v1/articles/{ARTICLE_ID}/completion"
+        )
+
+        assert response.status_code == 200
+
+        assert calls[0][0] == "xp"
+        assert calls[1] == ("badge", USER_ID)
+
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
