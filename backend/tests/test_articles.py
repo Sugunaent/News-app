@@ -264,3 +264,202 @@ def test_get_article_returns_image_blocks(
     assert data["blocks"][0]["caption"] == (
         "The future of artificial intelligence."
     )
+
+
+@patch("app.routers.articles.supabase")
+def test_search_articles_returns_matching_published_articles(
+    mock_supabase,
+):
+    mock_query = (
+        mock_supabase
+        .table.return_value
+        .select.return_value
+        .eq.return_value
+        .eq.return_value
+        .or_
+        .return_value
+        .order.return_value
+    )
+
+    mock_query.execute.return_value.data = [
+        {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "article_type": "STANDARD",
+            "published_at": "2026-08-23T10:00:00+00:00",
+            "categories": {
+                "id": "22222222-2222-2222-2222-222222222222",
+                "name": "AI",
+                "slug": "ai",
+            },
+            "article_translations": {
+                "slug": "future-of-ai",
+                "title": "The Future of AI",
+                "subtitle": "What comes next",
+                "summary": "A look at where AI is heading.",
+            },
+        }
+    ]
+
+    response = client.get(
+        "/api/v1/articles/search?q=AI&language=en"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert len(data["items"]) == 1
+
+    article = data["items"][0]
+
+    assert article["id"] == (
+        "11111111-1111-1111-1111-111111111111"
+    )
+    assert article["slug"] == "future-of-ai"
+    assert article["title"] == "The Future of AI"
+    assert article["subtitle"] == "What comes next"
+    assert article["summary"] == (
+        "A look at where AI is heading."
+    )
+    assert article["article_type"] == "STANDARD"
+    assert article["category"]["name"] == "AI"
+    assert article["category"]["slug"] == "ai"
+
+
+@patch("app.routers.articles.supabase")
+def test_search_articles_returns_empty_list_when_no_matches(
+    mock_supabase,
+):
+    mock_query = (
+        mock_supabase
+        .table.return_value
+        .select.return_value
+        .eq.return_value
+        .eq.return_value
+        .or_
+        .return_value
+        .order.return_value
+    )
+
+    mock_query.execute.return_value.data = []
+
+    response = client.get(
+        "/api/v1/articles/search?q=nonexistent&language=en"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
+
+
+@patch("app.routers.articles.supabase")
+def test_search_articles_filters_for_published_status(
+    mock_supabase,
+):
+    mock_query = (
+        mock_supabase
+        .table.return_value
+        .select.return_value
+        .eq.return_value
+        .eq.return_value
+        .or_
+        .return_value
+        .order.return_value
+    )
+
+    mock_query.execute.return_value.data = []
+
+    response = client.get(
+        "/api/v1/articles/search?q=AI&language=en"
+    )
+
+    assert response.status_code == 200
+
+    first_eq = (
+        mock_supabase
+        .table.return_value
+        .select.return_value
+        .eq
+    )
+
+    first_eq.assert_any_call(
+        "status",
+        "PUBLISHED",
+    )
+
+
+@patch("app.routers.articles.supabase")
+def test_search_articles_searches_translation_fields(
+    mock_supabase,
+):
+    mock_query = (
+        mock_supabase
+        .table.return_value
+        .select.return_value
+        .eq.return_value
+        .eq.return_value
+        .or_
+        .return_value
+        .order.return_value
+    )
+
+    mock_query.execute.return_value.data = []
+
+    response = client.get(
+        "/api/v1/articles/search?q=future&language=en"
+    )
+
+    assert response.status_code == 200
+
+    or_method = (
+        mock_supabase
+        .table.return_value
+        .select.return_value
+        .eq.return_value
+        .eq.return_value
+        .or_
+    )
+
+    or_method.assert_called_once()
+
+    search_expression = or_method.call_args.args[0]
+
+    assert "title.ilike.%future%" in search_expression
+    assert "subtitle.ilike.%future%" in search_expression
+    assert "summary.ilike.%future%" in search_expression
+    assert "slug.ilike.%future%" in search_expression
+
+    assert or_method.call_args.kwargs == {
+        "referenced_table": "article_translations"
+    }
+
+
+def test_search_articles_requires_query():
+    response = client.get(
+        "/api/v1/articles/search?language=en"
+    )
+
+    assert response.status_code == 422
+
+
+@patch("app.routers.articles.supabase")
+def test_search_articles_does_not_require_authentication(
+    mock_supabase,
+):
+    mock_query = (
+        mock_supabase
+        .table.return_value
+        .select.return_value
+        .eq.return_value
+        .eq.return_value
+        .or_
+        .return_value
+        .order.return_value
+    )
+
+    mock_query.execute.return_value.data = []
+
+    response = client.get(
+        "/api/v1/articles/search?q=AI&language=en"
+    )
+
+    assert response.status_code != 401

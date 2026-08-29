@@ -70,6 +70,79 @@ async def list_articles(
     return {"items": items}
 
 
+
+@router.get(
+    "/search",
+    response_model=ArticleListResponse,
+)
+async def search_articles(
+    q: str = Query(..., min_length=1, max_length=100),
+    language: str = Query(default="en"),
+):
+    search_term = q.strip()
+
+    if not search_term:
+        return {"items": []}
+
+    response = (
+        supabase
+        .table("articles")
+        .select(
+            """
+            id,
+            article_type,
+            published_at,
+            categories (
+                id,
+                name,
+                slug
+            ),
+            article_translations!inner (
+                slug,
+                title,
+                subtitle,
+                summary
+            )
+            """
+        )
+        .eq("status", "PUBLISHED")
+        .eq("article_translations.language_code", language)
+        .or_(
+            (
+                f"title.ilike.%{search_term}%,"
+                f"subtitle.ilike.%{search_term}%,"
+                f"summary.ilike.%{search_term}%,"
+                f"slug.ilike.%{search_term}%"
+            ),
+            referenced_table="article_translations",
+        )
+        .order("published_at", desc=True)
+        .execute()
+    )
+
+    items = []
+
+    for article in response.data or []:
+        translation = article["article_translations"]
+        category = article["categories"]
+
+        items.append(
+            {
+                "id": article["id"],
+                "slug": translation["slug"],
+                "title": translation["title"],
+                "subtitle": translation["subtitle"],
+                "summary": translation["summary"],
+                "article_type": article["article_type"],
+                "category": category,
+                "published_at": article["published_at"],
+            }
+        )
+
+    return {"items": items}
+
+
+
 @router.get(
     "/{slug}",
     response_model=ArticleDetailResponse,
