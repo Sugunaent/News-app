@@ -73,6 +73,7 @@ def test_list_articles_does_not_require_authentication(
 
     assert response.status_code != 401
 
+
 @patch("app.routers.articles.supabase")
 def test_list_articles_filters_for_published_status(
     mock_supabase,
@@ -100,6 +101,8 @@ def test_list_articles_filters_for_published_status(
     )
 
     first_eq.assert_any_call("status", "PUBLISHED")
+
+
 @patch("app.routers.articles.supabase")
 def test_get_article_returns_published_article(
     mock_supabase,
@@ -149,11 +152,12 @@ def test_get_article_returns_404_when_not_found(
     assert response.json() == {
         "detail": "Article not found"
     }
+
+
 @patch("app.routers.articles.supabase")
-def test_get_article_returns_text_blocks(
-    mock_supabase,
-):
-    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+def test_get_article_returns_text_blocks(mock_supabase):
+    article_mock = MagicMock()
+    article_mock.select.return_value.eq.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
         "id": "11111111-1111-1111-1111-111111111111",
         "article_type": "STANDARD",
         "published_at": "2026-08-23T10:00:00+00:00",
@@ -170,7 +174,12 @@ def test_get_article_returns_text_blocks(
         },
     }
 
-    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.order.return_value.execute.return_value.data = [
+    blocks_mock = MagicMock()
+    # Allow chainable method calls (.select().eq().eq().order().execute())
+    blocks_mock.select.return_value = blocks_mock
+    blocks_mock.eq.return_value = blocks_mock
+    blocks_mock.order.return_value = blocks_mock
+    blocks_mock.execute.return_value.data = [
         {
             "id": "33333333-3333-3333-3333-333333333333",
             "block_type": "TEXT",
@@ -191,30 +200,31 @@ def test_get_article_returns_text_blocks(
         },
     ]
 
-    response = client.get(
-        "/api/v1/articles/future-of-ai?language=en"
-    )
+    def get_table_mock(table_name):
+        if table_name == "articles":
+            return article_mock
+        return blocks_mock
+
+    mock_supabase.table.side_effect = get_table_mock
+
+    response = client.get("/api/v1/articles/future-of-ai?language=en")
 
     assert response.status_code == 200
-
     data = response.json()
 
     assert len(data["blocks"]) == 2
-
     assert data["blocks"][0]["type"] == "TEXT"
     assert data["blocks"][0]["display_order"] == 0
     assert data["blocks"][0]["text"] == "AI is changing the world."
 
     assert data["blocks"][1]["type"] == "TEXT"
     assert data["blocks"][1]["display_order"] == 1
-    assert data["blocks"][1]["text"] == (
-        "The changes are happening rapidly."
-    )
+    assert data["blocks"][1]["text"] == "The changes are happening rapidly."
+
 @patch("app.routers.articles.supabase")
-def test_get_article_returns_image_blocks(
-    mock_supabase,
-):
-    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+def test_get_article_returns_image_blocks(mock_supabase):
+    article_mock = MagicMock()
+    article_mock.select.return_value.eq.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
         "id": "11111111-1111-1111-1111-111111111111",
         "article_type": "STANDARD",
         "published_at": "2026-08-23T10:00:00+00:00",
@@ -231,7 +241,11 @@ def test_get_article_returns_image_blocks(
         },
     }
 
-    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.order.return_value.execute.return_value.data = [
+    blocks_mock = MagicMock()
+    blocks_mock.select.return_value = blocks_mock
+    blocks_mock.eq.return_value = blocks_mock
+    blocks_mock.order.return_value = blocks_mock
+    blocks_mock.execute.return_value.data = [
         {
             "id": "55555555-5555-5555-5555-555555555555",
             "block_type": "IMAGE",
@@ -250,20 +264,22 @@ def test_get_article_returns_image_blocks(
         }
     ]
 
-    response = client.get(
-        "/api/v1/articles/future-of-ai?language=en"
-    )
+    def get_table_mock(table_name):
+        if table_name == "articles":
+            return article_mock
+        return blocks_mock
+
+    mock_supabase.table.side_effect = get_table_mock
+
+    response = client.get("/api/v1/articles/future-of-ai?language=en")
 
     assert response.status_code == 200
-
     data = response.json()
 
     assert len(data["blocks"]) == 1
     assert data["blocks"][0]["type"] == "IMAGE"
     assert data["blocks"][0]["display_order"] == 1
-    assert data["blocks"][0]["caption"] == (
-        "The future of artificial intelligence."
-    )
+    assert data["blocks"][0]["caption"] == "The future of artificial intelligence."
 
 
 @patch("app.routers.articles.supabase")
@@ -463,3 +479,142 @@ def test_search_articles_does_not_require_authentication(
     )
 
     assert response.status_code != 401
+
+
+@patch("app.routers.articles.supabase")
+def test_get_article_returns_podcast_blocks(mock_supabase):
+    article_mock = MagicMock()
+    article_mock.select.return_value.eq.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "article_type": "STANDARD",
+        "published_at": "2026-08-23T10:00:00+00:00",
+        "categories": {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "name": "AI",
+            "slug": "ai",
+        },
+        "article_translations": {
+            "slug": "future-of-ai",
+            "title": "The Future of AI",
+            "subtitle": "What comes next",
+            "summary": "A look at where AI is heading.",
+        },
+    }
+
+    blocks_mock = MagicMock()
+    blocks_mock.select.return_value = blocks_mock
+    blocks_mock.eq.return_value = blocks_mock
+    blocks_mock.order.return_value = blocks_mock
+    blocks_mock.execute.return_value.data = [
+        {
+            "id": "77777777-7777-7777-7777-777777777777",
+            "block_type": "PODCAST",
+            "display_order": 2,
+            "media_id": None,
+            "external_url": "https://open.spotify.com/embed/episode/example",
+            "article_block_translations": {
+                "text_content": "Listen to our team discuss the future of AI.",
+                "caption": None,
+            },
+            "media_assets": None,
+        }
+    ]
+
+    def get_table_mock(table_name):
+        if table_name == "articles":
+            return article_mock
+        return blocks_mock
+
+    mock_supabase.table.side_effect = get_table_mock
+
+    response = client.get("/api/v1/articles/future-of-ai?language=en")
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert len(data["blocks"]) == 1
+    podcast = data["blocks"][0]
+    assert podcast["id"] == "77777777-7777-7777-7777-777777777777"
+    assert podcast["type"] == "PODCAST"
+    assert podcast["display_order"] == 2
+    assert podcast["description"] == "Listen to our team discuss the future of AI."
+    assert podcast["external_url"] == "https://open.spotify.com/embed/episode/example"
+
+
+@patch("app.routers.articles.supabase")
+def test_get_article_preserves_podcast_block_order(mock_supabase):
+    article_mock = MagicMock()
+    article_mock.select.return_value.eq.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "article_type": "STANDARD",
+        "published_at": "2026-08-23T10:00:00+00:00",
+        "categories": {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "name": "AI",
+            "slug": "ai",
+        },
+        "article_translations": {
+            "slug": "future-of-ai",
+            "title": "The Future of AI",
+            "subtitle": None,
+            "summary": None,
+        },
+    }
+
+    blocks_mock = MagicMock()
+    blocks_mock.select.return_value = blocks_mock
+    blocks_mock.eq.return_value = blocks_mock
+    blocks_mock.order.return_value = blocks_mock
+    blocks_mock.execute.return_value.data = [
+        {
+            "id": "33333333-3333-3333-3333-333333333333",
+            "block_type": "TEXT",
+            "display_order": 0,
+            "media_id": None,
+            "external_url": None,
+            "article_block_translations": {
+                "text_content": "Opening paragraph.",
+                "caption": None,
+            },
+            "media_assets": None,
+        },
+        {
+            "id": "77777777-7777-7777-7777-777777777777",
+            "block_type": "PODCAST",
+            "display_order": 1,
+            "media_id": None,
+            "external_url": "https://www.youtube.com/embed/example",
+            "article_block_translations": {
+                "text_content": "Listen to our discussion.",
+                "caption": None,
+            },
+            "media_assets": None,
+        },
+        {
+            "id": "44444444-4444-4444-4444-444444444444",
+            "block_type": "TEXT",
+            "display_order": 2,
+            "media_id": None,
+            "external_url": None,
+            "article_block_translations": {
+                "text_content": "Continue reading.",
+                "caption": None,
+            },
+            "media_assets": None,
+        },
+    ]
+
+    def get_table_mock(table_name):
+        if table_name == "articles":
+            return article_mock
+        return blocks_mock
+
+    mock_supabase.table.side_effect = get_table_mock
+
+    response = client.get("/api/v1/articles/future-of-ai?language=en")
+
+    assert response.status_code == 200
+    blocks = response.json()["blocks"]
+
+    assert [block["type"] for block in blocks] == ["TEXT", "PODCAST", "TEXT"]
+    assert blocks[1]["display_order"] == 1

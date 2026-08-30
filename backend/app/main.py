@@ -13,6 +13,7 @@ from app.routers.gamification import router as gamification_router
 from app.routers.home import router as home_router
 from app.routers.promotions import router as promotions_router
 from app.routers.sharing import router as sharing_router
+from app.routers.comments import router as comments_router
 
 app = FastAPI(
     title="Cognition News API",
@@ -44,3 +45,4 @@ app.include_router(gamification_router)
 app.include_router(home_router)
 app.include_router(promotions_router)
 app.include_router(sharing_router)
+app.include_router(comments_router)

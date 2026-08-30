@@ -46,6 +46,13 @@ class ArticleImageBlock(BaseModel):
     caption: str | None
     media: ArticleMedia
 
+class ArticlePodcastBlock(BaseModel):
+    id: UUID
+    type: str
+    display_order: int
+    description: str
+    external_url: str
+
 
 class ArticleDetailResponse(BaseModel):
     id: UUID
@@ -56,4 +63,4 @@ class ArticleDetailResponse(BaseModel):
     article_type: str
     category: ArticleCategory
     published_at: datetime | None
-    blocks: list[ArticleTextBlock | ArticleImageBlock]
+    blocks: list[ArticleTextBlock | ArticleImageBlock | ArticlePodcastBlock]

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Query
 from postgrest.exceptions import APIError
-
 from app.core.exceptions import NotFoundError
 from app.db.supabase import supabase
 from app.schemas.articles import (
@@ -12,6 +11,13 @@ router = APIRouter(
     prefix="/api/v1/articles",
     tags=["Articles"],
 )
+
+
+def _extract_translation(data: dict | list) -> dict:
+    """Helper to safely get translation dict whether returned as list or dict by Supabase."""
+    if isinstance(data, list):
+        return data[0] if data else {}
+    return data or {}
 
 
 @router.get(
@@ -49,18 +55,16 @@ async def list_articles(
     )
 
     items = []
-
     for article in response.data or []:
-        translation = article["article_translations"]
-        category = article["categories"]
-
+        translation = _extract_translation(article.get("article_translations"))
+        category = article.get("categories")
         items.append(
             {
                 "id": article["id"],
-                "slug": translation["slug"],
-                "title": translation["title"],
-                "subtitle": translation["subtitle"],
-                "summary": translation["summary"],
+                "slug": translation.get("slug"),
+                "title": translation.get("title"),
+                "subtitle": translation.get("subtitle"),
+                "summary": translation.get("summary"),
                 "article_type": article["article_type"],
                 "category": category,
                 "published_at": article["published_at"],
@@ -68,7 +72,6 @@ async def list_articles(
         )
 
     return {"items": items}
-
 
 
 @router.get(
@@ -80,7 +83,6 @@ async def search_articles(
     language: str = Query(default="en"),
 ):
     search_term = q.strip()
-
     if not search_term:
         return {"items": []}
 
@@ -121,18 +123,16 @@ async def search_articles(
     )
 
     items = []
-
     for article in response.data or []:
-        translation = article["article_translations"]
-        category = article["categories"]
-
+        translation = _extract_translation(article.get("article_translations"))
+        category = article.get("categories")
         items.append(
             {
                 "id": article["id"],
-                "slug": translation["slug"],
-                "title": translation["title"],
-                "subtitle": translation["subtitle"],
-                "summary": translation["summary"],
+                "slug": translation.get("slug"),
+                "title": translation.get("title"),
+                "subtitle": translation.get("subtitle"),
+                "summary": translation.get("summary"),
                 "article_type": article["article_type"],
                 "category": category,
                 "published_at": article["published_at"],
@@ -140,7 +140,6 @@ async def search_articles(
         )
 
     return {"items": items}
-
 
 
 @router.get(
@@ -188,7 +187,7 @@ async def get_article(
         raise NotFoundError("Article not found")
 
     article = response.data
-    translation = article["article_translations"]
+    translation = _extract_translation(article.get("article_translations"))
 
     try:
         blocks_response = (
@@ -200,6 +199,7 @@ async def get_article(
                 block_type,
                 display_order,
                 media_id,
+                external_url,
                 article_block_translations!inner (
                     text_content,
                     caption
@@ -217,7 +217,6 @@ async def get_article(
                 "article_block_translations.language_code",
                 language,
             )
-            .eq("article_id", article["id"])
             .order("display_order")
             .execute()
         )
@@ -225,9 +224,10 @@ async def get_article(
         raise
 
     blocks = []
-
     for block in blocks_response.data or []:
-        block_translation = block["article_block_translations"]
+        block_translation = _extract_translation(
+            block.get("article_block_translations")
+        )
         block_type = block["block_type"]
 
         if block_type == "TEXT":
@@ -236,31 +236,41 @@ async def get_article(
                     "id": block["id"],
                     "type": "TEXT",
                     "display_order": block["display_order"],
-                    "text": block_translation["text_content"],
+                    "text": block_translation.get("text_content"),
                 }
             )
-
         elif block_type == "IMAGE":
             media = block.get("media_assets")
-
+            if isinstance(media, list):
+                media = media[0] if media else None
             blocks.append(
                 {
                     "id": block["id"],
                     "type": "IMAGE",
                     "display_order": block["display_order"],
-                    "caption": block_translation["caption"],
+                    "caption": block_translation.get("caption"),
                     "media": media,
+                }
+            )
+        elif block_type == "PODCAST":
+            blocks.append(
+                {
+                    "id": block["id"],
+                    "type": "PODCAST",
+                    "display_order": block["display_order"],
+                    "description": block_translation.get("text_content"),
+                    "external_url": block["external_url"],
                 }
             )
 
     return {
         "id": article["id"],
-        "slug": translation["slug"],
-        "title": translation["title"],
-        "subtitle": translation["subtitle"],
-        "summary": translation["summary"],
+        "slug": translation.get("slug"),
+        "title": translation.get("title"),
+        "subtitle": translation.get("subtitle"),
+        "summary": translation.get("summary"),
         "article_type": article["article_type"],
-        "category": article["categories"],
+        "category": article.get("categories"),
         "published_at": article["published_at"],
         "blocks": blocks,
     }
