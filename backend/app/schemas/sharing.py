@@ -11,6 +11,7 @@ class ArticleCompletionShareResponse(BaseModel):
 
 
 class OpinionShareResponse(BaseModel):
+    response_id: UUID
     article_id: UUID
     article_title: str
     opinion_question_id: UUID

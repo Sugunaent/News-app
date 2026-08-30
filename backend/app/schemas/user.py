@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+
 class UserProfileResponse(BaseModel):
     id: UUID
     email: str
@@ -11,11 +12,13 @@ class UserProfileResponse(BaseModel):
     role: str
     is_active: bool
 
+
 class UserProfileLevelResponse(BaseModel):
     id: UUID
     name: str
     minimum_xp: int
     display_order: int
+
 
 class UserProfileBadgeResponse(BaseModel):
     id: UUID
@@ -24,11 +27,13 @@ class UserProfileBadgeResponse(BaseModel):
     image_asset_id: UUID | None
     earned_at: datetime
 
+
 class UserProfileQuizPerformanceResponse(BaseModel):
     total_attempts: int
     correct_attempts: int
     incorrect_attempts: int
     accuracy_percentage: float
+
 
 class UserProfileReadingProgressResponse(BaseModel):
     article_id: UUID
@@ -39,6 +44,7 @@ class UserProfileReadingProgressResponse(BaseModel):
     last_read_at: datetime
     completed_at: datetime | None
 
+
 class UserProfileAchievementResponse(BaseModel):
     type: str
     title: str
@@ -47,13 +53,50 @@ class UserProfileAchievementResponse(BaseModel):
     article_id: UUID | None = None
     badge_id: UUID | None = None
 
+
+class UserProfileShareCardResponse(BaseModel):
+    """
+    Historical shareable achievement/activity card.
+
+    The frontend can use `share_path` to retrieve the complete
+    share payload when the user opens this card.
+    """
+
+    id: UUID
+    card_type: str
+    created_at: datetime
+
+    title: str
+    description: str
+
+    article_id: UUID | None = None
+    article_title: str | None = None
+
+    badge_id: UUID | None = None
+    badge_name: str | None = None
+
+    opinion_question_id: UUID | None = None
+    opinion_text: str | None = None
+
+    share_path: str
+
+
 class UserProfileAggregateResponse(BaseModel):
     user: UserProfileResponse
+
     total_xp: int
     current_level: UserProfileLevelResponse | None
+
     articles_completed: int
+
     quiz_performance: UserProfileQuizPerformanceResponse
+
     opinions_submitted: int
+
     badges: list[UserProfileBadgeResponse]
+
     achievement_history: list[UserProfileAchievementResponse]
+
+    share_cards: list[UserProfileShareCardResponse]
+
     reading_history: list[UserProfileReadingProgressResponse]

@@ -18,9 +18,7 @@ OPTION_ID = UUID("44444444-4444-4444-4444-444444444444")
 
 def make_auth_context():
     auth = MagicMock()
-
     auth.user.id = USER_ID
-
     return auth
 
 
@@ -34,8 +32,7 @@ def teardown_function():
 def test_get_completion_share_returns_completion_data():
     auth = make_auth_context()
 
-    article_query = MagicMock()
-    article_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+    article_data = {
         "id": str(ARTICLE_ID),
         "article_translations": [
             {
@@ -45,37 +42,35 @@ def test_get_completion_share_returns_completion_data():
         ],
     }
 
-    completion_query = MagicMock()
-    completion_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = {
+    completion_data = {
         "article_id": str(ARTICLE_ID),
         "completed_at": "2026-08-29T10:00:00+00:00",
     }
 
+    article_query = MagicMock()
+    # Support both single() and maybe_single() terminal calls on execute
+    article_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = article_data
+    article_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = article_data
+
+    completion_query = MagicMock()
+    completion_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = completion_data
+    completion_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = completion_data
+
     def table(name):
         if name == "articles":
             return article_query
-
         if name == "article_completions":
             return completion_query
-
-        raise AssertionError(
-            f"Unexpected table: {name}"
-        )
+        raise AssertionError(f"Unexpected table: {name}")
 
     auth.client.table.side_effect = table
+    app.dependency_overrides[get_current_user] = lambda: auth
 
-    app.dependency_overrides[get_current_user] = (
-        lambda: auth
-    )
-
-    response = client.get(
-        f"/api/v1/articles/{ARTICLE_ID}/completion/share"
-    )
+    response = client.get(f"/api/v1/articles/{ARTICLE_ID}/completion/share")
 
     assert response.status_code == 200
 
     data = response.json()
-
     assert data["article_id"] == str(ARTICLE_ID)
     assert data["article_title"] == "Test Article"
     assert (
@@ -89,24 +84,21 @@ def test_get_completion_share_returns_404_when_article_not_found():
 
     article_query = MagicMock()
     article_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = None
+    article_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = None
+
+    completion_query = MagicMock()
 
     def table(name):
         if name == "articles":
             return article_query
-
-        raise AssertionError(
-            f"Unexpected table: {name}"
-        )
+        if name == "article_completions":
+            return completion_query
+        raise AssertionError(f"Unexpected table: {name}")
 
     auth.client.table.side_effect = table
+    app.dependency_overrides[get_current_user] = lambda: auth
 
-    app.dependency_overrides[get_current_user] = (
-        lambda: auth
-    )
-
-    response = client.get(
-        f"/api/v1/articles/{ARTICLE_ID}/completion/share"
-    )
+    response = client.get(f"/api/v1/articles/{ARTICLE_ID}/completion/share")
 
     assert response.status_code == 404
 
@@ -114,8 +106,7 @@ def test_get_completion_share_returns_404_when_article_not_found():
 def test_get_completion_share_returns_404_when_user_has_not_completed():
     auth = make_auth_context()
 
-    article_query = MagicMock()
-    article_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+    article_data = {
         "id": str(ARTICLE_ID),
         "article_translations": [
             {
@@ -125,29 +116,25 @@ def test_get_completion_share_returns_404_when_user_has_not_completed():
         ],
     }
 
+    article_query = MagicMock()
+    article_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = article_data
+    article_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = article_data
+
     completion_query = MagicMock()
     completion_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = None
+    completion_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = None
 
     def table(name):
         if name == "articles":
             return article_query
-
         if name == "article_completions":
             return completion_query
-
-        raise AssertionError(
-            f"Unexpected table: {name}"
-        )
+        raise AssertionError(f"Unexpected table: {name}")
 
     auth.client.table.side_effect = table
+    app.dependency_overrides[get_current_user] = lambda: auth
 
-    app.dependency_overrides[get_current_user] = (
-        lambda: auth
-    )
-
-    response = client.get(
-        f"/api/v1/articles/{ARTICLE_ID}/completion/share"
-    )
+    response = client.get(f"/api/v1/articles/{ARTICLE_ID}/completion/share")
 
     assert response.status_code == 404
 
@@ -155,8 +142,7 @@ def test_get_completion_share_returns_404_when_user_has_not_completed():
 def test_get_opinion_share_returns_predefined_opinion():
     auth = make_auth_context()
 
-    article_query = MagicMock()
-    article_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+    article_data = {
         "id": str(ARTICLE_ID),
         "article_translations": [
             {
@@ -165,6 +151,10 @@ def test_get_opinion_share_returns_predefined_opinion():
             }
         ],
     }
+
+    article_query = MagicMock()
+    article_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = article_data
+    article_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = article_data
 
     question_query = MagicMock()
     question_query.select.return_value.eq.return_value.order.return_value.execute.return_value.data = [
@@ -180,14 +170,18 @@ def test_get_opinion_share_returns_predefined_opinion():
         }
     ]
 
-    response_query = MagicMock()
-    response_query.select.return_value.eq.return_value.in_.return_value.order.return_value.limit.return_value.maybe_single.return_value.execute.return_value.data = {
+    response_data = {
         "id": "55555555-5555-5555-5555-555555555555",
         "opinion_question_id": str(QUESTION_ID),
         "selected_option_id": str(OPTION_ID),
         "custom_response": None,
         "created_at": "2026-08-29T11:00:00+00:00",
     }
+
+    response_query = MagicMock()
+    # Configure mock chain flexibly regardless of whether eq() is called before or after in_()
+    response_query.select.return_value.eq.return_value.in_.return_value.order.return_value.limit.return_value.maybe_single.return_value.execute.return_value.data = response_data
+    response_query.select.return_value.eq.return_value.in_.return_value.eq.return_value.order.return_value.limit.return_value.maybe_single.return_value.execute.return_value.data = response_data
 
     option_query = MagicMock()
     option_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = {
@@ -204,34 +198,22 @@ def test_get_opinion_share_returns_predefined_opinion():
     def table(name):
         if name == "articles":
             return article_query
-
         if name == "opinion_questions":
             return question_query
-
         if name == "opinion_responses":
             return response_query
-
         if name == "opinion_options":
             return option_query
-
-        raise AssertionError(
-            f"Unexpected table: {name}"
-        )
+        raise AssertionError(f"Unexpected table: {name}")
 
     auth.client.table.side_effect = table
+    app.dependency_overrides[get_current_user] = lambda: auth
 
-    app.dependency_overrides[get_current_user] = (
-        lambda: auth
-    )
-
-    response = client.get(
-        f"/api/v1/articles/{ARTICLE_ID}/opinion/share"
-    )
+    response = client.get(f"/api/v1/articles/{ARTICLE_ID}/opinion/share")
 
     assert response.status_code == 200
 
     data = response.json()
-
     assert data["article_id"] == str(ARTICLE_ID)
     assert data["article_title"] == "Opinion Article"
     assert data["opinion_question_id"] == str(QUESTION_ID)
@@ -244,8 +226,7 @@ def test_get_opinion_share_returns_predefined_opinion():
 def test_get_opinion_share_returns_custom_opinion():
     auth = make_auth_context()
 
-    article_query = MagicMock()
-    article_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+    article_data = {
         "id": str(ARTICLE_ID),
         "article_translations": [
             {
@@ -254,6 +235,10 @@ def test_get_opinion_share_returns_custom_opinion():
             }
         ],
     }
+
+    article_query = MagicMock()
+    article_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = article_data
+    article_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = article_data
 
     question_query = MagicMock()
     question_query.select.return_value.eq.return_value.order.return_value.execute.return_value.data = [
@@ -269,8 +254,7 @@ def test_get_opinion_share_returns_custom_opinion():
         }
     ]
 
-    response_query = MagicMock()
-    response_query.select.return_value.eq.return_value.in_.return_value.order.return_value.limit.return_value.maybe_single.return_value.execute.return_value.data = {
+    response_data = {
         "id": "55555555-5555-5555-5555-555555555555",
         "opinion_question_id": str(QUESTION_ID),
         "selected_option_id": None,
@@ -278,48 +262,37 @@ def test_get_opinion_share_returns_custom_opinion():
         "created_at": "2026-08-29T11:00:00+00:00",
     }
 
+    response_query = MagicMock()
+    response_query.select.return_value.eq.return_value.in_.return_value.order.return_value.limit.return_value.maybe_single.return_value.execute.return_value.data = response_data
+    response_query.select.return_value.eq.return_value.in_.return_value.eq.return_value.order.return_value.limit.return_value.maybe_single.return_value.execute.return_value.data = response_data
+
     def table(name):
         if name == "articles":
             return article_query
-
         if name == "opinion_questions":
             return question_query
-
         if name == "opinion_responses":
             return response_query
-
-        raise AssertionError(
-            f"Unexpected table: {name}"
-        )
+        raise AssertionError(f"Unexpected table: {name}")
 
     auth.client.table.side_effect = table
+    app.dependency_overrides[get_current_user] = lambda: auth
 
-    app.dependency_overrides[get_current_user] = (
-        lambda: auth
-    )
-
-    response = client.get(
-        f"/api/v1/articles/{ARTICLE_ID}/opinion/share"
-    )
+    response = client.get(f"/api/v1/articles/{ARTICLE_ID}/opinion/share")
 
     assert response.status_code == 200
 
     data = response.json()
-
     assert data["article_id"] == str(ARTICLE_ID)
     assert data["selected_option_id"] is None
     assert data["selected_option_text"] is None
-    assert (
-        data["custom_response"]
-        == "I think this is very interesting."
-    )
+    assert data["custom_response"] == "I think this is very interesting."
 
 
 def test_get_opinion_share_returns_404_when_no_opinion_response():
     auth = make_auth_context()
 
-    article_query = MagicMock()
-    article_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+    article_data = {
         "id": str(ARTICLE_ID),
         "article_translations": [
             {
@@ -328,6 +301,10 @@ def test_get_opinion_share_returns_404_when_no_opinion_response():
             }
         ],
     }
+
+    article_query = MagicMock()
+    article_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = article_data
+    article_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = article_data
 
     question_query = MagicMock()
     question_query.select.return_value.eq.return_value.order.return_value.execute.return_value.data = [
@@ -345,37 +322,98 @@ def test_get_opinion_share_returns_404_when_no_opinion_response():
 
     response_query = MagicMock()
     response_query.select.return_value.eq.return_value.in_.return_value.order.return_value.limit.return_value.maybe_single.return_value.execute.return_value.data = None
+    response_query.select.return_value.eq.return_value.in_.return_value.eq.return_value.order.return_value.limit.return_value.maybe_single.return_value.execute.return_value.data = None
 
     def table(name):
         if name == "articles":
             return article_query
-
         if name == "opinion_questions":
             return question_query
-
         if name == "opinion_responses":
             return response_query
-
-        raise AssertionError(
-            f"Unexpected table: {name}"
-        )
+        raise AssertionError(f"Unexpected table: {name}")
 
     auth.client.table.side_effect = table
+    app.dependency_overrides[get_current_user] = lambda: auth
 
-    app.dependency_overrides[get_current_user] = (
-        lambda: auth
-    )
-
-    response = client.get(
-        f"/api/v1/articles/{ARTICLE_ID}/opinion/share"
-    )
+    response = client.get(f"/api/v1/articles/{ARTICLE_ID}/opinion/share")
 
     assert response.status_code == 404
 
 
 def test_sharing_requires_authentication():
-    response = client.get(
-        f"/api/v1/articles/{ARTICLE_ID}/completion/share"
-    )
-
+    response = client.get(f"/api/v1/articles/{ARTICLE_ID}/completion/share")
     assert response.status_code in (401, 403)
+
+
+def test_get_opinion_share_can_retrieve_specific_historical_response():
+    auth = make_auth_context()
+
+    historical_response_id = UUID("55555555-5555-5555-5555-555555555555")
+
+    article_data = {
+        "id": str(ARTICLE_ID),
+        "article_translations": [
+            {
+                "language_code": "EN",
+                "title": "Opinion Article",
+            }
+        ],
+    }
+
+    article_query = MagicMock()
+    article_query.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = article_data
+    article_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = article_data
+
+    question_query = MagicMock()
+    question_query.select.return_value.eq.return_value.order.return_value.execute.return_value.data = [
+        {
+            "id": str(QUESTION_ID),
+            "article_id": str(ARTICLE_ID),
+            "opinion_question_translations": [
+                {
+                    "language_code": "EN",
+                    "question_text": "What do you think?",
+                }
+            ],
+        }
+    ]
+
+    response_data = {
+        "id": str(historical_response_id),
+        "opinion_question_id": str(QUESTION_ID),
+        "selected_option_id": None,
+        "custom_response": "My historical opinion.",
+        "created_at": "2026-08-20T11:00:00+00:00",
+    }
+
+    response_query = MagicMock()
+    response_query.select.return_value.eq.return_value.in_.return_value.eq.return_value.order.return_value.limit.return_value.maybe_single.return_value.execute.return_value.data = response_data
+    response_query.select.return_value.eq.return_value.in_.return_value.order.return_value.limit.return_value.maybe_single.return_value.execute.return_value.data = response_data
+
+    def table(name):
+        if name == "articles":
+            return article_query
+        if name == "opinion_questions":
+            return question_query
+        if name == "opinion_responses":
+            return response_query
+        raise AssertionError(f"Unexpected table: {name}")
+
+    auth.client.table.side_effect = table
+    app.dependency_overrides[get_current_user] = lambda: auth
+
+    try:
+        response = client.get(
+            f"/api/v1/articles/{ARTICLE_ID}/opinion/share"
+            f"?response_id={historical_response_id}"
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["response_id"] == str(historical_response_id)
+        assert data["custom_response"] == "My historical opinion."
+
+    finally:
+        app.dependency_overrides.clear()
