@@ -15,6 +15,7 @@ from app.routers.promotions import router as promotions_router
 from app.routers.sharing import router as sharing_router
 from app.routers.comments import router as comments_router
 from app.routers.advertisements import router as advertisements_router
+from app.routers.analytics import router as analytics_router
 
 app = FastAPI(
     title="Cognition News API",
@@ -48,3 +49,4 @@ app.include_router(promotions_router)
 app.include_router(sharing_router)
 app.include_router(comments_router)
 app.include_router(advertisements_router)
+app.include_router(analytics_router)
