@@ -30,6 +30,10 @@ EVENT_ID = UUID(
     "55555555-5555-5555-5555-555555555555"
 )
 
+SHARE_SOURCE_ID = UUID(
+    "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+)
+
 
 def make_auth_context(
     role: str = "SUPERADMIN",
@@ -452,3 +456,100 @@ def test_record_advertisement_click():
     )
 
     query.insert.assert_called_once()
+
+def test_record_share():
+    from app.services import analytics
+
+    supabase_mock = MagicMock()
+
+    query = MagicMock()
+
+    query.insert.return_value.select.return_value.single.return_value.execute.return_value.data = {
+        "id": str(EVENT_ID),
+        "event_type": "SHARE_CREATED",
+        "user_id": str(USER_ID),
+        "article_id": str(ARTICLE_ID),
+        "source_type": "ARTICLE_COMPLETION",
+        "source_id": str(SHARE_SOURCE_ID),
+    }
+
+    supabase_mock.table.return_value = query
+
+    result = analytics.record_share(
+        source_type="ARTICLE_COMPLETION",
+        source_id=SHARE_SOURCE_ID,
+        article_id=ARTICLE_ID,
+        user_id=USER_ID,
+        client=supabase_mock,
+    )
+
+    assert result["event_type"] == "SHARE_CREATED"
+    assert result["user_id"] == str(USER_ID)
+    assert result["article_id"] == str(ARTICLE_ID)
+    assert result["source_type"] == "ARTICLE_COMPLETION"
+    assert result["source_id"] == str(SHARE_SOURCE_ID)
+
+    query.insert.assert_called_once()
+
+def test_share_event_records_authenticated_share(monkeypatch):
+    from app.routers import sharing
+
+    auth = make_auth_context()
+
+    calls = []
+
+    def fake_record_share(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(
+        sharing,
+        "record_share",
+        fake_record_share,
+    )
+
+    app.dependency_overrides[
+        get_current_user
+    ] = lambda: auth
+
+    response = client.post(
+        "/api/v1/articles/share/event"
+        f"?source_type=ARTICLE_COMPLETION"
+        f"&source_id={SHARE_SOURCE_ID}"
+        f"&article_id={ARTICLE_ID}"
+    )
+
+    assert response.status_code == 204
+
+    assert calls == [
+        {
+            "source_type": "ARTICLE_COMPLETION",
+            "source_id": SHARE_SOURCE_ID,
+            "article_id": ARTICLE_ID,
+            "user_id": USER_ID,
+            "client": auth.client,
+        }
+    ]
+
+def test_share_event_rejects_unsupported_source_type():
+    auth = make_auth_context()
+
+    app.dependency_overrides[
+        get_current_user
+    ] = lambda: auth
+
+    response = client.post(
+        "/api/v1/articles/share/event"
+        f"?source_type=INVALID"
+        f"&source_id={SHARE_SOURCE_ID}"
+    )
+
+    assert response.status_code == 422
+
+def test_share_event_requires_authentication():
+    response = client.post(
+        "/api/v1/articles/share/event"
+        f"?source_type=BADGE"
+        f"&source_id={SHARE_SOURCE_ID}"
+    )
+
+    assert response.status_code in (401, 403)

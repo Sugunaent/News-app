@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 
 from app.core.exceptions import NotFoundError
 from app.dependencies.auth import AuthContext, get_current_user
@@ -8,6 +8,7 @@ from app.schemas.sharing import (
     ArticleCompletionShareResponse,
     OpinionShareResponse,
 )
+from app.services.analytics import record_share
 
 router = APIRouter(
     prefix="/api/v1/articles",
@@ -353,3 +354,49 @@ def get_opinion_share_card(
         ],
         created_at=response_data["created_at"],
     )
+
+@router.post(
+    "/share/event",
+    status_code=204,
+)
+def record_share_event(
+    source_type: str,
+    source_id: UUID,
+    article_id: UUID | None = None,
+    auth: AuthContext = Depends(get_current_user),
+):
+    """
+    Record that an authenticated user successfully completed
+    a share action.
+
+    The client must call this endpoint only after the native
+    share operation has succeeded.
+
+    Supported source types include:
+
+        ARTICLE_COMPLETION
+        OPINION
+        BADGE
+    """
+
+    allowed_source_types = {
+        "ARTICLE_COMPLETION",
+        "OPINION",
+        "BADGE",
+    }
+
+    if source_type not in allowed_source_types:
+        raise HTTPException(
+            status_code=422,
+            detail="Unsupported share source type",
+        )
+
+    record_share(
+        source_type=source_type,
+        source_id=source_id,
+        article_id=article_id,
+        user_id=auth.user.id,
+        client=auth.client,
+    )
+
+    return None

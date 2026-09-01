@@ -1,11 +1,14 @@
 from fastapi import APIRouter, Query
 from postgrest.exceptions import APIError
+
 from app.core.exceptions import NotFoundError
 from app.db.supabase import supabase
 from app.schemas.articles import (
     ArticleDetailResponse,
     ArticleListResponse,
 )
+from app.services.analytics import record_article_view
+
 
 router = APIRouter(
     prefix="/api/v1/articles",
@@ -55,9 +58,13 @@ async def list_articles(
     )
 
     items = []
+
     for article in response.data or []:
-        translation = _extract_translation(article.get("article_translations"))
+        translation = _extract_translation(
+            article.get("article_translations")
+        )
         category = article.get("categories")
+
         items.append(
             {
                 "id": article["id"],
@@ -83,6 +90,7 @@ async def search_articles(
     language: str = Query(default="en"),
 ):
     search_term = q.strip()
+
     if not search_term:
         return {"items": []}
 
@@ -123,9 +131,13 @@ async def search_articles(
     )
 
     items = []
+
     for article in response.data or []:
-        translation = _extract_translation(article.get("article_translations"))
+        translation = _extract_translation(
+            article.get("article_translations")
+        )
         category = article.get("categories")
+
         items.append(
             {
                 "id": article["id"],
@@ -187,7 +199,10 @@ async def get_article(
         raise NotFoundError("Article not found")
 
     article = response.data
-    translation = _extract_translation(article.get("article_translations"))
+
+    translation = _extract_translation(
+        article.get("article_translations")
+    )
 
     try:
         blocks_response = (
@@ -224,10 +239,12 @@ async def get_article(
         raise
 
     blocks = []
+
     for block in blocks_response.data or []:
         block_translation = _extract_translation(
             block.get("article_block_translations")
         )
+
         block_type = block["block_type"]
 
         if block_type == "TEXT":
@@ -236,32 +253,60 @@ async def get_article(
                     "id": block["id"],
                     "type": "TEXT",
                     "display_order": block["display_order"],
-                    "text": block_translation.get("text_content"),
+                    "text": block_translation.get(
+                        "text_content"
+                    ),
                 }
             )
+
         elif block_type == "IMAGE":
             media = block.get("media_assets")
+
             if isinstance(media, list):
                 media = media[0] if media else None
+
             blocks.append(
                 {
                     "id": block["id"],
                     "type": "IMAGE",
                     "display_order": block["display_order"],
-                    "caption": block_translation.get("caption"),
+                    "caption": block_translation.get(
+                        "caption"
+                    ),
                     "media": media,
                 }
             )
+
         elif block_type == "PODCAST":
             blocks.append(
                 {
                     "id": block["id"],
                     "type": "PODCAST",
                     "display_order": block["display_order"],
-                    "description": block_translation.get("text_content"),
+                    "description": block_translation.get(
+                        "text_content"
+                    ),
                     "external_url": block["external_url"],
                 }
             )
+
+    # ---------------------------------------------------------
+    # ANALYTICS
+    #
+    # The article has already been successfully validated as
+    # published and its content has been successfully loaded.
+    #
+    # Analytics is intentionally best-effort. A failure in the
+    # analytics pipeline must never prevent the article from
+    # being returned to the user.
+    # ---------------------------------------------------------
+
+    try:
+        record_article_view(
+            article_id=article["id"],
+        )
+    except Exception:
+        pass
 
     return {
         "id": article["id"],

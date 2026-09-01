@@ -14,6 +14,11 @@ from app.schemas.advertisements import (
     AdvertisementSlotUpdate,
     AdvertisementUpdate,
 )
+from fastapi.responses import RedirectResponse
+
+from app.services.analytics import (
+    record_advertisement_click,
+)
 
 
 router = APIRouter(
@@ -268,6 +273,111 @@ def list_advertisements_admin(
 
     return result.data or []
 
+
+# ============================================================
+# PUBLIC ADVERTISEMENT CLICK
+# ============================================================
+
+@router.get(
+    "/{advertisement_id}/click",
+)
+def click_advertisement(
+    advertisement_id: UUID,
+):
+    """
+    Record an advertisement click and redirect the visitor
+    to the advertisement destination URL.
+
+    This endpoint is intentionally public because advertisements
+    can be clicked by anonymous visitors.
+
+    Authentication-aware attribution will be added through the
+    optional-auth dependency so authenticated clicks can also
+    contribute to unique-clicker analytics.
+    """
+
+    result = (
+        supabase
+        .table("advertisements")
+        .select(
+            """
+            id,
+            destination_url,
+            starts_at,
+            ends_at,
+            is_active,
+            slot:advertisement_slots (
+                id,
+                is_active
+            )
+            """
+        )
+        .eq("id", str(advertisement_id))
+        .maybe_single()
+        .execute()
+    )
+
+    advertisement = result.data
+
+    if not advertisement:
+        raise NotFoundError(
+            "Advertisement not found"
+        )
+
+    now = datetime.now(timezone.utc)
+
+    starts_at = _parse_datetime(
+        advertisement.get("starts_at")
+    )
+
+    ends_at = _parse_datetime(
+        advertisement.get("ends_at")
+    )
+
+    if starts_at and starts_at > now:
+        raise NotFoundError(
+            "Advertisement not found"
+        )
+
+    if ends_at and ends_at <= now:
+        raise NotFoundError(
+            "Advertisement not found"
+        )
+
+    if not advertisement.get("is_active", False):
+        raise NotFoundError(
+            "Advertisement not found"
+        )
+
+    slot = advertisement.get("slot") or {}
+
+    if not slot.get("is_active", False):
+        raise NotFoundError(
+            "Advertisement not found"
+        )
+
+    destination_url = advertisement.get(
+        "destination_url"
+    )
+
+    if not destination_url:
+        raise NotFoundError(
+            "Advertisement destination not found"
+        )
+
+    # Record the successful click.
+    #
+    # user_id will be supplied by optional authentication once
+    # the shared auth dependency is extended.
+    record_advertisement_click(
+        advertisement_id=advertisement_id,
+        user_id=None,
+    )
+
+    return RedirectResponse(
+        url=destination_url,
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+    )
 
 # ============================================================
 # SUPERADMIN SINGLE ADVERTISEMENT

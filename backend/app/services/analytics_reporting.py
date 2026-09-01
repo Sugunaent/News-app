@@ -1,75 +1,206 @@
 from __future__ import annotations
 
-from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
-from uuid import UUID
-
-from app.db.supabase import supabase
+from collections import defaultdict
+from datetime import datetime
+from typing import Any
 
 
-def _rows(response) -> list[dict]:
+ARTICLE_VIEWED = "ARTICLE_VIEWED"
+ADVERTISEMENT_CLICKED = "ADVERTISEMENT_CLICKED"
+SHARE_CREATED = "SHARE_CREATED"
+
+
+def _rows(response: Any) -> list[dict]:
     data = getattr(response, "data", None)
-
     if not data:
         return []
+
+    if isinstance(data, list):
+        return data
 
     if isinstance(data, dict):
         return [data]
 
-    return list(data)
+    return []
 
 
-def _percentage(correct: int, total: int) -> float:
-    if total <= 0:
-        return 0.0
-
-    return round((correct / total) * 100, 2)
+def _execute_rows(query) -> list[dict]:
+    return _rows(query.execute())
 
 
-def _safe_int(value) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0
+def _safe_str(value: Any) -> str | None:
+    if value is None:
+        return None
+
+    return str(value)
 
 
-def _get_users(client) -> list[dict]:
-    response = (
-        client
-        .table("profiles")
-        .select("id, display_name")
-        .execute()
+def _translation_value(
+    translations: Any,
+    field_name: str,
+) -> str | None:
+    if not translations:
+        return None
+
+    if isinstance(translations, dict):
+        translations = [translations]
+
+    # Prefer English, case-insensitively.
+    for translation in translations:
+        language_code = str(
+            translation.get("language_code", "")
+        ).upper()
+
+        if language_code == "EN":
+            value = translation.get(field_name)
+
+            if value:
+                return str(value)
+
+    # Fallback to first available translation.
+    for translation in translations:
+        value = translation.get(field_name)
+
+        if value:
+            return str(value)
+
+    return None
+
+
+def _article_title(article: dict) -> str | None:
+    return _translation_value(
+        article.get("article_translations"),
+        "title",
     )
 
-    return _rows(response)
+
+def _percentage(
+    numerator: int,
+    denominator: int,
+) -> float:
+    if denominator == 0:
+        return 0.0
+
+    return round(
+        (numerator / denominator) * 100,
+        2,
+    )
 
 
-def _get_articles(client) -> list[dict]:
-    response = (
+def _event_key(value: Any) -> str | None:
+    if value is None:
+        return None
+
+    return str(value)
+
+
+def _build_event_maps(
+    events: list[dict],
+):
+    article_views = defaultdict(int)
+    article_view_users = defaultdict(set)
+
+    advertisement_clicks = defaultdict(int)
+    advertisement_click_users = defaultdict(set)
+
+    user_views = defaultdict(int)
+    user_shares = defaultdict(int)
+
+    shares_by_article = defaultdict(int)
+
+    recent_activity = []
+
+    for event in events:
+        event_type = event.get("event_type")
+        user_id = _event_key(event.get("user_id"))
+        article_id = _event_key(event.get("article_id"))
+        source_type = event.get("source_type")
+        source_id = _event_key(event.get("source_id"))
+
+        if event_type == ARTICLE_VIEWED:
+            if article_id is not None:
+                article_views[article_id] += 1
+
+                if user_id is not None:
+                    article_view_users[
+                        article_id
+                    ].add(user_id)
+
+            if user_id is not None:
+                user_views[user_id] += 1
+
+        elif event_type == ADVERTISEMENT_CLICKED:
+            if source_id is not None:
+                advertisement_clicks[source_id] += 1
+
+                if user_id is not None:
+                    advertisement_click_users[
+                        source_id
+                    ].add(user_id)
+
+        elif event_type == SHARE_CREATED:
+            if article_id is not None:
+                shares_by_article[article_id] += 1
+
+            if user_id is not None:
+                user_shares[user_id] += 1
+
+        recent_activity.append(event)
+
+    return (
+        article_views,
+        article_view_users,
+        advertisement_clicks,
+        advertisement_click_users,
+        user_views,
+        user_shares,
+        shares_by_article,
+        recent_activity,
+    )
+
+
+def _load_profiles(client) -> list[dict]:
+    query = (
+        client
+        .table("profiles")
+        .select(
+            """
+            id,
+            email,
+            display_name,
+            is_active
+            """
+        )
+    )
+
+    return _execute_rows(query)
+
+
+def _load_articles(client) -> list[dict]:
+    query = (
         client
         .table("articles")
         .select(
             """
             id,
             category_id,
-            article_translations (
+            article_translations(
                 language_code,
                 title
             ),
-            categories (
+            categories(
                 id,
                 name
             )
             """
         )
-        .execute()
     )
 
-    return _rows(response)
+    return _execute_rows(query)
 
 
-def _get_events(client) -> list[dict]:
-    response = (
+def _load_events(client) -> list[dict]:
+    query = (
         client
         .table("analytics_events")
         .select(
@@ -84,28 +215,33 @@ def _get_events(client) -> list[dict]:
             created_at
             """
         )
-        .order("created_at", desc=True)
-        .execute()
+        .order(
+            "created_at",
+            desc=True,
+        )
     )
 
-    return _rows(response)
+    return _execute_rows(query)
 
 
-def _get_completions(client) -> list[dict]:
-    response = (
+def _load_completions(client) -> list[dict]:
+    query = (
         client
         .table("article_completions")
         .select(
-            "user_id, article_id, completed_at"
+            """
+            user_id,
+            article_id,
+            completed_at
+            """
         )
-        .execute()
     )
 
-    return _rows(response)
+    return _execute_rows(query)
 
 
-def _get_quiz_attempts(client) -> list[dict]:
-    response = (
+def _load_quiz_attempts(client) -> list[dict]:
+    query = (
         client
         .table("quiz_attempts")
         .select(
@@ -116,14 +252,31 @@ def _get_quiz_attempts(client) -> list[dict]:
             created_at
             """
         )
-        .execute()
     )
 
-    return _rows(response)
+    return _execute_rows(query)
 
 
-def _get_opinion_responses(client) -> list[dict]:
-    response = (
+def _load_quiz_questions(client) -> list[dict]:
+    query = (
+        client
+        .table("quiz_questions")
+        .select(
+            """
+            id,
+            quiz_id,
+            quizzes(
+                article_id
+            )
+            """
+        )
+    )
+
+    return _execute_rows(query)
+
+
+def _load_opinions(client) -> list[dict]:
+    query = (
         client
         .table("opinion_responses")
         .select(
@@ -134,20 +287,28 @@ def _get_opinion_responses(client) -> list[dict]:
             created_at
             """
         )
-        .execute()
     )
 
-    return _rows(response)
+    return _execute_rows(query)
 
 
-def _get_comments(client) -> list[dict]:
-    """
-    Comments are already part of the implemented backend.
+def _load_opinion_questions(client) -> list[dict]:
+    query = (
+        client
+        .table("opinion_questions")
+        .select(
+            """
+            id,
+            article_id
+            """
+        )
+    )
 
-    We deliberately retrieve only fields needed for analytics.
-    """
+    return _execute_rows(query)
 
-    response = (
+
+def _load_comments(client) -> list[dict]:
+    query = (
         client
         .table("comments")
         .select(
@@ -158,14 +319,13 @@ def _get_comments(client) -> list[dict]:
             created_at
             """
         )
-        .execute()
     )
 
-    return _rows(response)
+    return _execute_rows(query)
 
 
-def _get_xp_transactions(client) -> list[dict]:
-    response = (
+def _load_xp_transactions(client) -> list[dict]:
+    query = (
         client
         .table("xp_transactions")
         .select(
@@ -174,576 +334,258 @@ def _get_xp_transactions(client) -> list[dict]:
             amount
             """
         )
-        .execute()
     )
 
-    return _rows(response)
+    return _execute_rows(query)
 
 
-def _get_advertisements(client) -> list[dict]:
-    response = (
+def _load_advertisements(client) -> list[dict]:
+    query = (
         client
         .table("advertisements")
         .select(
             """
             id,
             title,
-            slot:advertisement_slots (
+            slot:advertisement_slots(
                 key
             )
             """
         )
-        .execute()
     )
 
-    return _rows(response)
+    return _execute_rows(query)
+
+
+def _quiz_article_map(
+    quiz_questions: list[dict],
+) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+
+    for question in quiz_questions:
+        question_id = _event_key(
+            question.get("id")
+        )
+
+        quiz = question.get("quizzes") or {}
+
+        article_id = _event_key(
+            quiz.get("article_id")
+        )
+
+        if question_id and article_id:
+            mapping[question_id] = article_id
+
+    return mapping
+
+
+def _opinion_article_map(
+    opinion_questions: list[dict],
+) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+
+    for question in opinion_questions:
+        question_id = _event_key(
+            question.get("id")
+        )
+
+        article_id = _event_key(
+            question.get("article_id")
+        )
+
+        if question_id and article_id:
+            mapping[question_id] = article_id
+
+    return mapping
 
 
 def build_dashboard(
     *,
-    client=None,
+    client,
     top_articles_limit: int = 10,
     top_categories_limit: int = 10,
     top_users_limit: int = 10,
 ) -> dict:
     """
-    Build the complete V1 Superadmin analytics dashboard.
+    Build the V1 Superadmin analytics dashboard.
 
-    This intentionally performs aggregation in the application
-    layer rather than introducing a warehouse or a complex
-    analytics infrastructure.
+    Reporting is intentionally calculated from existing product
+    data and the append-only analytics event stream.
+
+    This is not intended to be a BI/data-warehouse layer.
     """
 
-    db = client or supabase
+    profiles = _load_profiles(client)
+    articles = _load_articles(client)
+    events = _load_events(client)
 
-    users = _get_users(db)
-    articles = _get_articles(db)
-    events = _get_events(db)
-    completions = _get_completions(db)
-    quiz_attempts = _get_quiz_attempts(db)
-    opinions = _get_opinion_responses(db)
-    comments = _get_comments(db)
-    xp_transactions = _get_xp_transactions(db)
-    advertisements = _get_advertisements(db)
+    completions = _load_completions(client)
 
-    # ---------------------------------------------------------
-    # USERS
-    # ---------------------------------------------------------
+    quiz_attempts = _load_quiz_attempts(client)
+    quiz_questions = _load_quiz_questions(client)
 
-    user_ids = {
-        str(user["id"])
-        for user in users
-        if user.get("id")
-    }
+    opinions = _load_opinions(client)
+    opinion_questions = _load_opinion_questions(client)
 
-    total_users = len(users)
+    comments = _load_comments(client)
 
-    # Users with activity during the last 30 days.
-    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    xp_transactions = _load_xp_transactions(client)
 
-    active_user_ids: set[str] = set()
+    advertisements = _load_advertisements(client)
 
-    for event in events:
-        user_id = event.get("user_id")
-        created_at = event.get("created_at")
-
-        if not user_id or not created_at:
-            continue
-
-        try:
-            timestamp = datetime.fromisoformat(
-                str(created_at).replace("Z", "+00:00")
-            )
-        except ValueError:
-            continue
-
-        if timestamp >= cutoff:
-            active_user_ids.add(str(user_id))
-
-    active_users = len(active_user_ids)
+    (
+        article_views,
+        article_view_users,
+        advertisement_clicks,
+        advertisement_click_users,
+        user_views,
+        user_shares,
+        shares_by_article,
+        recent_activity,
+    ) = _build_event_maps(events)
 
     # ---------------------------------------------------------
-    # ARTICLES
+    # Article / quiz / opinion / comment aggregation
     # ---------------------------------------------------------
 
-    article_by_id = {
-        str(article["id"]): article
-        for article in articles
-        if article.get("id")
-    }
+    completion_counts = defaultdict(int)
+    completion_users = defaultdict(set)
 
-    article_views = Counter()
-    article_unique_readers: dict[str, set[str]] = defaultdict(set)
+    for completion in completions:
+        article_id = _event_key(
+            completion.get("article_id")
+        )
+        user_id = _event_key(
+            completion.get("user_id")
+        )
 
-    shares_by_article = Counter()
-    comments_by_article = Counter()
-    opinions_by_article = Counter()
+        if article_id:
+            completion_counts[article_id] += 1
 
-    for event in events:
-        event_type = event.get("event_type")
-        article_id = event.get("article_id")
-
-        if not article_id:
-            continue
-
-        article_id = str(article_id)
-
-        if event_type == "ARTICLE_VIEWED":
-            article_views[article_id] += 1
-
-            if event.get("user_id"):
-                article_unique_readers[article_id].add(
-                    str(event["user_id"])
+            if user_id:
+                completion_users[article_id].add(
+                    user_id
                 )
 
-        elif event_type == "SHARE_CREATED":
-            shares_by_article[article_id] += 1
-
-    for comment in comments:
-        if comment.get("article_id"):
-            comments_by_article[
-                str(comment["article_id"])
-            ] += 1
-
-    # ---------------------------------------------------------
-    # COMPLETIONS
-    # ---------------------------------------------------------
-
-    completions_by_article = Counter()
-
-    for completion in completions:
-        article_id = completion.get("article_id")
-
-        if article_id:
-            completions_by_article[
-                str(article_id)
-            ] += 1
-
-    total_completions = len(completions)
-
-    # ---------------------------------------------------------
-    # QUIZZES
-    # ---------------------------------------------------------
-
-    quiz_attempts_by_article = Counter()
-    quiz_correct_by_article = Counter()
-
-    total_quiz_attempts = len(quiz_attempts)
-    total_quiz_correct = 0
-
-    # question -> article lookup
-    question_to_article: dict[str, str] = {}
-
-    question_response = (
-        db
-        .table("quiz_questions")
-        .select("id, quiz_id, quizzes(article_id)")
-        .execute()
+    quiz_article_map = _quiz_article_map(
+        quiz_questions
     )
 
-    for question in _rows(question_response):
-        question_id = question.get("id")
-        quiz = question.get("quizzes") or {}
+    quiz_attempt_counts = defaultdict(int)
+    quiz_correct_counts = defaultdict(int)
 
-        if isinstance(quiz, list):
-            quiz = quiz[0] if quiz else {}
+    user_quiz_attempts = defaultdict(int)
+    user_quiz_correct = defaultdict(int)
 
-        article_id = quiz.get("article_id")
-
-        if question_id and article_id:
-            question_to_article[str(question_id)] = str(
-                article_id
-            )
+    article_quiz_attempts = defaultdict(int)
+    article_quiz_correct = defaultdict(int)
 
     for attempt in quiz_attempts:
-        question_id = attempt.get("question_id")
-
-        if not question_id:
-            continue
-
-        article_id = question_to_article.get(
-            str(question_id)
+        question_id = _event_key(
+            attempt.get("question_id")
         )
 
-        if not article_id:
-            continue
-
-        quiz_attempts_by_article[article_id] += 1
-
-        if attempt.get("is_correct"):
-            quiz_correct_by_article[article_id] += 1
-            total_quiz_correct += 1
-
-    # ---------------------------------------------------------
-    # OPINIONS
-    # ---------------------------------------------------------
-
-    question_to_opinion_article: dict[str, str] = {}
-
-    opinion_question_response = (
-        db
-        .table("opinion_questions")
-        .select("id, article_id")
-        .execute()
-    )
-
-    for question in _rows(opinion_question_response):
-        if question.get("id") and question.get("article_id"):
-            question_to_opinion_article[
-                str(question["id"])
-            ] = str(question["article_id"])
-
-    for opinion in opinions:
-        question_id = opinion.get(
-            "opinion_question_id"
+        user_id = _event_key(
+            attempt.get("user_id")
         )
 
-        if not question_id:
-            continue
-
-        article_id = question_to_opinion_article.get(
-            str(question_id)
+        article_id = quiz_article_map.get(
+            question_id
         )
 
-        if article_id:
-            opinions_by_article[article_id] += 1
+        quiz_attempt_counts[
+            article_id
+        ] += 1 if article_id else 0
 
-    # ---------------------------------------------------------
-    # ARTICLE REPORTS
-    # ---------------------------------------------------------
+        if article_id and attempt.get("is_correct"):
+            quiz_correct_counts[article_id] += 1
 
-    article_reports = []
-
-    for article_id, article in article_by_id.items():
-        translations = article.get(
-            "article_translations"
-        ) or []
-
-        title = None
-
-        if isinstance(translations, dict):
-            title = translations.get("title")
-        else:
-            for translation in translations:
-                if (
-                    isinstance(translation, dict)
-                    and translation.get("title")
-                ):
-                    title = translation["title"]
-                    break
-
-        category = article.get("categories") or {}
-
-        if isinstance(category, list):
-            category = category[0] if category else {}
-
-        views = article_views[article_id]
-        correct = quiz_correct_by_article[article_id]
-        attempts = quiz_attempts_by_article[article_id]
-
-        article_reports.append(
-            {
-                "article_id": article_id,
-                "title": title,
-                "category_id": (
-                    str(category["id"])
-                    if category.get("id")
-                    else None
-                ),
-                "category_name": category.get("name"),
-                "views": views,
-                "unique_readers": len(
-                    article_unique_readers[article_id]
-                ),
-                "completions": completions_by_article[
-                    article_id
-                ],
-                "quiz_attempts": attempts,
-                "quiz_correct_attempts": correct,
-                "quiz_success_rate": _percentage(
-                    correct,
-                    attempts,
-                ),
-                "opinion_responses": opinions_by_article[
-                    article_id
-                ],
-                "comments": comments_by_article[
-                    article_id
-                ],
-                "shares": shares_by_article[
-                    article_id
-                ],
-            }
-        )
-
-    article_reports.sort(
-        key=lambda item: (
-            item["views"],
-            item["unique_readers"],
-            item["completions"],
-        ),
-        reverse=True,
-    )
-
-    top_articles = article_reports[
-        :top_articles_limit
-    ]
-
-    # ---------------------------------------------------------
-    # CATEGORY REPORTS
-    # ---------------------------------------------------------
-
-    category_reports: dict[str, dict] = {}
-
-    for article_report in article_reports:
-        category_id = article_report["category_id"]
-        category_name = article_report["category_name"]
-
-        if not category_id:
-            continue
-
-        if category_id not in category_reports:
-            category_reports[category_id] = {
-                "category_id": category_id,
-                "category_name": (
-                    category_name or "Unknown"
-                ),
-                "article_views": 0,
-                "unique_reader_ids": set(),
-                "article_completions": 0,
-            }
-
-        report = category_reports[category_id]
-
-        report["article_views"] += (
-            article_report["views"]
-        )
-
-        report["article_completions"] += (
-            article_report["completions"]
-        )
-
-        for user_id in article_unique_readers[
-            article_report["article_id"]
-        ]:
-            report["unique_reader_ids"].add(user_id)
-
-    popular_categories = []
-
-    for report in category_reports.values():
-        popular_categories.append(
-            {
-                "category_id": report["category_id"],
-                "category_name": report[
-                    "category_name"
-                ],
-                "article_views": report[
-                    "article_views"
-                ],
-                "unique_readers": len(
-                    report["unique_reader_ids"]
-                ),
-                "article_completions": report[
-                    "article_completions"
-                ],
-            }
-        )
-
-    popular_categories.sort(
-        key=lambda item: (
-            item["article_views"],
-            item["article_completions"],
-        ),
-        reverse=True,
-    )
-
-    popular_categories = popular_categories[
-        :top_categories_limit
-    ]
-
-    # ---------------------------------------------------------
-    # USER ENGAGEMENT
-    # ---------------------------------------------------------
-
-    user_views = Counter()
-    user_completions = Counter()
-    user_quiz_attempts = Counter()
-    user_quiz_correct = Counter()
-    user_opinions = Counter()
-    user_comments = Counter()
-    user_shares = Counter()
-    user_xp = Counter()
-
-    for event in events:
-        user_id = event.get("user_id")
-
-        if not user_id:
-            continue
-
-        user_id = str(user_id)
-
-        if event.get("event_type") == "ARTICLE_VIEWED":
-            user_views[user_id] += 1
-
-        elif event.get("event_type") == "SHARE_CREATED":
-            user_shares[user_id] += 1
-
-    for completion in completions:
-        if completion.get("user_id"):
-            user_completions[
-                str(completion["user_id"])
-            ] += 1
-
-    for attempt in quiz_attempts:
-        if attempt.get("user_id"):
-            user_id = str(attempt["user_id"])
+        if user_id:
             user_quiz_attempts[user_id] += 1
 
             if attempt.get("is_correct"):
                 user_quiz_correct[user_id] += 1
 
+        if article_id:
+            article_quiz_attempts[article_id] += 1
+
+            if attempt.get("is_correct"):
+                article_quiz_correct[article_id] += 1
+
+    opinion_article_map = _opinion_article_map(
+        opinion_questions
+    )
+
+    opinion_counts = defaultdict(int)
+
+    user_opinion_counts = defaultdict(int)
+    article_opinion_counts = defaultdict(int)
+
     for opinion in opinions:
-        if opinion.get("user_id"):
-            user_opinions[
-                str(opinion["user_id"])
-            ] += 1
+        question_id = _event_key(
+            opinion.get("opinion_question_id")
+        )
+
+        user_id = _event_key(
+            opinion.get("user_id")
+        )
+
+        article_id = opinion_article_map.get(
+            question_id
+        )
+
+        if user_id:
+            user_opinion_counts[user_id] += 1
+
+        if article_id:
+            opinion_counts[article_id] += 1
+            article_opinion_counts[article_id] += 1
+
+    comment_counts = defaultdict(int)
+    user_comment_counts = defaultdict(int)
 
     for comment in comments:
-        if comment.get("user_id"):
-            user_comments[
-                str(comment["user_id"])
-            ] += 1
+        article_id = _event_key(
+            comment.get("article_id")
+        )
+
+        user_id = _event_key(
+            comment.get("user_id")
+        )
+
+        if article_id:
+            comment_counts[article_id] += 1
+
+        if user_id:
+            user_comment_counts[user_id] += 1
+
+    # ---------------------------------------------------------
+    # XP aggregation
+    # ---------------------------------------------------------
+
+    user_xp = defaultdict(int)
 
     for transaction in xp_transactions:
-        if transaction.get("user_id"):
-            user_xp[
-                str(transaction["user_id"])
-            ] += _safe_int(transaction.get("amount"))
-
-    users_by_id = {
-        str(user["id"]): user
-        for user in users
-        if user.get("id")
-    }
-
-    user_reports = []
-
-    for user_id in user_ids:
-        user = users_by_id.get(user_id) or {}
-
-        user_reports.append(
-            {
-                "user_id": user_id,
-                "display_name": user.get("display_name"),
-                "email": None,
-                "article_views": user_views[user_id],
-                "articles_completed": user_completions[
-                    user_id
-                ],
-                "quiz_attempts": user_quiz_attempts[
-                    user_id
-                ],
-                "quiz_correct_attempts": user_quiz_correct[
-                    user_id
-                ],
-                "opinions_submitted": user_opinions[
-                    user_id
-                ],
-                "comments_created": user_comments[
-                    user_id
-                ],
-                "shares_created": user_shares[
-                    user_id
-                ],
-                "total_xp": user_xp[user_id],
-            }
+        user_id = _event_key(
+            transaction.get("user_id")
         )
 
-    user_reports.sort(
-        key=lambda item: (
-            item["article_views"]
-            + item["articles_completed"]
-            + item["quiz_attempts"]
-            + item["opinions_submitted"]
-            + item["comments_created"]
-            + item["shares_created"]
-        ),
-        reverse=True,
+        if user_id:
+            user_xp[user_id] += int(
+                transaction.get("amount") or 0
+            )
+
+    # ---------------------------------------------------------
+    # Overview
+    # ---------------------------------------------------------
+
+    total_users = len(profiles)
+
+    active_users = sum(
+        1
+        for profile in profiles
+        if profile.get("is_active", True)
     )
-
-    most_engaged_users = user_reports[
-        :top_users_limit
-    ]
-
-    # ---------------------------------------------------------
-    # ADVERTISEMENTS
-    # ---------------------------------------------------------
-
-    advertisement_clicks = Counter()
-    advertisement_unique_clickers: dict[
-        str, set[str]
-    ] = defaultdict(set)
-
-    for event in events:
-        if (
-            event.get("event_type")
-            != "ADVERTISEMENT_CLICKED"
-        ):
-            continue
-
-        source_id = event.get("source_id")
-
-        if not source_id:
-            continue
-
-        source_id = str(source_id)
-
-        advertisement_clicks[source_id] += 1
-
-        if event.get("user_id"):
-            advertisement_unique_clickers[
-                source_id
-            ].add(str(event["user_id"]))
-
-    advertisement_reports = []
-
-    for advertisement in advertisements:
-        advertisement_id = str(
-            advertisement["id"]
-        )
-
-        slot = advertisement.get("slot") or {}
-
-        if isinstance(slot, list):
-            slot = slot[0] if slot else {}
-
-        advertisement_reports.append(
-            {
-                "advertisement_id": advertisement_id,
-                "title": advertisement.get("title", ""),
-                "slot_key": slot.get("key"),
-                "clicks": advertisement_clicks[
-                    advertisement_id
-                ],
-                "unique_clickers": len(
-                    advertisement_unique_clickers[
-                        advertisement_id
-                    ]
-                ),
-            }
-        )
-
-    advertisement_reports.sort(
-        key=lambda item: (
-            item["clicks"],
-            item["unique_clickers"],
-        ),
-        reverse=True,
-    )
-
-    # ---------------------------------------------------------
-    # OVERVIEW
-    # ---------------------------------------------------------
 
     total_article_views = sum(
         article_views.values()
@@ -752,19 +594,20 @@ def build_dashboard(
     unique_article_readers = len(
         {
             user_id
-            for readers in article_unique_readers.values()
+            for readers in article_view_users.values()
             for user_id in readers
         }
     )
 
-    total_opinions = len(opinions)
-    total_comments = len(comments)
+    quiz_attempt_total = len(quiz_attempts)
 
-    total_shares = sum(
-        shares_by_article.values()
+    quiz_correct_total = sum(
+        1
+        for attempt in quiz_attempts
+        if attempt.get("is_correct")
     )
 
-    total_ad_clicks = sum(
+    advertisement_click_total = sum(
         advertisement_clicks.values()
     )
 
@@ -773,53 +616,451 @@ def build_dashboard(
         "active_users": active_users,
         "total_article_views": total_article_views,
         "unique_article_readers": unique_article_readers,
-        "articles_completed": total_completions,
-        "quiz_attempts": total_quiz_attempts,
-        "quiz_correct_attempts": total_quiz_correct,
+        "articles_completed": len(completions),
+        "quiz_attempts": quiz_attempt_total,
+        "quiz_correct_attempts": quiz_correct_total,
         "quiz_success_rate": _percentage(
-            total_quiz_correct,
-            total_quiz_attempts,
+            quiz_correct_total,
+            quiz_attempt_total,
         ),
-        "opinions_submitted": total_opinions,
-        "comments_created": total_comments,
-        "shares_created": total_shares,
-        "advertisement_clicks": total_ad_clicks,
+        "opinions_submitted": len(opinions),
+        "comments_created": len(comments),
+        "shares_created": sum(
+            1
+            for event in events
+            if event.get("event_type")
+            == SHARE_CREATED
+        ),
+        "advertisement_clicks": (
+            advertisement_click_total
+        ),
     }
 
     # ---------------------------------------------------------
-    # RECENT ANALYTICS EVENTS
+    # Article reporting
     # ---------------------------------------------------------
 
-    recent_activity = []
+    article_rows = []
 
-    for event in events[:20]:
-        recent_activity.append(
+    for article in articles:
+        article_id = _event_key(
+            article.get("id")
+        )
+
+        if article_id is None:
+            continue
+
+        category = article.get("categories") or {}
+
+        views = article_views.get(
+            article_id,
+            0,
+        )
+
+        unique_readers = len(
+            article_view_users.get(
+                article_id,
+                set(),
+            )
+        )
+
+        completions_for_article = (
+            completion_counts.get(
+                article_id,
+                0,
+            )
+        )
+
+        attempts_for_article = (
+            article_quiz_attempts.get(
+                article_id,
+                0,
+            )
+        )
+
+        correct_for_article = (
+            article_quiz_correct.get(
+                article_id,
+                0,
+            )
+        )
+
+        article_rows.append(
             {
-                "id": str(event["id"]),
-                "event_type": event["event_type"],
-                "user_id": (
-                    str(event["user_id"])
-                    if event.get("user_id")
-                    else None
+                "article_id": article_id,
+                "title": _article_title(article),
+                "category_id": _safe_str(
+                    article.get("category_id")
                 ),
-                "article_id": (
-                    str(event["article_id"])
-                    if event.get("article_id")
-                    else None
+                "category_name": category.get(
+                    "name"
+                ),
+                "views": views,
+                "unique_readers": unique_readers,
+                "completions": (
+                    completions_for_article
+                ),
+                "quiz_attempts": (
+                    attempts_for_article
+                ),
+                "quiz_correct_attempts": (
+                    correct_for_article
+                ),
+                "quiz_success_rate": _percentage(
+                    correct_for_article,
+                    attempts_for_article,
+                ),
+                "opinion_responses": (
+                    article_opinion_counts.get(
+                        article_id,
+                        0,
+                    )
+                ),
+                "comments": comment_counts.get(
+                    article_id,
+                    0,
+                ),
+                "shares": shares_by_article.get(
+                    article_id,
+                    0,
+                ),
+            }
+        )
+
+    article_rows.sort(
+        key=lambda item: (
+            item["views"],
+            item["completions"],
+        ),
+        reverse=True,
+    )
+
+    top_articles = article_rows[
+        :top_articles_limit
+    ]
+
+    # ---------------------------------------------------------
+    # Category reporting
+    # ---------------------------------------------------------
+
+    category_metrics = defaultdict(
+        lambda: {
+            "article_views": 0,
+            "unique_users": set(),
+            "article_completions": 0,
+        }
+    )
+
+    category_names: dict[str, str] = {}
+
+    for article in articles:
+        article_id = _event_key(
+            article.get("id")
+        )
+
+        category_id = _event_key(
+            article.get("category_id")
+        )
+
+        category = article.get("categories") or {}
+
+        if not article_id or not category_id:
+            continue
+
+        category_name = category.get("name")
+
+        if category_name:
+            category_names[
+                category_id
+            ] = str(category_name)
+
+        category_metrics[
+            category_id
+        ]["article_views"] += article_views.get(
+            article_id,
+            0,
+        )
+
+        category_metrics[
+            category_id
+        ]["unique_users"].update(
+            article_view_users.get(
+                article_id,
+                set(),
+            )
+        )
+
+        category_metrics[
+            category_id
+        ]["article_completions"] += (
+            completion_counts.get(
+                article_id,
+                0,
+            )
+        )
+
+    category_rows = []
+
+    for category_id, metrics in category_metrics.items():
+        category_rows.append(
+            {
+                "category_id": category_id,
+                "category_name": category_names.get(
+                    category_id,
+                    "Category",
+                ),
+                "article_views": metrics[
+                    "article_views"
+                ],
+                "unique_readers": len(
+                    metrics["unique_users"]
+                ),
+                "article_completions": metrics[
+                    "article_completions"
+                ],
+            }
+        )
+
+    category_rows.sort(
+        key=lambda item: (
+            item["article_views"],
+            item["article_completions"],
+        ),
+        reverse=True,
+    )
+
+    popular_categories = category_rows[
+        :top_categories_limit
+    ]
+
+    # ---------------------------------------------------------
+    # User engagement
+    # ---------------------------------------------------------
+
+    user_metrics = defaultdict(
+        lambda: {
+            "article_views": 0,
+            "articles_completed": 0,
+            "quiz_attempts": 0,
+            "quiz_correct_attempts": 0,
+            "opinions_submitted": 0,
+            "comments_created": 0,
+            "shares_created": 0,
+            "total_xp": 0,
+        }
+    )
+
+    for user_id, count in user_views.items():
+        user_metrics[user_id][
+            "article_views"
+        ] = count
+
+    for completion in completions:
+        user_id = _event_key(
+            completion.get("user_id")
+        )
+
+        if user_id:
+            user_metrics[user_id][
+                "articles_completed"
+            ] += 1
+
+    for user_id, count in user_quiz_attempts.items():
+        user_metrics[user_id][
+            "quiz_attempts"
+        ] = count
+
+    for user_id, count in user_quiz_correct.items():
+        user_metrics[user_id][
+            "quiz_correct_attempts"
+        ] = count
+
+    for user_id, count in user_opinion_counts.items():
+        user_metrics[user_id][
+            "opinions_submitted"
+        ] = count
+
+    for user_id, count in user_comment_counts.items():
+        user_metrics[user_id][
+            "comments_created"
+        ] = count
+
+    for user_id, count in user_shares.items():
+        user_metrics[user_id][
+            "shares_created"
+        ] = count
+
+    for user_id, amount in user_xp.items():
+        user_metrics[user_id][
+            "total_xp"
+        ] = amount
+
+    # Include users with no activity.
+    for profile in profiles:
+        user_id = _event_key(
+            profile.get("id")
+        )
+
+        if user_id:
+            user_metrics[user_id]
+
+    profile_by_id = {
+        _event_key(profile.get("id")): profile
+        for profile in profiles
+        if profile.get("id") is not None
+    }
+
+    user_rows = []
+
+    for user_id, metrics in user_metrics.items():
+        profile = profile_by_id.get(
+            user_id,
+            {},
+        )
+
+        user_rows.append(
+            {
+                "user_id": user_id,
+                "display_name": profile.get(
+                    "display_name"
+                ),
+                "email": profile.get("email"),
+                "article_views": metrics[
+                    "article_views"
+                ],
+                "articles_completed": metrics[
+                    "articles_completed"
+                ],
+                "quiz_attempts": metrics[
+                    "quiz_attempts"
+                ],
+                "quiz_correct_attempts": metrics[
+                    "quiz_correct_attempts"
+                ],
+                "opinions_submitted": metrics[
+                    "opinions_submitted"
+                ],
+                "comments_created": metrics[
+                    "comments_created"
+                ],
+                "shares_created": metrics[
+                    "shares_created"
+                ],
+                "total_xp": metrics[
+                    "total_xp"
+                ],
+            }
+        )
+
+    user_rows.sort(
+        key=lambda item: (
+            item["total_xp"],
+            item["article_views"],
+            item["articles_completed"],
+            item["quiz_correct_attempts"],
+        ),
+        reverse=True,
+    )
+
+    most_engaged_users = user_rows[
+        :top_users_limit
+    ]
+
+    # ---------------------------------------------------------
+    # Advertisement reporting
+    # ---------------------------------------------------------
+
+    advertisement_rows = []
+
+    for advertisement in advertisements:
+        advertisement_id = _event_key(
+            advertisement.get("id")
+        )
+
+        if advertisement_id is None:
+            continue
+
+        slot = advertisement.get("slot") or {}
+
+        advertisement_rows.append(
+            {
+                "advertisement_id": advertisement_id,
+                "title": str(
+                    advertisement.get("title")
+                    or ""
+                ),
+                "slot_key": slot.get("key"),
+                "clicks": advertisement_clicks.get(
+                    advertisement_id,
+                    0,
+                ),
+                "unique_clickers": len(
+                    advertisement_click_users.get(
+                        advertisement_id,
+                        set(),
+                    )
+                ),
+            }
+        )
+
+    advertisement_rows.sort(
+        key=lambda item: (
+            item["clicks"],
+            item["unique_clickers"],
+        ),
+        reverse=True,
+    )
+
+    # ---------------------------------------------------------
+    # Recent activity
+    # ---------------------------------------------------------
+
+    recent_activity_rows = []
+
+    for event in recent_activity[:50]:
+        created_at = event.get("created_at")
+
+        if isinstance(created_at, str):
+            try:
+                created_at = datetime.fromisoformat(
+                    created_at.replace(
+                        "Z",
+                        "+00:00",
+                    )
+                )
+            except ValueError:
+                pass
+
+        recent_activity_rows.append(
+            {
+                "id": _safe_str(
+                    event.get("id")
+                ),
+                "event_type": str(
+                    event.get("event_type")
+                    or ""
+                ),
+                "user_id": _safe_str(
+                    event.get("user_id")
+                ),
+                "article_id": _safe_str(
+                    event.get("article_id")
                 ),
                 "source_type": event.get(
                     "source_type"
                 ),
-                "source_id": (
-                    str(event["source_id"])
-                    if event.get("source_id")
-                    else None
+                "source_id": _safe_str(
+                    event.get("source_id")
                 ),
                 "metadata": (
                     event.get("metadata")
-                    or {}
+                    if isinstance(
+                        event.get("metadata"),
+                        dict,
+                    )
+                    else {}
                 ),
-                "created_at": event["created_at"],
+                "created_at": created_at,
             }
         )
 
@@ -828,6 +1069,6 @@ def build_dashboard(
         "top_articles": top_articles,
         "popular_categories": popular_categories,
         "most_engaged_users": most_engaged_users,
-        "advertisements": advertisement_reports,
-        "recent_activity": recent_activity,
+        "advertisements": advertisement_rows,
+        "recent_activity": recent_activity_rows,
     }

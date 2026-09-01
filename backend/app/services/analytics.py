@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from app.db.supabase import supabase
@@ -13,6 +14,8 @@ from app.db.supabase import supabase
 ARTICLE_VIEWED = "ARTICLE_VIEWED"
 ADVERTISEMENT_CLICKED = "ADVERTISEMENT_CLICKED"
 SHARE_CREATED = "SHARE_CREATED"
+COMMENT_CREATED = "COMMENT_CREATED"
+COMMENT_LIKED = "COMMENT_LIKED"
 
 
 def record_event(
@@ -27,17 +30,7 @@ def record_event(
 ) -> dict | None:
     """
     Record one analytics event.
-
-    Analytics events are intentionally append-only.
-
-    The caller is responsible for ensuring that the event
-    represents a legitimate product action.
-
-    Analytics failures should not normally break the user's
-    primary product action, so this function returns None when
-    the insert produces no row.
     """
-
     db = client or supabase
 
     data = {
@@ -68,17 +61,6 @@ def record_article_view(
     user_id: UUID | None = None,
     client=None,
 ) -> dict | None:
-    """
-    Record an article view.
-
-    A view is intentionally an event rather than a counter.
-    This lets the Superadmin reporting layer calculate:
-      - total views
-      - unique readers
-      - article popularity
-      - category popularity
-    """
-
     return record_event(
         event_type=ARTICLE_VIEWED,
         user_id=user_id,
@@ -95,10 +77,6 @@ def record_advertisement_click(
     user_id: UUID | None = None,
     client=None,
 ) -> dict | None:
-    """
-    Record an advertisement click.
-    """
-
     return record_event(
         event_type=ADVERTISEMENT_CLICKED,
         user_id=user_id,
@@ -116,20 +94,77 @@ def record_share(
     user_id: UUID | None = None,
     client=None,
 ) -> dict | None:
-    """
-    Record a successful share action.
-
-    Examples:
-        source_type="ARTICLE_COMPLETION"
-        source_type="OPINION"
-        source_type="BADGE"
-    """
-
     return record_event(
         event_type=SHARE_CREATED,
         user_id=user_id,
         article_id=article_id,
         source_type=source_type,
         source_id=source_id,
+        client=client,
+    )
+
+
+def record_quiz_attempt(
+    question_id: UUID,
+    user_id: UUID,
+    is_correct: bool,
+    client: Any = None,
+    selected_option_id: Optional[UUID] = None,
+) -> Dict[str, Any]:
+    db = client or supabase
+    payload = {
+        "question_id": str(question_id),
+        "user_id": str(user_id),
+        "is_correct": is_correct,
+    }
+    if selected_option_id:
+        payload["selected_option_id"] = str(selected_option_id)
+
+    result = (
+        db.table("quiz_attempts")
+        .insert(payload)
+        .select()
+        .single()
+        .execute()
+    )
+    return result.data
+
+
+def record_comment_created(
+    *,
+    comment_id: UUID,
+    article_id: UUID,
+    user_id: UUID | None = None,
+    client=None,
+) -> dict | None:
+    """
+    Record an event when a user posts a comment on an article.
+    """
+    return record_event(
+        event_type=COMMENT_CREATED,
+        user_id=user_id,
+        article_id=article_id,
+        source_type="COMMENT",
+        source_id=comment_id,
+        client=client,
+    )
+
+
+def record_comment_liked(
+    *,
+    comment_id: UUID,
+    article_id: UUID | None = None,
+    user_id: UUID | None = None,
+    client=None,
+) -> dict | None:
+    """
+    Record an event when a user likes a comment.
+    """
+    return record_event(
+        event_type=COMMENT_LIKED,
+        user_id=user_id,
+        article_id=article_id,
+        source_type="COMMENT",
+        source_id=comment_id,
         client=client,
     )

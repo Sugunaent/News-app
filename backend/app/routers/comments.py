@@ -3,8 +3,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
-from app.core.exceptions import AuthorizationError, NotFoundError
-from app.dependencies.auth import AuthContext, get_current_user
+from app.core.exceptions import (
+    AuthorizationError,
+    NotFoundError,
+)
+from app.dependencies.auth import (
+    AuthContext,
+    get_current_user,
+)
 from app.db.supabase import supabase
 from app.schemas.comments import (
     CommentCreate,
@@ -12,6 +18,9 @@ from app.schemas.comments import (
     CommentModerationResponse,
     CommentResponse,
     CommentUpdate,
+)
+from app.services.analytics import (
+    record_comment_created,
 )
 
 
@@ -21,12 +30,18 @@ router = APIRouter(
 )
 
 
-def _require_superadmin(context: AuthContext) -> None:
+def _require_superadmin(
+    context: AuthContext,
+) -> None:
     if context.user.role != "SUPERADMIN":
-        raise AuthorizationError("Superadmin access required")
+        raise AuthorizationError(
+            "Superadmin access required"
+        )
 
 
-def _map_comment(comment: dict) -> dict:
+def _map_comment(
+    comment: dict,
+) -> dict:
     profile = comment.get("profiles") or {}
 
     return {
@@ -36,7 +51,9 @@ def _map_comment(comment: dict) -> dict:
         "content": comment["content"],
         "author": {
             "id": comment["user_id"],
-            "display_name": profile.get("display_name"),
+            "display_name": profile.get(
+                "display_name"
+            ),
         },
         "created_at": comment["created_at"],
         "updated_at": comment["updated_at"],
@@ -71,7 +88,10 @@ async def list_comments(
             )
             """
         )
-        .eq("article_id", str(article_id))
+        .eq(
+            "article_id",
+            str(article_id),
+        )
         .eq("is_hidden", False)
         .is_("deleted_at", "null")
         .order("created_at", desc=False)
@@ -98,21 +118,31 @@ async def list_comments(
 async def create_comment(
     article_id: UUID,
     payload: CommentCreate,
-    context: AuthContext = Depends(get_current_user),
+    context: AuthContext = Depends(
+        get_current_user
+    ),
 ):
     article_response = (
         context.client
         .table("articles")
         .select("id")
-        .eq("id", str(article_id))
+        .eq(
+            "id",
+            str(article_id),
+        )
         .eq("status", "PUBLISHED")
-        .not_.is_("published_at", "null")
+        .not_.is_(
+            "published_at",
+            "null",
+        )
         .single()
         .execute()
     )
 
     if not article_response.data:
-        raise NotFoundError("Article not found")
+        raise NotFoundError(
+            "Article not found"
+        )
 
     response = (
         context.client
@@ -128,7 +158,9 @@ async def create_comment(
     )
 
     if not response.data:
-        raise NotFoundError("Comment could not be created")
+        raise NotFoundError(
+            "Comment could not be created"
+        )
 
     comment = response.data[0]
 
@@ -136,7 +168,10 @@ async def create_comment(
         context.client
         .table("profiles")
         .select("id, display_name")
-        .eq("id", str(context.user.id))
+        .eq(
+            "id",
+            str(context.user.id),
+        )
         .single()
         .execute()
     )
@@ -144,6 +179,19 @@ async def create_comment(
     profile = profile_response.data or {}
 
     comment["profiles"] = profile
+
+    # The comment now exists successfully.
+    #
+    # Analytics is deliberately best-effort. It cannot turn a
+    # successful comment into a failed request.
+    try:
+        record_comment_created(
+            article_id=article_id,
+            user_id=context.user.id,
+            comment_id=comment["id"],
+        )
+    except Exception:
+        pass
 
     return _map_comment(comment)
 
@@ -160,7 +208,9 @@ async def update_comment(
     article_id: UUID,
     comment_id: UUID,
     payload: CommentUpdate,
-    context: AuthContext = Depends(get_current_user),
+    context: AuthContext = Depends(
+        get_current_user
+    ),
 ):
     response = (
         context.client
@@ -170,15 +220,29 @@ async def update_comment(
                 "content": payload.content.strip(),
             }
         )
-        .eq("id", str(comment_id))
-        .eq("article_id", str(article_id))
-        .eq("user_id", str(context.user.id))
-        .is_("deleted_at", "null")
+        .eq(
+            "id",
+            str(comment_id),
+        )
+        .eq(
+            "article_id",
+            str(article_id),
+        )
+        .eq(
+            "user_id",
+            str(context.user.id),
+        )
+        .is_(
+            "deleted_at",
+            "null",
+        )
         .execute()
     )
 
     if not response.data:
-        raise NotFoundError("Comment not found")
+        raise NotFoundError(
+            "Comment not found"
+        )
 
     comment = response.data[0]
 
@@ -186,21 +250,23 @@ async def update_comment(
         context.client
         .table("profiles")
         .select("id, display_name")
-        .eq("id", str(context.user.id))
+        .eq(
+            "id",
+            str(context.user.id),
+        )
         .single()
         .execute()
     )
 
-    comment["profiles"] = profile_response.data or {}
+    comment["profiles"] = (
+        profile_response.data or {}
+    )
 
     return _map_comment(comment)
 
 
 # ============================================================
 # DELETE OWN COMMENT
-# ============================================================
-#
-# Soft deletion.
 # ============================================================
 
 @router.delete(
@@ -210,25 +276,43 @@ async def update_comment(
 async def delete_comment(
     article_id: UUID,
     comment_id: UUID,
-    context: AuthContext = Depends(get_current_user),
+    context: AuthContext = Depends(
+        get_current_user
+    ),
 ):
     response = (
         context.client
         .table("comments")
         .update(
             {
-                "deleted_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": datetime.now(
+                    timezone.utc
+                ).isoformat(),
             }
         )
-        .eq("id", str(comment_id))
-        .eq("article_id", str(article_id))
-        .eq("user_id", str(context.user.id))
-        .is_("deleted_at", "null")
+        .eq(
+            "id",
+            str(comment_id),
+        )
+        .eq(
+            "article_id",
+            str(article_id),
+        )
+        .eq(
+            "user_id",
+            str(context.user.id),
+        )
+        .is_(
+            "deleted_at",
+            "null",
+        )
         .execute()
     )
 
     if not response.data:
-        raise NotFoundError("Comment not found")
+        raise NotFoundError(
+            "Comment not found"
+        )
 
     return None
 
@@ -245,7 +329,9 @@ async def moderate_comment(
     article_id: UUID,
     comment_id: UUID,
     hidden: bool,
-    context: AuthContext = Depends(get_current_user),
+    context: AuthContext = Depends(
+        get_current_user
+    ),
 ):
     _require_superadmin(context)
 
@@ -257,14 +343,25 @@ async def moderate_comment(
                 "is_hidden": hidden,
             }
         )
-        .eq("id", str(comment_id))
-        .eq("article_id", str(article_id))
-        .is_("deleted_at", "null")
+        .eq(
+            "id",
+            str(comment_id),
+        )
+        .eq(
+            "article_id",
+            str(article_id),
+        )
+        .is_(
+            "deleted_at",
+            "null",
+        )
         .execute()
     )
 
     if not response.data:
-        raise NotFoundError("Comment not found")
+        raise NotFoundError(
+            "Comment not found"
+        )
 
     comment = response.data[0]
 
@@ -278,10 +375,6 @@ async def moderate_comment(
 # ============================================================
 # SUPERADMIN DELETE
 # ============================================================
-#
-# Superadmin deletion is also soft deletion so moderation
-# history is retained.
-# ============================================================
 
 @router.delete(
     "/{article_id}/comments/{comment_id}/admin",
@@ -290,7 +383,9 @@ async def moderate_comment(
 async def admin_delete_comment(
     article_id: UUID,
     comment_id: UUID,
-    context: AuthContext = Depends(get_current_user),
+    context: AuthContext = Depends(
+        get_current_user
+    ),
 ):
     _require_superadmin(context)
 
@@ -299,17 +394,30 @@ async def admin_delete_comment(
         .table("comments")
         .update(
             {
-                "deleted_at": datetime.now(timezone.utc).isoformat(),
+                "deleted_at": datetime.now(
+                    timezone.utc
+                ).isoformat(),
             }
         )
-        .eq("id", str(comment_id))
-        .eq("article_id", str(article_id))
-        .is_("deleted_at", "null")
+        .eq(
+            "id",
+            str(comment_id),
+        )
+        .eq(
+            "article_id",
+            str(article_id),
+        )
+        .is_(
+            "deleted_at",
+            "null",
+        )
         .execute()
     )
 
     if not response.data:
-        raise NotFoundError("Comment not found")
+        raise NotFoundError(
+            "Comment not found"
+        )
 
     comment = response.data[0]
 
