@@ -24,6 +24,10 @@ CATEGORY_ID = UUID(
     "33333333-3333-3333-3333-333333333333"
 )
 
+BLOCK_ID = UUID(
+    "55555555-5555-5555-5555-555555555555"
+)
+
 
 def make_auth_context(role="SUPERADMIN"):
     mock_client = MagicMock()
@@ -230,6 +234,183 @@ def test_author_pick_requires_order():
         f"{ARTICLE_ID}/author-pick",
         json={
             "is_author_pick": True
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_article_block_management_requires_superadmin():
+    auth = make_auth_context(role="USER")
+
+    app.dependency_overrides[
+        get_current_user
+    ] = lambda: auth
+
+    response = client.get(
+        f"/api/v1/superadmin/articles/"
+        f"{ARTICLE_ID}/blocks"
+    )
+
+    assert response.status_code == 403
+
+
+def test_create_text_block_requires_text_content():
+    auth = make_auth_context(
+        role="SUPERADMIN"
+    )
+
+    app.dependency_overrides[
+        get_current_user
+    ] = lambda: auth
+
+    response = client.post(
+        f"/api/v1/superadmin/articles/"
+        f"{ARTICLE_ID}/blocks",
+        json={
+            "block_type": "TEXT",
+            "display_order": 0,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_image_block_requires_media():
+    auth = make_auth_context(
+        role="SUPERADMIN"
+    )
+
+    app.dependency_overrides[
+        get_current_user
+    ] = lambda: auth
+
+    response = client.post(
+        f"/api/v1/superadmin/articles/"
+        f"{ARTICLE_ID}/blocks",
+        json={
+            "block_type": "IMAGE",
+            "display_order": 0,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_quiz_block_requires_quiz():
+    auth = make_auth_context(
+        role="SUPERADMIN"
+    )
+
+    app.dependency_overrides[
+        get_current_user
+    ] = lambda: auth
+
+    response = client.post(
+        f"/api/v1/superadmin/articles/"
+        f"{ARTICLE_ID}/blocks",
+        json={
+            "block_type": "QUIZ",
+            "display_order": 0,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_opinion_block_requires_opinion():
+    auth = make_auth_context(
+        role="SUPERADMIN"
+    )
+
+    app.dependency_overrides[
+        get_current_user
+    ] = lambda: auth
+
+    response = client.post(
+        f"/api/v1/superadmin/articles/"
+        f"{ARTICLE_ID}/blocks",
+        json={
+            "block_type": "OPINION",
+            "display_order": 0,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_podcast_block_requires_url():
+    auth = make_auth_context(
+        role="SUPERADMIN"
+    )
+
+    app.dependency_overrides[
+        get_current_user
+    ] = lambda: auth
+
+    response = client.post(
+        f"/api/v1/superadmin/articles/"
+        f"{ARTICLE_ID}/blocks",
+        json={
+            "block_type": "PODCAST",
+            "display_order": 0,
+            "text_content": "Listen to the discussion.",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_reorder_rejects_duplicate_orders():
+    auth = make_auth_context(
+        role="SUPERADMIN"
+    )
+
+    app.dependency_overrides[
+        get_current_user
+    ] = lambda: auth
+
+    response = client.patch(
+        f"/api/v1/superadmin/articles/"
+        f"{ARTICLE_ID}/blocks/reorder",
+        json={
+            "items": [
+                {
+                    "block_id": str(BLOCK_ID),
+                    "display_order": 0,
+                },
+                {
+                    "block_id": str(
+                        UUID(
+                            "44444444-4444-4444-4444-444444444444"
+                        )
+                    ),
+                    "display_order": 0,
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_block_rejects_external_url_on_text():
+    auth = make_auth_context(
+        role="SUPERADMIN"
+    )
+
+    app.dependency_overrides[
+        get_current_user
+    ] = lambda: auth
+
+    response = client.post(
+        f"/api/v1/superadmin/articles/"
+        f"{ARTICLE_ID}/blocks",
+        json={
+            "block_type": "TEXT",
+            "display_order": 0,
+            "text_content": "Some article content.",
+            "external_url": "https://example.com",
         },
     )
 

@@ -1,10 +1,15 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
+from fastapi import HTTPException
 
 from app.core.exceptions import AuthorizationError, NotFoundError
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.superadmin_content import (
+    SuperadminArticleBlockCreate,
+    SuperadminArticleBlockReorder,
+    SuperadminArticleBlockResponse,
+    SuperadminArticleBlockUpdate,
     SuperadminArticleCreate,
     SuperadminArticleDetailResponse,
     SuperadminArticleListItem,
@@ -96,6 +101,43 @@ ARTICLE_SELECT = """
 """
 
 
+ARTICLE_BLOCK_SELECT = """
+    id,
+    article_id,
+    block_type,
+    display_order,
+    media_id,
+    quiz_id,
+    opinion_id,
+    external_url,
+    created_at,
+    updated_at,
+    article_block_translations (
+        id,
+        language_code,
+        text_content,
+        caption,
+        created_at,
+        updated_at
+    ),
+    media_assets (
+        id,
+        storage_path,
+        media_type,
+        mime_type
+    )
+"""
+
+
+ALLOWED_BLOCK_TYPES = {
+    "TEXT",
+    "IMAGE",
+    "PODCAST",
+    "QUIZ",
+    "OPINION",
+}
+
+
 def _normalise_translation(data):
     if isinstance(data, list):
         return data[0] if data else None
@@ -132,6 +174,24 @@ def _map_article(data: dict) -> dict:
     }
 
 
+def _map_block(data: dict) -> dict:
+    translation = _normalise_translation(
+        data.get("article_block_translations")
+    )
+
+    return {
+        "id": data["id"],
+        "article_id": data["article_id"],
+        "block_type": data["block_type"],
+        "display_order": data["display_order"],
+        "media_id": data.get("media_id"),
+        "quiz_id": data.get("quiz_id"),
+        "opinion_id": data.get("opinion_id"),
+        "external_url": data.get("external_url"),
+        "translation": translation,
+    }
+
+
 def _validate_article_status(
     value: str,
 ) -> None:
@@ -146,8 +206,6 @@ def _validate_article_status(
     }
 
     if value not in allowed:
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid article status: {value}",
@@ -164,11 +222,19 @@ def _validate_article_type(
     }
 
     if value not in allowed:
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid article type: {value}",
+        )
+
+
+def _validate_block_type(
+    value: str,
+) -> None:
+    if value not in ALLOWED_BLOCK_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid article block type: {value}",
         )
 
 
@@ -212,6 +278,238 @@ def _get_category(
         )
 
     return response.data
+
+
+def _get_article_block(
+    client,
+    article_id: UUID,
+    block_id: UUID,
+):
+    response = (
+        client
+        .table("article_blocks")
+        .select(ARTICLE_BLOCK_SELECT)
+        .eq("id", str(block_id))
+        .eq("article_id", str(article_id))
+        .maybe_single()
+        .execute()
+    )
+
+    if not response.data:
+        raise NotFoundError(
+            "Article block not found"
+        )
+
+    return response.data
+
+
+def _validate_media_reference(
+    client,
+    media_id: UUID,
+) -> None:
+    response = (
+        client
+        .table("media_assets")
+        .select("id")
+        .eq("id", str(media_id))
+        .maybe_single()
+        .execute()
+    )
+
+    if not response.data:
+        raise NotFoundError(
+            "Media asset not found"
+        )
+
+
+def _validate_quiz_reference(
+    client,
+    article_id: UUID,
+    quiz_id: UUID,
+) -> None:
+    response = (
+        client
+        .table("quizzes")
+        .select("id")
+        .eq("id", str(quiz_id))
+        .eq("article_id", str(article_id))
+        .maybe_single()
+        .execute()
+    )
+
+    if not response.data:
+        raise NotFoundError(
+            "Quiz not found for this article"
+        )
+
+
+def _validate_opinion_reference(
+    client,
+    article_id: UUID,
+    opinion_id: UUID,
+) -> None:
+    response = (
+        client
+        .table("opinion_questions")
+        .select("id")
+        .eq("id", str(opinion_id))
+        .eq("article_id", str(article_id))
+        .maybe_single()
+        .execute()
+    )
+
+    if not response.data:
+        raise NotFoundError(
+            "Opinion question not found for this article"
+        )
+
+
+def _validate_block_payload(
+    block_type: str,
+    media_id: UUID | None,
+    quiz_id: UUID | None,
+    opinion_id: UUID | None,
+    external_url,
+    text_content: str | None,
+) -> None:
+    _validate_block_type(block_type)
+
+    if block_type == "TEXT":
+        if (
+            media_id is not None
+            or quiz_id is not None
+            or opinion_id is not None
+            or external_url is not None
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "TEXT blocks cannot reference "
+                    "media, quiz, opinion, or external_url"
+                ),
+            )
+
+        if not text_content:
+            raise HTTPException(
+                status_code=422,
+                detail="TEXT blocks require text_content",
+            )
+
+    elif block_type == "IMAGE":
+        if media_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="IMAGE blocks require media_id",
+            )
+
+        if (
+            quiz_id is not None
+            or opinion_id is not None
+            or external_url is not None
+            or text_content is not None
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "IMAGE blocks may only reference "
+                    "media_id and optional caption"
+                ),
+            )
+
+    elif block_type == "PODCAST":
+        if (
+            media_id is not None
+            or quiz_id is not None
+            or opinion_id is not None
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "PODCAST blocks cannot reference "
+                    "media, quiz, or opinion"
+                ),
+            )
+
+        if external_url is None:
+            raise HTTPException(
+                status_code=422,
+                detail="PODCAST blocks require external_url",
+            )
+
+        if not text_content:
+            raise HTTPException(
+                status_code=422,
+                detail="PODCAST blocks require text_content",
+            )
+
+    elif block_type == "QUIZ":
+        if quiz_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="QUIZ blocks require quiz_id",
+            )
+
+        if (
+            media_id is not None
+            or opinion_id is not None
+            or external_url is not None
+            or text_content is not None
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "QUIZ blocks may only reference quiz_id"
+                ),
+            )
+
+    elif block_type == "OPINION":
+        if opinion_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="OPINION blocks require opinion_id",
+            )
+
+        if (
+            media_id is not None
+            or quiz_id is not None
+            or external_url is not None
+            or text_content is not None
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "OPINION blocks may only reference "
+                    "opinion_id"
+                ),
+            )
+
+
+def _validate_block_references(
+    client,
+    article_id: UUID,
+    media_id: UUID | None,
+    quiz_id: UUID | None,
+    opinion_id: UUID | None,
+) -> None:
+    if media_id is not None:
+        _validate_media_reference(
+            client,
+            media_id,
+        )
+
+    if quiz_id is not None:
+        _validate_quiz_reference(
+            client,
+            article_id,
+            quiz_id,
+        )
+
+    if opinion_id is not None:
+        _validate_opinion_reference(
+            client,
+            article_id,
+            opinion_id,
+        )
 
 
 # ============================================================
@@ -324,8 +622,6 @@ def create_article(
         payload.status == "SCHEDULED"
         and payload.scheduled_at is None
     ):
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=422,
             detail=(
@@ -421,7 +717,7 @@ def update_article(
 
     client = current_user.client
 
-    existing = _get_article(
+    _get_article(
         client,
         article_id,
     )
@@ -656,8 +952,6 @@ def schedule_article(
     _require_superadmin(current_user)
 
     if payload.scheduled_at is None:
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=422,
             detail="scheduled_at is required",
@@ -771,8 +1065,6 @@ def update_author_pick(
         payload.is_author_pick
         and payload.author_pick_order is None
     ):
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=422,
             detail=(
@@ -809,6 +1101,529 @@ def update_author_pick(
             article_id,
         )
     )
+
+
+# ============================================================
+# ARTICLE BLOCKS — LIST
+# ============================================================
+
+@router.get(
+    "/articles/{article_id}/blocks",
+    response_model=list[SuperadminArticleBlockResponse],
+)
+def list_article_blocks(
+    article_id: UUID,
+    current_user: AuthContext = Depends(
+        get_current_user
+    ),
+):
+    _require_superadmin(current_user)
+
+    client = current_user.client
+
+    _get_article(
+        client,
+        article_id,
+    )
+
+    response = (
+        client
+        .table("article_blocks")
+        .select(ARTICLE_BLOCK_SELECT)
+        .eq("article_id", str(article_id))
+        .order("display_order")
+        .execute()
+    )
+
+    return [
+        _map_block(block)
+        for block in (response.data or [])
+    ]
+
+
+# ============================================================
+# ARTICLE BLOCKS — DETAIL
+# ============================================================
+
+@router.get(
+    "/articles/{article_id}/blocks/{block_id}",
+    response_model=SuperadminArticleBlockResponse,
+)
+def get_article_block(
+    article_id: UUID,
+    block_id: UUID,
+    current_user: AuthContext = Depends(
+        get_current_user
+    ),
+):
+    _require_superadmin(current_user)
+
+    block = _get_article_block(
+        current_user.client,
+        article_id,
+        block_id,
+    )
+
+    return _map_block(block)
+
+
+# ============================================================
+# ARTICLE BLOCKS — CREATE
+# ============================================================
+
+@router.post(
+    "/articles/{article_id}/blocks",
+    response_model=SuperadminArticleBlockResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_article_block(
+    article_id: UUID,
+    payload: SuperadminArticleBlockCreate,
+    current_user: AuthContext = Depends(
+        get_current_user
+    ),
+):
+    _require_superadmin(current_user)
+
+    client = current_user.client
+
+    _get_article(
+        client,
+        article_id,
+    )
+
+    _validate_block_payload(
+        block_type=payload.block_type,
+        media_id=payload.media_id,
+        quiz_id=payload.quiz_id,
+        opinion_id=payload.opinion_id,
+        external_url=payload.external_url,
+        text_content=payload.text_content,
+    )
+
+    _validate_block_references(
+        client=client,
+        article_id=article_id,
+        media_id=payload.media_id,
+        quiz_id=payload.quiz_id,
+        opinion_id=payload.opinion_id,
+    )
+
+    block_response = (
+        client
+        .table("article_blocks")
+        .insert(
+            {
+                "article_id": str(article_id),
+                "block_type": payload.block_type,
+                "display_order": payload.display_order,
+                "media_id": (
+                    str(payload.media_id)
+                    if payload.media_id
+                    else None
+                ),
+                "quiz_id": (
+                    str(payload.quiz_id)
+                    if payload.quiz_id
+                    else None
+                ),
+                "opinion_id": (
+                    str(payload.opinion_id)
+                    if payload.opinion_id
+                    else None
+                ),
+                "external_url": (
+                    str(payload.external_url)
+                    if payload.external_url
+                    else None
+                ),
+            }
+        )
+        .select(ARTICLE_BLOCK_SELECT)
+        .single()
+        .execute()
+    )
+
+    block = block_response.data
+
+    # The public article API currently uses an inner
+    # relationship to article_block_translations.
+    #
+    # Therefore every block receives an English compatibility
+    # translation row, even IMAGE / QUIZ / OPINION blocks where
+    # text_content and caption may both be NULL.
+    (
+        client
+        .table("article_block_translations")
+        .insert(
+            {
+                "article_block_id": block["id"],
+                "language_code": "en",
+                "text_content": payload.text_content,
+                "caption": payload.caption,
+            }
+        )
+        .execute()
+    )
+
+    return _map_block(
+        _get_article_block(
+            client,
+            article_id,
+            UUID(str(block["id"])),
+        )
+    )
+
+
+# ============================================================
+# ARTICLE BLOCKS — UPDATE
+# ============================================================
+
+@router.patch(
+    "/articles/{article_id}/blocks/{block_id}",
+    response_model=SuperadminArticleBlockResponse,
+)
+def update_article_block(
+    article_id: UUID,
+    block_id: UUID,
+    payload: SuperadminArticleBlockUpdate,
+    current_user: AuthContext = Depends(
+        get_current_user
+    ),
+):
+    _require_superadmin(current_user)
+
+    client = current_user.client
+
+    existing = _get_article_block(
+        client,
+        article_id,
+        block_id,
+    )
+
+    block_type = existing["block_type"]
+
+    media_id = (
+        payload.media_id
+        if payload.media_id is not None
+        else existing.get("media_id")
+    )
+
+    quiz_id = (
+        payload.quiz_id
+        if payload.quiz_id is not None
+        else existing.get("quiz_id")
+    )
+
+    opinion_id = (
+        payload.opinion_id
+        if payload.opinion_id is not None
+        else existing.get("opinion_id")
+    )
+
+    external_url = (
+        payload.external_url
+        if payload.external_url is not None
+        else existing.get("external_url")
+    )
+
+    existing_translation = _normalise_translation(
+        existing.get("article_block_translations")
+    )
+
+    text_content = (
+        payload.text_content
+        if payload.text_content is not None
+        else (
+            existing_translation.get("text_content")
+            if existing_translation
+            else None
+        )
+    )
+
+    caption = (
+        payload.caption
+        if payload.caption is not None
+        else (
+            existing_translation.get("caption")
+            if existing_translation
+            else None
+        )
+    )
+
+    _validate_block_payload(
+        block_type=block_type,
+        media_id=media_id,
+        quiz_id=quiz_id,
+        opinion_id=opinion_id,
+        external_url=external_url,
+        text_content=text_content,
+    )
+
+    _validate_block_references(
+        client=client,
+        article_id=article_id,
+        media_id=media_id,
+        quiz_id=quiz_id,
+        opinion_id=opinion_id,
+    )
+
+    block_updates = {}
+
+    if payload.display_order is not None:
+        block_updates["display_order"] = (
+            payload.display_order
+        )
+
+    if payload.media_id is not None:
+        block_updates["media_id"] = str(
+            payload.media_id
+        )
+
+    if payload.quiz_id is not None:
+        block_updates["quiz_id"] = str(
+            payload.quiz_id
+        )
+
+    if payload.opinion_id is not None:
+        block_updates["opinion_id"] = str(
+            payload.opinion_id
+        )
+
+    if payload.external_url is not None:
+        block_updates["external_url"] = str(
+            payload.external_url
+        )
+
+    if block_updates:
+        (
+            client
+            .table("article_blocks")
+            .update(block_updates)
+            .eq("id", str(block_id))
+            .eq("article_id", str(article_id))
+            .execute()
+        )
+
+    translation_updates = {
+        "text_content": text_content,
+        "caption": caption,
+    }
+
+    translation_query = (
+        client
+        .table("article_block_translations")
+        .update(translation_updates)
+        .eq(
+            "article_block_id",
+            str(block_id),
+        )
+        .eq(
+            "language_code",
+            "en",
+        )
+    )
+
+    translation_response = (
+        translation_query
+        .execute()
+    )
+
+    # Ensure the compatibility row exists even if an older
+    # block did not have one.
+    if not translation_response.data:
+        (
+            client
+            .table("article_block_translations")
+            .insert(
+                {
+                    "article_block_id": str(block_id),
+                    "language_code": "en",
+                    "text_content": text_content,
+                    "caption": caption,
+                }
+            )
+            .execute()
+        )
+
+    return _map_block(
+        _get_article_block(
+            client,
+            article_id,
+            block_id,
+        )
+    )
+
+
+# ============================================================
+# ARTICLE BLOCKS — DELETE
+# ============================================================
+
+@router.delete(
+    "/articles/{article_id}/blocks/{block_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_article_block(
+    article_id: UUID,
+    block_id: UUID,
+    current_user: AuthContext = Depends(
+        get_current_user
+    ),
+):
+    _require_superadmin(current_user)
+
+    client = current_user.client
+
+    _get_article_block(
+        client,
+        article_id,
+        block_id,
+    )
+
+    (
+        client
+        .table("article_blocks")
+        .delete()
+        .eq("id", str(block_id))
+        .eq("article_id", str(article_id))
+        .execute()
+    )
+
+    return None
+
+
+# ============================================================
+# ARTICLE BLOCKS — REORDER
+# ============================================================
+
+@router.patch(
+    "/articles/{article_id}/blocks/reorder",
+    response_model=list[SuperadminArticleBlockResponse],
+)
+def reorder_article_blocks(
+    article_id: UUID,
+    payload: SuperadminArticleBlockReorder,
+    current_user: AuthContext = Depends(
+        get_current_user
+    ),
+):
+    _require_superadmin(current_user)
+
+    client = current_user.client
+
+    _get_article(
+        client,
+        article_id,
+    )
+
+    if not payload.items:
+        raise HTTPException(
+            status_code=422,
+            detail="At least one block is required",
+        )
+
+    block_ids = [
+        item.block_id
+        for item in payload.items
+    ]
+
+    if len(block_ids) != len(set(block_ids)):
+        raise HTTPException(
+            status_code=422,
+            detail="Duplicate block_id values are not allowed",
+        )
+
+    display_orders = [
+        item.display_order
+        for item in payload.items
+    ]
+
+    if len(display_orders) != len(
+        set(display_orders)
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Duplicate display_order values "
+                "are not allowed"
+            ),
+        )
+
+    existing_response = (
+        client
+        .table("article_blocks")
+        .select("id, display_order")
+        .eq("article_id", str(article_id))
+        .execute()
+    )
+
+    existing_blocks = (
+        existing_response.data or []
+    )
+
+    existing_ids = {
+        UUID(str(block["id"]))
+        for block in existing_blocks
+    }
+
+    requested_ids = set(block_ids)
+
+    if requested_ids != existing_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Reorder payload must contain "
+                "every block belonging to the article "
+                "exactly once"
+            ),
+        )
+
+    # The database enforces unique display_order per article.
+    # Use temporary negative values first so swapping
+    # positions does not violate that constraint.
+    for index, item in enumerate(payload.items):
+        (
+            client
+            .table("article_blocks")
+            .update(
+                {
+                    "display_order": -(
+                        index + 1
+                    )
+                }
+            )
+            .eq("id", str(item.block_id))
+            .eq("article_id", str(article_id))
+            .execute()
+        )
+
+    for item in payload.items:
+        (
+            client
+            .table("article_blocks")
+            .update(
+                {
+                    "display_order": item.display_order
+                }
+            )
+            .eq("id", str(item.block_id))
+            .eq("article_id", str(article_id))
+            .execute()
+        )
+
+    response = (
+        client
+        .table("article_blocks")
+        .select(ARTICLE_BLOCK_SELECT)
+        .eq("article_id", str(article_id))
+        .order("display_order")
+        .execute()
+    )
+
+    return [
+        _map_block(block)
+        for block in (response.data or [])
+    ]
 
 
 # ============================================================

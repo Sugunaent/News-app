@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 
 
 # ============================================================
@@ -150,3 +150,69 @@ class SuperadminArticleDetailResponse(
 class SuperadminHomeResponse(BaseModel):
     author_picks: list[SuperadminArticleListItem]
     active_categories: list[SuperadminCategoryResponse]
+
+
+# ============================================================
+# ARTICLE BLOCKS
+# ============================================================
+
+class SuperadminArticleBlockTranslation(BaseModel):
+    id: UUID
+    language_code: str
+    text_content: str | None
+    caption: str | None
+
+
+class SuperadminArticleBlockResponse(BaseModel):
+    id: UUID
+    article_id: UUID
+    block_type: str
+    display_order: int
+    media_id: UUID | None
+    quiz_id: UUID | None
+    opinion_id: UUID | None
+    external_url: str | None
+    translation: SuperadminArticleBlockTranslation | None
+
+
+class SuperadminArticleBlockCreate(BaseModel):
+    block_type: str
+    display_order: int = Field(
+        ge=0,
+    )
+
+    media_id: UUID | None = None
+    quiz_id: UUID | None = None
+    opinion_id: UUID | None = None
+
+    external_url: HttpUrl | None = None
+
+    text_content: str | None = None
+    caption: str | None = None
+
+
+class SuperadminArticleBlockUpdate(BaseModel):
+    display_order: int | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    media_id: UUID | None = None
+    quiz_id: UUID | None = None
+    opinion_id: UUID | None = None
+
+    external_url: HttpUrl | None = None
+
+    text_content: str | None = None
+    caption: str | None = None
+
+
+class SuperadminArticleBlockReorderItem(BaseModel):
+    block_id: UUID
+    display_order: int = Field(
+        ge=0,
+    )
+
+
+class SuperadminArticleBlockReorder(BaseModel):
+    items: list[SuperadminArticleBlockReorderItem]

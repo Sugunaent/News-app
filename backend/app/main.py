@@ -17,6 +17,7 @@ from app.routers.comments import router as comments_router
 from app.routers.advertisements import router as advertisements_router
 from app.routers.analytics import router as analytics_router
 from app.routers.superadmin_content import router as superadmin_content_router
+from app.routers.superadmin_interactive import router as superadmin_interactive_router
 
 app = FastAPI(
     title="Cognition News API",
@@ -52,3 +53,4 @@ app.include_router(comments_router)
 app.include_router(advertisements_router)
 app.include_router(analytics_router)
 app.include_router(superadmin_content_router)
+app.include_router(superadmin_interactive_router)
