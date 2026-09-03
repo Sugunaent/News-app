@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from app.db.supabase import supabase
-from app.services.gamification import get_my_gamification
+from app.services.gamification import get_gamification_status
 
 
 def _resolve_article_title(article: dict | None) -> str | None:
@@ -55,7 +55,7 @@ def get_user_profile(user_id: UUID) -> dict | None:
     # 2. Gamification
     # ---------------------------------------------------------
 
-    gamification = get_my_gamification(user_id)
+    gamification = get_gamification_status(user_id)
 
     # ---------------------------------------------------------
     # 3. Article completions
