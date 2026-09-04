@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
 from uuid import UUID
-from app.db.supabase import supabase
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
 
 from app.core.exceptions import AuthorizationError, NotFoundError
+from app.db.supabase import supabase
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.advertisements import (
     AdvertisementCreate,
@@ -14,11 +15,8 @@ from app.schemas.advertisements import (
     AdvertisementSlotUpdate,
     AdvertisementUpdate,
 )
-from fastapi.responses import RedirectResponse
-
-from app.services.analytics import (
-    record_advertisement_click,
-)
+from app.services.analytics import record_advertisement_click
+from app.services.audit import record_audit
 
 
 router = APIRouter(
@@ -170,10 +168,7 @@ def list_advertisements(
     )
 
     if slot is not None:
-        query = (
-            query
-            .eq("slot.key", slot)
-        )
+        query = query.eq("slot.key", slot)
 
     result = (
         query
@@ -379,6 +374,7 @@ def click_advertisement(
         status_code=status.HTTP_307_TEMPORARY_REDIRECT,
     )
 
+
 # ============================================================
 # SUPERADMIN SINGLE ADVERTISEMENT
 # ============================================================
@@ -472,7 +468,27 @@ def create_advertisement(
             "Advertisement could not be created"
         )
 
-    return result.data
+    advertisement = result.data
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ADVERTISEMENT_CREATED",
+        entity_type="ADVERTISEMENT",
+        entity_id=UUID(str(advertisement["id"])),
+        metadata={
+            "slot_id": advertisement.get("slot_id"),
+            "image_media_id": advertisement.get("image_media_id"),
+            "title": advertisement.get("title"),
+            "description": advertisement.get("description"),
+            "destination_url": advertisement.get("destination_url"),
+            "starts_at": advertisement.get("starts_at"),
+            "ends_at": advertisement.get("ends_at"),
+            "is_active": advertisement.get("is_active"),
+            "display_order": advertisement.get("display_order"),
+        },
+    )
+
+    return advertisement
 
 
 # ============================================================
@@ -569,7 +585,27 @@ def update_advertisement(
             "Advertisement not found"
         )
 
-    return result.data
+    advertisement = result.data
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ADVERTISEMENT_UPDATED",
+        entity_type="ADVERTISEMENT",
+        entity_id=advertisement_id,
+        metadata={
+            "slot_id": advertisement.get("slot_id"),
+            "image_media_id": advertisement.get("image_media_id"),
+            "title": advertisement.get("title"),
+            "description": advertisement.get("description"),
+            "destination_url": advertisement.get("destination_url"),
+            "starts_at": advertisement.get("starts_at"),
+            "ends_at": advertisement.get("ends_at"),
+            "is_active": advertisement.get("is_active"),
+            "display_order": advertisement.get("display_order"),
+        },
+    )
+
+    return advertisement
 
 
 # ============================================================
@@ -595,7 +631,7 @@ def delete_advertisement(
     existing_result = (
         current_user.client
         .table("advertisements")
-        .select("id")
+        .select("*")
         .eq("id", str(advertisement_id))
         .maybe_single()
         .execute()
@@ -606,12 +642,32 @@ def delete_advertisement(
             "Advertisement not found"
         )
 
+    existing = existing_result.data
+
     (
         current_user.client
         .table("advertisements")
         .delete()
         .eq("id", str(advertisement_id))
         .execute()
+    )
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ADVERTISEMENT_DELETED",
+        entity_type="ADVERTISEMENT",
+        entity_id=advertisement_id,
+        metadata={
+            "slot_id": existing.get("slot_id"),
+            "image_media_id": existing.get("image_media_id"),
+            "title": existing.get("title"),
+            "description": existing.get("description"),
+            "destination_url": existing.get("destination_url"),
+            "starts_at": existing.get("starts_at"),
+            "ends_at": existing.get("ends_at"),
+            "is_active": existing.get("is_active"),
+            "display_order": existing.get("display_order"),
+        },
     )
 
     return None
@@ -686,7 +742,22 @@ def create_advertisement_slot(
             "Advertisement slot could not be created"
         )
 
-    return result.data
+    slot = result.data
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ADVERTISEMENT_SLOT_CREATED",
+        entity_type="ADVERTISEMENT_SLOT",
+        entity_id=UUID(str(slot["id"])),
+        metadata={
+            "key": slot.get("key"),
+            "name": slot.get("name"),
+            "description": slot.get("description"),
+            "is_active": slot.get("is_active"),
+        },
+    )
+
+    return slot
 
 
 @router.patch(
@@ -709,7 +780,7 @@ def update_advertisement_slot(
     existing_result = (
         current_user.client
         .table("advertisement_slots")
-        .select("id")
+        .select("*")
         .eq("id", str(slot_id))
         .maybe_single()
         .execute()
@@ -751,7 +822,22 @@ def update_advertisement_slot(
             "Advertisement slot not found"
         )
 
-    return result.data
+    slot = result.data
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ADVERTISEMENT_SLOT_UPDATED",
+        entity_type="ADVERTISEMENT_SLOT",
+        entity_id=slot_id,
+        metadata={
+            "key": slot.get("key"),
+            "name": slot.get("name"),
+            "description": slot.get("description"),
+            "is_active": slot.get("is_active"),
+        },
+    )
+
+    return slot
 
 
 @router.delete(
@@ -773,7 +859,7 @@ def delete_advertisement_slot(
     existing_result = (
         current_user.client
         .table("advertisement_slots")
-        .select("id")
+        .select("*")
         .eq("id", str(slot_id))
         .maybe_single()
         .execute()
@@ -784,12 +870,27 @@ def delete_advertisement_slot(
             "Advertisement slot not found"
         )
 
+    existing = existing_result.data
+
     (
         current_user.client
         .table("advertisement_slots")
         .delete()
         .eq("id", str(slot_id))
         .execute()
+    )
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ADVERTISEMENT_SLOT_DELETED",
+        entity_type="ADVERTISEMENT_SLOT",
+        entity_id=slot_id,
+        metadata={
+            "key": existing.get("key"),
+            "name": existing.get("name"),
+            "description": existing.get("description"),
+            "is_active": existing.get("is_active"),
+        },
     )
 
     return None

@@ -1,6 +1,7 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.dependencies.auth import (
@@ -11,6 +12,14 @@ from app.main import app
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def mock_record_audit():
+    with patch(
+        "app.routers.superadmin_interactive.record_audit"
+    ):
+        yield
 
 
 # ============================================================

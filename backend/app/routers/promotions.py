@@ -2,7 +2,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-
 from app.core.exceptions import AuthorizationError, NotFoundError
 from app.db.supabase import supabase
 from app.dependencies.auth import get_current_user
@@ -12,6 +11,7 @@ from app.schemas.promotions import (
     PromotionalItemUpdate,
 )
 from app.schemas.auth import CurrentUser
+from app.services.audit import record_audit
 
 
 router = APIRouter(
@@ -22,9 +22,14 @@ router = APIRouter(
 
 def _require_superadmin(current_user: CurrentUser) -> None:
     user_role = getattr(current_user, "role", None)
+
     if not user_role and hasattr(current_user, "profile"):
-        user_role = current_user.profile.get("role") if isinstance(current_user.profile, dict) else getattr(current_user.profile, "role", None)
-        
+        user_role = (
+            current_user.profile.get("role")
+            if isinstance(current_user.profile, dict)
+            else getattr(current_user.profile, "role", None)
+        )
+
     if user_role != "SUPERADMIN":
         raise AuthorizationError("Superadmin access required")
 
@@ -61,7 +66,6 @@ def list_promotions():
     This endpoint is public. Promotional items are content displayed
     to all users, so authentication is not required.
     """
-
     result = (
         supabase
         .table("promotional_items")
@@ -80,7 +84,6 @@ def list_promotions():
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc)
-
     visible_items = []
 
     for item in items:
@@ -89,7 +92,9 @@ def list_promotions():
 
         if starts_at:
             starts_at_dt = (
-                datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
+                datetime.fromisoformat(
+                    starts_at.replace("Z", "+00:00")
+                )
                 if isinstance(starts_at, str)
                 else starts_at
             )
@@ -99,7 +104,9 @@ def list_promotions():
 
         if ends_at:
             ends_at_dt = (
-                datetime.fromisoformat(ends_at.replace("Z", "+00:00"))
+                datetime.fromisoformat(
+                    ends_at.replace("Z", "+00:00")
+                )
                 if isinstance(ends_at, str)
                 else ends_at
             )
@@ -170,7 +177,6 @@ def create_promotion(
         raise NotFoundError("Promotional image media not found")
 
     data = payload.model_dump(mode="json")
-
     data["external_url"] = str(payload.external_url)
 
     result = (
@@ -185,7 +191,26 @@ def create_promotion(
     if not result.data:
         raise NotFoundError("Promotional item could not be created")
 
-    return result.data
+    promotion = result.data
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="PROMOTION_CREATED",
+        entity_type="PROMOTIONAL_ITEM",
+        entity_id=UUID(str(promotion["id"])),
+        metadata={
+            "title": promotion.get("title"),
+            "image_media_id": promotion.get("image_media_id"),
+            "external_url": promotion.get("external_url"),
+            "event_date": promotion.get("event_date"),
+            "display_order": promotion.get("display_order"),
+            "is_active": promotion.get("is_active"),
+            "starts_at": promotion.get("starts_at"),
+            "ends_at": promotion.get("ends_at"),
+        },
+    )
+
+    return promotion
 
 
 @router.patch(
@@ -217,10 +242,12 @@ def update_promotion(
     existing = existing_result.data
 
     merged_starts_at = payload.starts_at
+
     if "starts_at" not in payload.model_fields_set:
         merged_starts_at = existing.get("starts_at")
 
     merged_ends_at = payload.ends_at
+
     if "ends_at" not in payload.model_fields_set:
         merged_ends_at = existing.get("ends_at")
 
@@ -255,7 +282,9 @@ def update_promotion(
             )
 
             if not media_result.data:
-                raise NotFoundError("Promotional image media not found")
+                raise NotFoundError(
+                    "Promotional image media not found"
+                )
 
     data = payload.model_dump(
         mode="json",
@@ -278,7 +307,26 @@ def update_promotion(
     if not result.data:
         raise NotFoundError("Promotional item not found")
 
-    return result.data
+    promotion = result.data
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="PROMOTION_UPDATED",
+        entity_type="PROMOTIONAL_ITEM",
+        entity_id=promotion_id,
+        metadata={
+            "title": promotion.get("title"),
+            "image_media_id": promotion.get("image_media_id"),
+            "external_url": promotion.get("external_url"),
+            "event_date": promotion.get("event_date"),
+            "display_order": promotion.get("display_order"),
+            "is_active": promotion.get("is_active"),
+            "starts_at": promotion.get("starts_at"),
+            "ends_at": promotion.get("ends_at"),
+        },
+    )
+
+    return promotion
 
 
 @router.delete(
@@ -297,7 +345,7 @@ def delete_promotion(
     existing_result = (
         current_user.client
         .table("promotional_items")
-        .select("id")
+        .select("*")
         .eq("id", str(promotion_id))
         .maybe_single()
         .execute()
@@ -306,12 +354,31 @@ def delete_promotion(
     if not existing_result.data:
         raise NotFoundError("Promotional item not found")
 
+    existing = existing_result.data
+
     (
         current_user.client
         .table("promotional_items")
         .delete()
         .eq("id", str(promotion_id))
         .execute()
+    )
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="PROMOTION_DELETED",
+        entity_type="PROMOTIONAL_ITEM",
+        entity_id=promotion_id,
+        metadata={
+            "title": existing.get("title"),
+            "image_media_id": existing.get("image_media_id"),
+            "external_url": existing.get("external_url"),
+            "event_date": existing.get("event_date"),
+            "display_order": existing.get("display_order"),
+            "is_active": existing.get("is_active"),
+            "starts_at": existing.get("starts_at"),
+            "ends_at": existing.get("ends_at"),
+        },
     )
 
     return None

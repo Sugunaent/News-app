@@ -20,6 +20,7 @@ from app.routers.superadmin_content import router as superadmin_content_router
 from app.routers.superadmin_interactive import router as superadmin_interactive_router
 from app.routers.media import router as media_router
 from app.routers.superadmin_management import router as superadmin_management_router
+from app.routers.audit import router as audit_router
 
 app = FastAPI(
     title="Cognition News API",
@@ -58,3 +59,4 @@ app.include_router(superadmin_content_router)
 app.include_router(superadmin_interactive_router)
 app.include_router(superadmin_management_router)
 app.include_router(media_router)
+app.include_router(audit_router)

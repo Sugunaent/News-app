@@ -13,6 +13,7 @@ from app.schemas.media import (
     MediaReferenceResponse,
     MediaUploadResponse,
 )
+from app.services.audit import record_audit
 
 
 router = APIRouter(
@@ -564,6 +565,19 @@ def upload_media_asset(
         storage_path,
     )
 
+    record_audit(
+        actor_user_id=user_id,
+        action="MEDIA_ASSET_UPLOADED",
+        entity_type="MEDIA_ASSET",
+        entity_id=media_id,
+        metadata={
+            "storage_path": storage_path,
+            "media_type": media_type,
+            "mime_type": mime_type,
+            "file_size": len(file_bytes),
+        },
+    )
+
     return _build_media_response(
         media_data,
         signed_url,
@@ -589,6 +603,8 @@ def delete_media_asset(
     """
 
     _require_superadmin(current_user)
+
+    user_id = _get_user_id(current_user)
 
     result = (
         current_user.client
@@ -662,5 +678,15 @@ def delete_media_asset(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete media metadata",
         ) from exc
+
+    record_audit(
+        actor_user_id=user_id,
+        action="MEDIA_ASSET_DELETED",
+        entity_type="MEDIA_ASSET",
+        entity_id=media_id,
+        metadata={
+            "storage_path": storage_path,
+        },
+    )
 
     return None

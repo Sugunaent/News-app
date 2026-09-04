@@ -1,12 +1,21 @@
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.dependencies.auth import get_current_user
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def mock_record_audit():
+    with patch(
+        "app.routers.promotions.record_audit"
+    ):
+        yield
 
 PROMOTION_ID = "11111111-1111-1111-1111-111111111111"
 MEDIA_ID = "22222222-2222-2222-2222-222222222222"

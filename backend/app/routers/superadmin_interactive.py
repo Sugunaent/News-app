@@ -28,6 +28,7 @@ from app.schemas.superadmin_interactive import (
     SuperadminQuizQuestionUpdate,
     SuperadminQuizUpdate,
 )
+from app.services.audit import record_audit
 
 
 router = APIRouter(
@@ -54,6 +55,28 @@ def _require_superadmin(
         raise AuthorizationError(
             "Superadmin access required"
         )
+
+
+# ============================================================
+# AUDIT
+# ============================================================
+
+
+def _audit(
+    auth: AuthContext,
+    *,
+    action: str,
+    entity_type: str,
+    entity_id: UUID | None = None,
+    metadata: dict | None = None,
+) -> None:
+    record_audit(
+        actor_user_id=UUID(str(auth.user.id)),
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        metadata=metadata or {},
+    )
 
 
 # ============================================================
@@ -495,6 +518,17 @@ async def create_quiz(
     )
 
     quiz = result.data
+    quiz_id = UUID(str(quiz["id"]))
+
+    _audit(
+        auth,
+        action="QUIZ_CREATED",
+        entity_type="QUIZ",
+        entity_id=quiz_id,
+        metadata={
+            "article_id": str(payload.article_id),
+        },
+    )
 
     return SuperadminQuizDetailResponse(
         id=quiz["id"],
@@ -564,7 +598,25 @@ async def update_quiz(
             .execute()
         )
 
-        return result.data
+        updated_quiz = result.data
+
+        _audit(
+            auth,
+            action="QUIZ_UPDATED",
+            entity_type="QUIZ",
+            entity_id=quiz_id,
+            metadata={
+                "before_article_id": str(
+                    quiz["article_id"]
+                ),
+                "after_article_id": str(
+                    updated_quiz["article_id"]
+                ),
+                "changes": update_data,
+            },
+        )
+
+        return updated_quiz
 
     return quiz
 
@@ -579,7 +631,7 @@ async def delete_quiz(
 ):
     _require_superadmin(auth)
 
-    _get_quiz(
+    quiz = _get_quiz(
         auth.client,
         quiz_id,
     )
@@ -589,6 +641,16 @@ async def delete_quiz(
         .delete()
         .eq("id", str(quiz_id))
         .execute()
+    )
+
+    _audit(
+        auth,
+        action="QUIZ_DELETED",
+        entity_type="QUIZ",
+        entity_id=quiz_id,
+        metadata={
+            "article_id": str(quiz["article_id"]),
+        },
     )
 
 
@@ -724,14 +786,27 @@ async def create_quiz_question(
     )
 
     question = result.data
+    question_id = UUID(str(question["id"]))
 
     _upsert_translation(
         client,
         "quiz_question_translations",
         "question_id",
-        UUID(str(question["id"])),
+        question_id,
         "question_text",
         payload.question_text,
+    )
+
+    _audit(
+        auth,
+        action="QUIZ_QUESTION_CREATED",
+        entity_type="QUIZ_QUESTION",
+        entity_id=question_id,
+        metadata={
+            "quiz_id": str(quiz_id),
+            "display_order": payload.display_order,
+            "question_text": payload.question_text,
+        },
     )
 
     return SuperadminQuizQuestionResponse(
@@ -798,6 +873,26 @@ async def update_quiz_question(
             payload.question_text,
         )
 
+    _audit(
+        auth,
+        action="QUIZ_QUESTION_UPDATED",
+        entity_type="QUIZ_QUESTION",
+        entity_id=question_id,
+        metadata={
+            "quiz_id": str(quiz_id),
+            "changes": {
+                **update_data,
+                **(
+                    {
+                        "question_text": payload.question_text
+                    }
+                    if payload.question_text is not None
+                    else {}
+                ),
+            },
+        },
+    )
+
     return SuperadminQuizQuestionResponse(
         id=question["id"],
         quiz_id=question["quiz_id"],
@@ -844,7 +939,7 @@ async def delete_quiz_question(
 
     client = auth.client
 
-    _get_quiz_question(
+    question = _get_quiz_question(
         client,
         quiz_id,
         question_id,
@@ -856,6 +951,17 @@ async def delete_quiz_question(
         .eq("id", str(question_id))
         .eq("quiz_id", str(quiz_id))
         .execute()
+    )
+
+    _audit(
+        auth,
+        action="QUIZ_QUESTION_DELETED",
+        entity_type="QUIZ_QUESTION",
+        entity_id=question_id,
+        metadata={
+            "quiz_id": str(quiz_id),
+            "display_order": question["display_order"],
+        },
     )
 
 
@@ -908,6 +1014,23 @@ async def reorder_quiz_questions(
         quiz_id,
         payload.items,
     )
+
+    _audit(
+        auth,
+        action="QUIZ_QUESTIONS_REORDERED",
+        entity_type="QUIZ",
+        entity_id=quiz_id,
+        metadata={
+            "items": [
+                {
+                    "id": str(item.id),
+                    "display_order": item.display_order,
+                }
+                for item in payload.items
+            ],
+        },
+    )
+
 
 # ============================================================
 # QUIZ OPTIONS
@@ -1014,14 +1137,29 @@ async def create_quiz_option(
     )
 
     option = result.data
+    option_id = UUID(str(option["id"]))
 
     _upsert_translation(
         client,
         "quiz_option_translations",
         "option_id",
-        UUID(str(option["id"])),
+        option_id,
         "option_text",
         payload.option_text,
+    )
+
+    _audit(
+        auth,
+        action="QUIZ_OPTION_CREATED",
+        entity_type="QUIZ_OPTION",
+        entity_id=option_id,
+        metadata={
+            "quiz_id": str(quiz_id),
+            "question_id": str(question_id),
+            "display_order": payload.display_order,
+            "is_correct": payload.is_correct,
+            "option_text": payload.option_text,
+        },
     )
 
     return SuperadminQuizOptionResponse(
@@ -1115,6 +1253,27 @@ async def update_quiz_option(
             payload.option_text,
         )
 
+    _audit(
+        auth,
+        action="QUIZ_OPTION_UPDATED",
+        entity_type="QUIZ_OPTION",
+        entity_id=option_id,
+        metadata={
+            "quiz_id": str(quiz_id),
+            "question_id": str(question_id),
+            "changes": {
+                **update_data,
+                **(
+                    {
+                        "option_text": payload.option_text
+                    }
+                    if payload.option_text is not None
+                    else {}
+                ),
+            },
+        },
+    )
+
     return SuperadminQuizOptionResponse(
         id=option["id"],
         question_id=option["question_id"],
@@ -1153,7 +1312,7 @@ async def delete_quiz_option(
         question_id,
     )
 
-    _get_quiz_option(
+    option = _get_quiz_option(
         client,
         question_id,
         option_id,
@@ -1168,6 +1327,19 @@ async def delete_quiz_option(
             str(question_id),
         )
         .execute()
+    )
+
+    _audit(
+        auth,
+        action="QUIZ_OPTION_DELETED",
+        entity_type="QUIZ_OPTION",
+        entity_id=option_id,
+        metadata={
+            "quiz_id": str(quiz_id),
+            "question_id": str(question_id),
+            "display_order": option["display_order"],
+            "is_correct": option["is_correct"],
+        },
     )
 
 
@@ -1222,6 +1394,23 @@ async def reorder_quiz_options(
         "question_id",
         question_id,
         payload.items,
+    )
+
+    _audit(
+        auth,
+        action="QUIZ_OPTIONS_REORDERED",
+        entity_type="QUIZ_QUESTION",
+        entity_id=question_id,
+        metadata={
+            "quiz_id": str(quiz_id),
+            "items": [
+                {
+                    "id": str(item.id),
+                    "display_order": item.display_order,
+                }
+                for item in payload.items
+            ],
+        },
     )
 
 
@@ -1281,6 +1470,17 @@ async def set_quiz_correct_answer(
     )
 
     option = result.data
+
+    _audit(
+        auth,
+        action="QUIZ_CORRECT_ANSWER_CHANGED",
+        entity_type="QUIZ_QUESTION",
+        entity_id=question_id,
+        metadata={
+            "quiz_id": str(quiz_id),
+            "option_id": str(payload.option_id),
+        },
+    )
 
     return SuperadminQuizOptionResponse(
         id=option["id"],
@@ -1513,14 +1713,30 @@ async def create_opinion(
     )
 
     opinion = result.data
+    opinion_id = UUID(str(opinion["id"]))
 
     _upsert_translation(
         client,
         "opinion_question_translations",
         "question_id",
-        UUID(str(opinion["id"])),
+        opinion_id,
         "question_text",
         payload.question_text,
+    )
+
+    _audit(
+        auth,
+        action="OPINION_CREATED",
+        entity_type="OPINION",
+        entity_id=opinion_id,
+        metadata={
+            "article_id": str(payload.article_id),
+            "display_order": payload.display_order,
+            "allow_custom_response": (
+                payload.allow_custom_response
+            ),
+            "question_text": payload.question_text,
+        },
     )
 
     return SuperadminOpinionResponse(
@@ -1591,6 +1807,26 @@ async def update_opinion(
             "question_text",
             payload.question_text,
         )
+
+    _audit(
+        auth,
+        action="OPINION_UPDATED",
+        entity_type="OPINION",
+        entity_id=opinion_id,
+        metadata={
+            "article_id": str(opinion["article_id"]),
+            "changes": {
+                **update_data,
+                **(
+                    {
+                        "question_text": payload.question_text
+                    }
+                    if payload.question_text is not None
+                    else {}
+                ),
+            },
+        },
+    )
 
     translation = (
         client.table("opinion_question_translations")
@@ -1694,6 +1930,22 @@ async def reorder_opinions(
         payload.items,
     )
 
+    _audit(
+        auth,
+        action="OPINIONS_REORDERED",
+        entity_type="ARTICLE",
+        entity_id=UUID(str(article_id)),
+        metadata={
+            "items": [
+                {
+                    "id": str(item.id),
+                    "display_order": item.display_order,
+                }
+                for item in payload.items
+            ],
+        },
+    )
+
 
 @router.delete(
     "/opinions/{opinion_id}",
@@ -1705,7 +1957,7 @@ async def delete_opinion(
 ):
     _require_superadmin(auth)
 
-    _get_opinion(
+    opinion = _get_opinion(
         auth.client,
         opinion_id,
     )
@@ -1715,6 +1967,20 @@ async def delete_opinion(
         .delete()
         .eq("id", str(opinion_id))
         .execute()
+    )
+
+    _audit(
+        auth,
+        action="OPINION_DELETED",
+        entity_type="OPINION",
+        entity_id=opinion_id,
+        metadata={
+            "article_id": str(opinion["article_id"]),
+            "display_order": opinion["display_order"],
+            "allow_custom_response": (
+                opinion["allow_custom_response"]
+            ),
+        },
     )
 
 
@@ -1812,14 +2078,27 @@ async def create_opinion_option(
     )
 
     option = result.data
+    option_id = UUID(str(option["id"]))
 
     _upsert_translation(
         client,
         "opinion_option_translations",
         "option_id",
-        UUID(str(option["id"])),
+        option_id,
         "option_text",
         payload.option_text,
+    )
+
+    _audit(
+        auth,
+        action="OPINION_OPTION_CREATED",
+        entity_type="OPINION_OPTION",
+        entity_id=option_id,
+        metadata={
+            "opinion_id": str(opinion_id),
+            "display_order": payload.display_order,
+            "option_text": payload.option_text,
+        },
     )
 
     return SuperadminOpinionOptionResponse(
@@ -1894,6 +2173,26 @@ async def update_opinion_option(
             payload.option_text,
         )
 
+    _audit(
+        auth,
+        action="OPINION_OPTION_UPDATED",
+        entity_type="OPINION_OPTION",
+        entity_id=option_id,
+        metadata={
+            "opinion_id": str(opinion_id),
+            "changes": {
+                **update_data,
+                **(
+                    {
+                        "option_text": payload.option_text
+                    }
+                    if payload.option_text is not None
+                    else {}
+                ),
+            },
+        },
+    )
+
     return SuperadminOpinionOptionResponse(
         id=option["id"],
         question_id=option["question_id"],
@@ -1931,7 +2230,7 @@ async def delete_opinion_option(
         opinion_id,
     )
 
-    _get_opinion_option(
+    option = _get_opinion_option(
         client,
         opinion_id,
         option_id,
@@ -1946,6 +2245,17 @@ async def delete_opinion_option(
             str(opinion_id),
         )
         .execute()
+    )
+
+    _audit(
+        auth,
+        action="OPINION_OPTION_DELETED",
+        entity_type="OPINION_OPTION",
+        entity_id=option_id,
+        metadata={
+            "opinion_id": str(opinion_id),
+            "display_order": option["display_order"],
+        },
     )
 
 
@@ -2000,4 +2310,20 @@ async def reorder_opinion_options(
         "question_id",
         opinion_id,
         payload.items,
+    )
+
+    _audit(
+        auth,
+        action="OPINION_OPTIONS_REORDERED",
+        entity_type="OPINION",
+        entity_id=opinion_id,
+        metadata={
+            "items": [
+                {
+                    "id": str(item.id),
+                    "display_order": item.display_order,
+                }
+                for item in payload.items
+            ],
+        },
     )

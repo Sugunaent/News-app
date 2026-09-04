@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.dependencies.auth import AuthContext, get_current_user
@@ -8,6 +9,14 @@ from app.main import app
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def mock_record_audit():
+    with patch(
+        "app.routers.superadmin_management.record_audit"
+    ):
+        yield
 
 
 USER_ID = UUID("11111111-1111-1111-1111-111111111111")

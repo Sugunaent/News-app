@@ -2,12 +2,21 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.dependencies.auth import AuthContext, get_current_user
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def mock_record_audit():
+    with patch(
+        "app.routers.media.record_audit"
+    ):
+        yield
 
 USER_ID = UUID("11111111-1111-1111-1111-111111111111")
 SUPERADMIN_ID = UUID("99999999-9999-9999-9999-999999999999")

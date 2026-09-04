@@ -22,6 +22,7 @@ from app.schemas.comments import (
 from app.services.analytics import (
     record_comment_created,
 )
+from app.services.audit import record_audit
 
 
 router = APIRouter(
@@ -177,7 +178,6 @@ async def create_comment(
     )
 
     profile = profile_response.data or {}
-
     comment["profiles"] = profile
 
     # The comment now exists successfully.
@@ -365,6 +365,22 @@ async def moderate_comment(
 
     comment = response.data[0]
 
+    record_audit(
+        actor_user_id=context.user.id,
+        action=(
+            "COMMENT_HIDDEN"
+            if hidden
+            else "COMMENT_UNHIDDEN"
+        ),
+        entity_type="COMMENT",
+        entity_id=comment_id,
+        metadata={
+            "article_id": str(article_id),
+            "user_id": comment.get("user_id"),
+            "is_hidden": comment.get("is_hidden"),
+        },
+    )
+
     return {
         "id": comment["id"],
         "is_hidden": comment["is_hidden"],
@@ -420,6 +436,19 @@ async def admin_delete_comment(
         )
 
     comment = response.data[0]
+
+    record_audit(
+        actor_user_id=context.user.id,
+        action="COMMENT_DELETED",
+        entity_type="COMMENT",
+        entity_id=comment_id,
+        metadata={
+            "article_id": str(article_id),
+            "user_id": comment.get("user_id"),
+            "is_hidden": comment.get("is_hidden"),
+            "deleted_at": comment.get("deleted_at"),
+        },
+    )
 
     return {
         "id": comment["id"],

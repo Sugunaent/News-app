@@ -21,6 +21,7 @@ from app.schemas.superadmin_content import (
     SuperadminCategoryUpdate,
     SuperadminHomeResponse,
 )
+from app.services.audit import record_audit
 
 
 router = APIRouter(
@@ -690,10 +691,32 @@ def create_article(
         ) \
         .execute()
 
+    article_id = UUID(str(article["id"]))
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ARTICLE_CREATED",
+        entity_type="ARTICLE",
+        entity_id=article_id,
+        metadata={
+            "article_type": payload.article_type,
+            "status": payload.status,
+            "category_id": str(payload.category_id),
+            "cover_media_id": (
+                str(payload.cover_media_id)
+                if payload.cover_media_id
+                else None
+            ),
+            "translation_language": (
+                payload.translation.language_code
+            ),
+        },
+    )
+
     return _map_article(
         _get_article(
             current_user.client,
-            UUID(str(article["id"])),
+            article_id,
         )
     )
 
@@ -717,7 +740,7 @@ def update_article(
 
     client = current_user.client
 
-    _get_article(
+    existing_article = _get_article(
         client,
         article_id,
     )
@@ -796,6 +819,22 @@ def update_article(
             .execute()
         )
 
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ARTICLE_UPDATED",
+        entity_type="ARTICLE",
+        entity_id=article_id,
+        metadata={
+            "article_fields": list(updates.keys()),
+            "translation_updated": (
+                payload.translation is not None
+            ),
+            "previous_status": existing_article.get(
+                "status"
+            ),
+        },
+    )
+
     return _map_article(
         _get_article(
             client,
@@ -820,17 +859,30 @@ def delete_article(
 ):
     _require_superadmin(current_user)
 
-    _get_article(
-        current_user.client,
+    client = current_user.client
+
+    article = _get_article(
+        client,
         article_id,
     )
 
     (
-        current_user.client
+        client
         .table("articles")
         .delete()
         .eq("id", str(article_id))
         .execute()
+    )
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ARTICLE_DELETED",
+        entity_type="ARTICLE",
+        entity_id=article_id,
+        metadata={
+            "previous_status": article.get("status"),
+            "category_id": article.get("category_id"),
+        },
     )
 
     return None
@@ -879,6 +931,16 @@ def publish_article(
         .execute()
     )
 
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ARTICLE_PUBLISHED",
+        entity_type="ARTICLE",
+        entity_id=article_id,
+        metadata={
+            "previous_status": article.get("status"),
+        },
+    )
+
     return _map_article(
         _get_article(
             client,
@@ -905,7 +967,7 @@ def unpublish_article(
 
     client = current_user.client
 
-    _get_article(
+    article = _get_article(
         client,
         article_id,
     )
@@ -924,6 +986,16 @@ def unpublish_article(
         )
         .eq("id", str(article_id))
         .execute()
+    )
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ARTICLE_UNPUBLISHED",
+        entity_type="ARTICLE",
+        entity_id=article_id,
+        metadata={
+            "previous_status": article.get("status"),
+        },
     )
 
     return _map_article(
@@ -959,7 +1031,7 @@ def schedule_article(
 
     client = current_user.client
 
-    _get_article(
+    article = _get_article(
         client,
         article_id,
     )
@@ -980,6 +1052,19 @@ def schedule_article(
         )
         .eq("id", str(article_id))
         .execute()
+    )
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ARTICLE_SCHEDULED",
+        entity_type="ARTICLE",
+        entity_id=article_id,
+        metadata={
+            "previous_status": article.get("status"),
+            "scheduled_at": (
+                payload.scheduled_at.isoformat()
+            ),
+        },
     )
 
     return _map_article(
@@ -1008,7 +1093,7 @@ def archive_article(
 
     client = current_user.client
 
-    _get_article(
+    article = _get_article(
         client,
         article_id,
     )
@@ -1027,6 +1112,16 @@ def archive_article(
         )
         .eq("id", str(article_id))
         .execute()
+    )
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ARTICLE_ARCHIVED",
+        entity_type="ARTICLE",
+        entity_id=article_id,
+        metadata={
+            "previous_status": article.get("status"),
+        },
     )
 
     return _map_article(
@@ -1056,7 +1151,7 @@ def update_author_pick(
 
     client = current_user.client
 
-    _get_article(
+    article = _get_article(
         client,
         article_id,
     )
@@ -1093,6 +1188,28 @@ def update_author_pick(
         )
         .eq("id", str(article_id))
         .execute()
+    )
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ARTICLE_AUTHOR_PICK_UPDATED",
+        entity_type="ARTICLE",
+        entity_id=article_id,
+        metadata={
+            "previous_is_author_pick": article.get(
+                "is_author_pick",
+                False,
+            ),
+            "previous_author_pick_order": article.get(
+                "author_pick_order"
+            ),
+            "is_author_pick": payload.is_author_pick,
+            "author_pick_order": (
+                payload.author_pick_order
+                if payload.is_author_pick
+                else None
+            ),
+        },
     )
 
     return _map_article(
@@ -1246,12 +1363,6 @@ def create_article_block(
 
     block = block_response.data
 
-    # The public article API currently uses an inner
-    # relationship to article_block_translations.
-    #
-    # Therefore every block receives an English compatibility
-    # translation row, even IMAGE / QUIZ / OPINION blocks where
-    # text_content and caption may both be NULL.
     (
         client
         .table("article_block_translations")
@@ -1266,11 +1377,45 @@ def create_article_block(
         .execute()
     )
 
+    block_id = UUID(str(block["id"]))
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ARTICLE_BLOCK_CREATED",
+        entity_type="ARTICLE_BLOCK",
+        entity_id=block_id,
+        metadata={
+            "article_id": str(article_id),
+            "block_type": payload.block_type,
+            "display_order": payload.display_order,
+            "media_id": (
+                str(payload.media_id)
+                if payload.media_id
+                else None
+            ),
+            "quiz_id": (
+                str(payload.quiz_id)
+                if payload.quiz_id
+                else None
+            ),
+            "opinion_id": (
+                str(payload.opinion_id)
+                if payload.opinion_id
+                else None
+            ),
+            "external_url": (
+                str(payload.external_url)
+                if payload.external_url
+                else None
+            ),
+        },
+    )
+
     return _map_block(
         _get_article_block(
             client,
             article_id,
-            UUID(str(block["id"])),
+            block_id,
         )
     )
 
@@ -1429,8 +1574,6 @@ def update_article_block(
         .execute()
     )
 
-    # Ensure the compatibility row exists even if an older
-    # block did not have one.
     if not translation_response.data:
         (
             client
@@ -1445,6 +1588,19 @@ def update_article_block(
             )
             .execute()
         )
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ARTICLE_BLOCK_UPDATED",
+        entity_type="ARTICLE_BLOCK",
+        entity_id=block_id,
+        metadata={
+            "article_id": str(article_id),
+            "block_type": block_type,
+            "updated_fields": list(block_updates.keys()),
+            "translation_updated": True,
+        },
+    )
 
     return _map_block(
         _get_article_block(
@@ -1474,7 +1630,7 @@ def delete_article_block(
 
     client = current_user.client
 
-    _get_article_block(
+    block = _get_article_block(
         client,
         article_id,
         block_id,
@@ -1487,6 +1643,18 @@ def delete_article_block(
         .eq("id", str(block_id))
         .eq("article_id", str(article_id))
         .execute()
+    )
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ARTICLE_BLOCK_DELETED",
+        entity_type="ARTICLE_BLOCK",
+        entity_id=block_id,
+        metadata={
+            "article_id": str(article_id),
+            "block_type": block.get("block_type"),
+            "display_order": block.get("display_order"),
+        },
     )
 
     return None
@@ -1578,9 +1746,6 @@ def reorder_article_blocks(
             ),
         )
 
-    # The database enforces unique display_order per article.
-    # Use temporary negative values first so swapping
-    # positions does not violate that constraint.
     for index, item in enumerate(payload.items):
         (
             client
@@ -1610,6 +1775,22 @@ def reorder_article_blocks(
             .eq("article_id", str(article_id))
             .execute()
         )
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="ARTICLE_BLOCKS_REORDERED",
+        entity_type="ARTICLE",
+        entity_id=article_id,
+        metadata={
+            "block_order": [
+                {
+                    "block_id": str(item.block_id),
+                    "display_order": item.display_order,
+                }
+                for item in payload.items
+            ],
+        },
+    )
 
     response = (
         client
@@ -1684,11 +1865,26 @@ def create_category(
             }
         )
         .select(CATEGORY_SELECT)
-        .single()
         .execute()
     )
 
-    return response.data
+    category = response.data
+    category_id = UUID(str(category["id"]))
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="CATEGORY_CREATED",
+        entity_type="CATEGORY",
+        entity_id=category_id,
+        metadata={
+            "name": payload.name.strip(),
+            "slug": payload.slug.strip(),
+            "display_order": payload.display_order,
+            "is_active": payload.is_active,
+        },
+    )
+
+    return category
 
 
 # ============================================================
@@ -1710,7 +1906,7 @@ def update_category(
 
     client = current_user.client
 
-    _get_category(
+    existing = _get_category(
         client,
         category_id,
     )
@@ -1737,10 +1933,7 @@ def update_category(
         updates["is_active"] = payload.is_active
 
     if not updates:
-        return _get_category(
-            client,
-            category_id,
-        )
+        return existing
 
     response = (
         client
@@ -1750,6 +1943,21 @@ def update_category(
         .select(CATEGORY_SELECT)
         .single()
         .execute()
+    )
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="CATEGORY_UPDATED",
+        entity_type="CATEGORY",
+        entity_id=category_id,
+        metadata={
+            "updated_fields": list(updates.keys()),
+            "previous_values": {
+                key: existing.get(key)
+                for key in updates.keys()
+            },
+            "new_values": updates,
+        },
     )
 
     return response.data
@@ -1773,7 +1981,7 @@ def delete_category(
 
     client = current_user.client
 
-    _get_category(
+    category = _get_category(
         client,
         category_id,
     )
@@ -1784,6 +1992,18 @@ def delete_category(
         .delete()
         .eq("id", str(category_id))
         .execute()
+    )
+
+    record_audit(
+        actor_user_id=current_user.user.id,
+        action="CATEGORY_DELETED",
+        entity_type="CATEGORY",
+        entity_id=category_id,
+        metadata={
+            "name": category.get("name"),
+            "slug": category.get("slug"),
+            "is_active": category.get("is_active"),
+        },
     )
 
     return None

@@ -25,6 +25,7 @@ from app.schemas.superadmin_management import (
     SuperadminXPResponse,
     SuperadminXPUpdate,
 )
+from app.services.audit import record_audit
 from app.services.users import get_user_profile
 
 
@@ -161,7 +162,19 @@ async def update_user_status(
             detail="User not found",
         )
 
-    return response.data[0]
+    updated_user = response.data[0]
+
+    record_audit(
+        actor_user_id=auth.user.id,
+        action="USER_STATUS_UPDATED",
+        entity_type="USER",
+        entity_id=user_id,
+        metadata={
+            "is_active": payload.is_active,
+        },
+    )
+
+    return updated_user
 
 
 # ============================================================
@@ -320,7 +333,22 @@ async def create_xp_rule(
             detail="Unable to create XP rule",
         )
 
-    return response.data[0]
+    created_rule = response.data[0]
+
+    record_audit(
+        actor_user_id=auth.user.id,
+        action="XP_RULE_CREATED",
+        entity_type="XP_RULE",
+        entity_id=UUID(str(created_rule["id"])),
+        metadata={
+            "event_type": created_rule["event_type"],
+            "amount": created_rule["amount"],
+            "description": created_rule.get("description"),
+            "is_active": created_rule["is_active"],
+        },
+    )
+
+    return created_rule
 
 
 @router.patch(
@@ -358,7 +386,20 @@ async def update_xp_rule(
             detail="XP rule not found",
         )
 
-    return response.data[0]
+    updated_rule = response.data[0]
+
+    record_audit(
+        actor_user_id=auth.user.id,
+        action="XP_RULE_UPDATED",
+        entity_type="XP_RULE",
+        entity_id=rule_id,
+        metadata={
+            "updated_fields": list(updates.keys()),
+            "values": updates,
+        },
+    )
+
+    return updated_rule
 
 
 @router.delete(
@@ -384,6 +425,14 @@ async def delete_xp_rule(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="XP rule not found",
         )
+
+    record_audit(
+        actor_user_id=auth.user.id,
+        action="XP_RULE_DELETED",
+        entity_type="XP_RULE",
+        entity_id=rule_id,
+        metadata={},
+    )
 
 
 # ============================================================
@@ -441,7 +490,21 @@ async def create_level(
             detail="Unable to create level",
         )
 
-    return response.data[0]
+    created_level = response.data[0]
+
+    record_audit(
+        actor_user_id=auth.user.id,
+        action="LEVEL_CREATED",
+        entity_type="LEVEL",
+        entity_id=UUID(str(created_level["id"])),
+        metadata={
+            "name": created_level["name"],
+            "minimum_xp": created_level["minimum_xp"],
+            "display_order": created_level["display_order"],
+        },
+    )
+
+    return created_level
 
 
 @router.patch(
@@ -479,7 +542,20 @@ async def update_level(
             detail="Level not found",
         )
 
-    return response.data[0]
+    updated_level = response.data[0]
+
+    record_audit(
+        actor_user_id=auth.user.id,
+        action="LEVEL_UPDATED",
+        entity_type="LEVEL",
+        entity_id=level_id,
+        metadata={
+            "updated_fields": list(updates.keys()),
+            "values": updates,
+        },
+    )
+
+    return updated_level
 
 
 @router.delete(
@@ -505,6 +581,14 @@ async def delete_level(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Level not found",
         )
+
+    record_audit(
+        actor_user_id=auth.user.id,
+        action="LEVEL_DELETED",
+        entity_type="LEVEL",
+        entity_id=level_id,
+        metadata={},
+    )
 
 
 # ============================================================
@@ -564,7 +648,24 @@ async def create_badge(
             detail="Unable to create badge",
         )
 
-    return response.data[0]
+    created_badge = response.data[0]
+
+    record_audit(
+        actor_user_id=auth.user.id,
+        action="BADGE_CREATED",
+        entity_type="BADGE",
+        entity_id=UUID(str(created_badge["id"])),
+        metadata={
+            "name": created_badge["name"],
+            "rule_type": created_badge["rule_type"],
+            "is_active": created_badge["is_active"],
+            "image_asset_id": created_badge.get(
+                "image_asset_id"
+            ),
+        },
+    )
+
+    return created_badge
 
 
 @router.patch(
@@ -602,7 +703,20 @@ async def update_badge(
             detail="Badge not found",
         )
 
-    return response.data[0]
+    updated_badge = response.data[0]
+
+    record_audit(
+        actor_user_id=auth.user.id,
+        action="BADGE_UPDATED",
+        entity_type="BADGE",
+        entity_id=badge_id,
+        metadata={
+            "updated_fields": list(updates.keys()),
+            "values": updates,
+        },
+    )
+
+    return updated_badge
 
 
 @router.delete(
@@ -628,3 +742,11 @@ async def delete_badge(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Badge not found",
         )
+
+    record_audit(
+        actor_user_id=auth.user.id,
+        action="BADGE_DELETED",
+        entity_type="BADGE",
+        entity_id=badge_id,
+        metadata={},
+    )
