@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 
+from app.core.db_utils import extract_single_record
 from app.core.exceptions import AuthorizationError, NotFoundError
 from app.db.supabase import supabase
 from app.dependencies.auth import AuthContext, get_current_user
@@ -99,7 +100,7 @@ def _validate_visibility_window(
 
     if starts_at and ends_at and ends_at <= starts_at:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="ends_at must be later than starts_at",
         )
 
@@ -459,16 +460,10 @@ def create_advertisement(
         .table("advertisements")
         .insert(data)
         .select(_build_ad_select_query())
-        .single()
         .execute()
     )
 
-    if not result.data:
-        raise NotFoundError(
-            "Advertisement could not be created"
-        )
-
-    advertisement = result.data
+    advertisement = extract_single_record(result.data, "Advertisement could not be created")
 
     record_audit(
         actor_user_id=current_user.user.id,
@@ -486,6 +481,7 @@ def create_advertisement(
             "is_active": advertisement.get("is_active"),
             "display_order": advertisement.get("display_order"),
         },
+        client=current_user.client,
     )
 
     return advertisement
@@ -576,16 +572,10 @@ def update_advertisement(
         .update(data)
         .eq("id", str(advertisement_id))
         .select(_build_ad_select_query())
-        .single()
         .execute()
     )
 
-    if not result.data:
-        raise NotFoundError(
-            "Advertisement not found"
-        )
-
-    advertisement = result.data
+    advertisement = extract_single_record(result.data, "Advertisement not found")
 
     record_audit(
         actor_user_id=current_user.user.id,
@@ -603,6 +593,7 @@ def update_advertisement(
             "is_active": advertisement.get("is_active"),
             "display_order": advertisement.get("display_order"),
         },
+        client=current_user.client,
     )
 
     return advertisement
@@ -668,6 +659,7 @@ def delete_advertisement(
             "is_active": existing.get("is_active"),
             "display_order": existing.get("display_order"),
         },
+        client=current_user.client,
     )
 
     return None
@@ -733,16 +725,10 @@ def create_advertisement_slot(
         .table("advertisement_slots")
         .insert(data)
         .select(_build_slot_select_query())
-        .single()
         .execute()
     )
 
-    if not result.data:
-        raise NotFoundError(
-            "Advertisement slot could not be created"
-        )
-
-    slot = result.data
+    slot = extract_single_record(result.data, "Advertisement slot could not be created")
 
     record_audit(
         actor_user_id=current_user.user.id,
@@ -755,6 +741,7 @@ def create_advertisement_slot(
             "description": slot.get("description"),
             "is_active": slot.get("is_active"),
         },
+        client=current_user.client,
     )
 
     return slot
@@ -813,16 +800,10 @@ def update_advertisement_slot(
         .update(data)
         .eq("id", str(slot_id))
         .select(_build_slot_select_query())
-        .single()
         .execute()
     )
 
-    if not result.data:
-        raise NotFoundError(
-            "Advertisement slot not found"
-        )
-
-    slot = result.data
+    slot = extract_single_record(result.data, "Advertisement slot not found")
 
     record_audit(
         actor_user_id=current_user.user.id,
@@ -835,6 +816,7 @@ def update_advertisement_slot(
             "description": slot.get("description"),
             "is_active": slot.get("is_active"),
         },
+        client=current_user.client,
     )
 
     return slot
@@ -891,6 +873,7 @@ def delete_advertisement_slot(
             "description": existing.get("description"),
             "is_active": existing.get("is_active"),
         },
+        client=current_user.client,
     )
 
     return None

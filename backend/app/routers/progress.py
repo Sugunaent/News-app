@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
+from app.core.db_utils import extract_single_record
 from app.core.exceptions import NotFoundError
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.progress import (
@@ -31,7 +32,7 @@ async def get_reading_progress(
         .select("id")
         .eq("id", str(article_id))
         .eq("status", "PUBLISHED")
-        .single()
+        .maybe_single()
         .execute()
     )
 
@@ -80,7 +81,7 @@ async def update_reading_progress(
         .select("id")
         .eq("id", str(article_id))
         .eq("status", "PUBLISHED")
-        .single()
+        .maybe_single()
         .execute()
     )
 
@@ -163,8 +164,7 @@ async def update_reading_progress(
             completed_at
             """
         )
-        .single()
         .execute()
     )
 
-    return response.data
+    return extract_single_record(response.data, "Reading progress update failed")

@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.core.db_utils import extract_single_record
 from app.db.supabase import supabase
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.superadmin_management import (
@@ -156,13 +157,7 @@ async def update_user_status(
         .execute()
     )
 
-    if not response.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
-    updated_user = response.data[0]
+    updated_user = extract_single_record(response.data, "User not found")
 
     record_audit(
         actor_user_id=auth.user.id,
@@ -172,6 +167,7 @@ async def update_user_status(
         metadata={
             "is_active": payload.is_active,
         },
+        client=auth.client,
     )
 
     return updated_user
@@ -327,13 +323,7 @@ async def create_xp_rule(
         .execute()
     )
 
-    if not response.data:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unable to create XP rule",
-        )
-
-    created_rule = response.data[0]
+    created_rule = extract_single_record(response.data, "Unable to create XP rule")
 
     record_audit(
         actor_user_id=auth.user.id,
@@ -346,6 +336,7 @@ async def create_xp_rule(
             "description": created_rule.get("description"),
             "is_active": created_rule["is_active"],
         },
+        client=auth.client,
     )
 
     return created_rule
@@ -380,13 +371,7 @@ async def update_xp_rule(
         .execute()
     )
 
-    if not response.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="XP rule not found",
-        )
-
-    updated_rule = response.data[0]
+    updated_rule = extract_single_record(response.data, "XP rule not found")
 
     record_audit(
         actor_user_id=auth.user.id,
@@ -397,6 +382,7 @@ async def update_xp_rule(
             "updated_fields": list(updates.keys()),
             "values": updates,
         },
+        client=auth.client,
     )
 
     return updated_rule
@@ -432,6 +418,7 @@ async def delete_xp_rule(
         entity_type="XP_RULE",
         entity_id=rule_id,
         metadata={},
+        client=auth.client,
     )
 
 
@@ -484,13 +471,7 @@ async def create_level(
         .execute()
     )
 
-    if not response.data:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unable to create level",
-        )
-
-    created_level = response.data[0]
+    created_level = extract_single_record(response.data, "Unable to create level")
 
     record_audit(
         actor_user_id=auth.user.id,
@@ -502,6 +483,7 @@ async def create_level(
             "minimum_xp": created_level["minimum_xp"],
             "display_order": created_level["display_order"],
         },
+        client=auth.client,
     )
 
     return created_level
@@ -536,13 +518,7 @@ async def update_level(
         .execute()
     )
 
-    if not response.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Level not found",
-        )
-
-    updated_level = response.data[0]
+    updated_level = extract_single_record(response.data, "Level not found")
 
     record_audit(
         actor_user_id=auth.user.id,
@@ -553,6 +529,7 @@ async def update_level(
             "updated_fields": list(updates.keys()),
             "values": updates,
         },
+        client=auth.client,
     )
 
     return updated_level
@@ -588,6 +565,7 @@ async def delete_level(
         entity_type="LEVEL",
         entity_id=level_id,
         metadata={},
+        client=auth.client,
     )
 
 
@@ -642,13 +620,7 @@ async def create_badge(
         .execute()
     )
 
-    if not response.data:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unable to create badge",
-        )
-
-    created_badge = response.data[0]
+    created_badge = extract_single_record(response.data, "Unable to create badge")
 
     record_audit(
         actor_user_id=auth.user.id,
@@ -663,6 +635,7 @@ async def create_badge(
                 "image_asset_id"
             ),
         },
+        client=auth.client,
     )
 
     return created_badge
@@ -697,13 +670,7 @@ async def update_badge(
         .execute()
     )
 
-    if not response.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Badge not found",
-        )
-
-    updated_badge = response.data[0]
+    updated_badge = extract_single_record(response.data, "Badge not found")
 
     record_audit(
         actor_user_id=auth.user.id,
@@ -714,6 +681,7 @@ async def update_badge(
             "updated_fields": list(updates.keys()),
             "values": updates,
         },
+        client=auth.client,
     )
 
     return updated_badge
@@ -749,4 +717,5 @@ async def delete_badge(
         entity_type="BADGE",
         entity_id=badge_id,
         metadata={},
+        client=auth.client,
     )

@@ -20,29 +20,6 @@ router = APIRouter(
 )
 
 
-def _resolve_article_title(article: dict | None) -> str | None:
-    if not article:
-        return None
-
-    translations = article.get("article_translations") or []
-
-    if isinstance(translations, dict):
-        translations = [translations]
-
-    # Prefer English.
-    for translation in translations:
-        if translation.get("language_code") == "EN":
-            title = translation.get("title")
-            if title:
-                return title
-
-    # Fall back to first available translation.
-    for translation in translations:
-        title = translation.get("title")
-        if title:
-            return title
-
-    return None
 
 
 def _resolve_opinion_text(
@@ -226,7 +203,7 @@ async def get_my_profile(
             "article_id, completed_at, "
             "articles("
             "id, "
-            "article_translations(language_code, title)"
+            "title"
             ")"
         )
         .eq("user_id", user_id)
@@ -315,16 +292,10 @@ async def get_my_profile(
             "opinion_questions("
             "id, "
             "article_id, "
-            "opinion_question_translations("
-            "language_code, "
-            "question_text"
-            "), "
+            "question_text, "
             "articles("
             "id, "
-            "article_translations("
-            "language_code, "
             "title"
-            ")"
             ")"
             ")"
         )
@@ -363,10 +334,7 @@ async def get_my_profile(
         options_response = (
             client.table("opinion_options")
             .select(
-                "id, question_id, "
-                "opinion_option_translations("
-                "language_code, option_text"
-                ")"
+                "id, question_id, option_text"
             )
             .in_("id", selected_option_ids)
             .execute()
@@ -382,25 +350,7 @@ async def get_my_profile(
         )
 
         for option in options:
-            translations = (
-                option.get("opinion_option_translations")
-                or []
-            )
-
-            if isinstance(translations, dict):
-                translations = [translations]
-
-            option_text = None
-
-            for translation in translations:
-                if translation.get("language_code") == "EN":
-                    option_text = translation.get("option_text")
-                    break
-
-            if option_text is None and translations:
-                option_text = translations[0].get(
-                    "option_text"
-                )
+            option_text = option.get("option_text")
 
             if option_text:
                 opinion_option_text_by_id[
@@ -528,7 +478,7 @@ async def get_my_profile(
 
         article = completion.get("articles") or {}
 
-        article_title = _resolve_article_title(article)
+        article_title = article.get("title")
 
         if not article_title:
             article_title = "Article"
@@ -574,7 +524,7 @@ async def get_my_profile(
 
         article = question.get("articles") or {}
 
-        article_title = _resolve_article_title(article)
+        article_title = article.get("title")
 
         if not article_title:
             article_title = "Article"

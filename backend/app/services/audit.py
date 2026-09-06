@@ -1,10 +1,12 @@
-from __future__ import annotations
-
+import logging
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
+from app.core.db_utils import extract_single_record
 from app.db.supabase import supabase
+
+logger = logging.getLogger(__name__)
 
 
 def record_audit(
@@ -19,10 +21,8 @@ def record_audit(
     """
     Record a trusted administrative audit event.
 
-    Audit records are written using the trusted backend Supabase
-    client by default. This is intentional because the database
-    does not allow ordinary authenticated clients to insert audit
-    records directly.
+    Audit records are written using the provided authenticated user client
+    or the default backend Supabase client.
     """
     db = client or supabase
 
@@ -35,16 +35,22 @@ def record_audit(
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    response = (
-        db
-        .table("audit_logs")
-        .insert(payload)
-        .select("*")
-        .single()
-        .execute()
-    )
-
-    return response.data
+    try:
+        response = (
+            db
+            .table("audit_logs")
+            .insert(payload)
+            .select("*")
+            .execute()
+        )
+        return extract_single_record(response.data)
+    except Exception as exc:
+        logger.warning(
+            "Failed to record audit log for action %s: %s",
+            action,
+            exc,
+        )
+        return None
 
 
 def list_audit_logs(

@@ -405,10 +405,18 @@ def test_article_completion_awards_xp(monkeypatch):
     def fake_award_xp(**kwargs):
         calls.append(kwargs)
 
+    def fake_award_badges(user_id):
+        return []
+
     monkeypatch.setattr(
         completions,
         "award_xp",
         fake_award_xp,
+    )
+    monkeypatch.setattr(
+        completions,
+        "award_badges_for_user",
+        fake_award_badges,
     )
 
     try:

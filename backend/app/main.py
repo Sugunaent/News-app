@@ -1,7 +1,8 @@
 from fastapi import FastAPI
+from postgrest.exceptions import APIError
 
 from app.core.exceptions import AppException
-from app.core.handlers import app_exception_handler
+from app.core.handlers import api_error_handler, app_exception_handler
 from app.routers.articles import router as articles_router
 from app.routers.categories import router as categories_router
 from app.routers.users import router as users_router
@@ -30,6 +31,10 @@ app = FastAPI(
 app.add_exception_handler(
     AppException,
     app_exception_handler,
+)
+app.add_exception_handler(
+    APIError,
+    api_error_handler,
 )
 
 

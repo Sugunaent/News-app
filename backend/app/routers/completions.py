@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
+from app.core.db_utils import extract_single_record
 from app.core.exceptions import NotFoundError
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.completions import ArticleCompletionResponse
@@ -110,11 +111,10 @@ async def complete_article(
             }
         )
         .select("article_id, completed_at")
-        .single()
         .execute()
     )
 
-    data = completion_response.data
+    data = extract_single_record(completion_response.data, "Article completion insert failed")
 
     # Award completion XP using the server-side XP rule.
     award_xp(

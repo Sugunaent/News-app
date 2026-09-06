@@ -110,8 +110,9 @@ def test_get_completion_returns_404_when_article_not_found():
     assert response.json() == {"detail": "Article not found"}
 
 
+@patch("app.routers.completions.award_badges_for_user")
 @patch("app.routers.completions.award_xp")
-def test_complete_article_creates_completion(mock_award_xp):
+def test_complete_article_creates_completion(mock_award_xp, mock_award_badges):
     auth = make_auth_context()
 
     article_query = MagicMock()

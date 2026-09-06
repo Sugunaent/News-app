@@ -1,7 +1,9 @@
+import os
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from supabase import Client
 
+from app.core.config import settings
 from app.core.exceptions import (
     AuthenticationError,
     AuthorizationError,
@@ -29,6 +31,29 @@ async def get_current_user(
 ) -> AuthContext:
     access_token = credentials.credentials
 
+    # Resolve service role key from settings or environment
+    service_role_key = (
+        getattr(settings, "supabase_service_role_key", None)
+        or getattr(settings, "SUPABASE_SERVICE_ROLE_KEY", None)
+        or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        or os.getenv("supabase_service_role_key")
+    )
+
+    # 1. Allow Service Role Key for local testing / admin scripts
+    if service_role_key and access_token.strip() == service_role_key.strip():
+        service_user = CurrentUser(
+            id="49c8cc3b-19ba-47e1-b6ac-5a479100147c",
+            email="indu.28@gmail.com",
+            display_name="Super Admin (Service Role)",
+            role="SUPERADMIN",
+            is_active=True,
+        )
+        return AuthContext(
+            user=service_user,
+            client=create_user_client(access_token.strip()),
+        )
+
+    # 2. Standard User JWT validation
     try:
         response = supabase.auth.get_user(access_token)
     except Exception as exc:
@@ -49,7 +74,7 @@ async def get_current_user(
                 "id, email, display_name, role, is_active"
             )
             .eq("id", str(auth_user.id))
-            .single()
+            .maybe_single()
             .execute()
         )
     except Exception as exc:

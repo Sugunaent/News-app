@@ -12,7 +12,7 @@ client = TestClient(app)
 def test_list_articles_returns_published_articles(
     mock_supabase,
 ):
-    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.execute.return_value.data = [
+    mock_supabase.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value.data = [
         {
             "id": "11111111-1111-1111-1111-111111111111",
             "article_type": "STANDARD",
@@ -22,12 +22,10 @@ def test_list_articles_returns_published_articles(
                 "name": "AI",
                 "slug": "ai",
             },
-            "article_translations": {
-                "slug": "future-of-ai",
-                "title": "The Future of AI",
-                "subtitle": "What comes next",
-                "summary": "A look at where AI is heading.",
-            },
+            "slug": "future-of-ai",
+            "title": "The Future of AI",
+            "subtitle": "What comes next",
+            "summary": "A look at where AI is heading.",
         }
     ]
 
@@ -55,7 +53,7 @@ def test_list_articles_returns_published_articles(
 def test_list_articles_returns_empty_list_when_no_articles(
     mock_supabase,
 ):
-    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.execute.return_value.data = []
+    mock_supabase.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value.data = []
 
     response = client.get("/api/v1/articles?language=en")
 
@@ -67,7 +65,7 @@ def test_list_articles_returns_empty_list_when_no_articles(
 def test_list_articles_does_not_require_authentication(
     mock_supabase,
 ):
-    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.order.return_value.execute.return_value.data = []
+    mock_supabase.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value.data = []
 
     response = client.get("/api/v1/articles?language=en")
 
@@ -107,7 +105,7 @@ def test_list_articles_filters_for_published_status(
 def test_get_article_returns_published_article(
     mock_supabase,
 ):
-    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
         "id": "11111111-1111-1111-1111-111111111111",
         "article_type": "STANDARD",
         "published_at": "2026-08-23T10:00:00+00:00",
@@ -116,12 +114,10 @@ def test_get_article_returns_published_article(
             "name": "AI",
             "slug": "ai",
         },
-        "article_translations": {
-            "slug": "future-of-ai",
+        "slug": "future-of-ai",
             "title": "The Future of AI",
             "subtitle": "What comes next",
             "summary": "A look at where AI is heading.",
-        },
     }
 
     response = client.get(
@@ -142,7 +138,7 @@ def test_get_article_returns_published_article(
 def test_get_article_returns_404_when_not_found(
     mock_supabase,
 ):
-    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = None
+    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = None
 
     response = client.get(
         "/api/v1/articles/does-not-exist?language=en"
@@ -157,7 +153,7 @@ def test_get_article_returns_404_when_not_found(
 @patch("app.routers.articles.supabase")
 def test_get_article_returns_text_blocks(mock_supabase):
     article_mock = MagicMock()
-    article_mock.select.return_value.eq.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+    article_mock.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
         "id": "11111111-1111-1111-1111-111111111111",
         "article_type": "STANDARD",
         "published_at": "2026-08-23T10:00:00+00:00",
@@ -166,12 +162,10 @@ def test_get_article_returns_text_blocks(mock_supabase):
             "name": "AI",
             "slug": "ai",
         },
-        "article_translations": {
-            "slug": "future-of-ai",
+        "slug": "future-of-ai",
             "title": "The Future of AI",
             "subtitle": "What comes next",
             "summary": "A look at where AI is heading.",
-        },
     }
 
     blocks_mock = MagicMock()
@@ -184,19 +178,15 @@ def test_get_article_returns_text_blocks(mock_supabase):
             "id": "33333333-3333-3333-3333-333333333333",
             "block_type": "TEXT",
             "display_order": 0,
-            "article_block_translations": {
-                "text_content": "AI is changing the world.",
+            "text_content": "AI is changing the world.",
                 "caption": None,
-            },
         },
         {
             "id": "44444444-4444-4444-4444-444444444444",
             "block_type": "TEXT",
             "display_order": 1,
-            "article_block_translations": {
-                "text_content": "The changes are happening rapidly.",
+            "text_content": "The changes are happening rapidly.",
                 "caption": None,
-            },
         },
     ]
 
@@ -224,7 +214,7 @@ def test_get_article_returns_text_blocks(mock_supabase):
 @patch("app.routers.articles.supabase")
 def test_get_article_returns_image_blocks(mock_supabase):
     article_mock = MagicMock()
-    article_mock.select.return_value.eq.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+    article_mock.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
         "id": "11111111-1111-1111-1111-111111111111",
         "article_type": "STANDARD",
         "published_at": "2026-08-23T10:00:00+00:00",
@@ -233,12 +223,10 @@ def test_get_article_returns_image_blocks(mock_supabase):
             "name": "AI",
             "slug": "ai",
         },
-        "article_translations": {
-            "slug": "future-of-ai",
+        "slug": "future-of-ai",
             "title": "The Future of AI",
             "subtitle": "What comes next",
             "summary": "A look at where AI is heading.",
-        },
     }
 
     blocks_mock = MagicMock()
@@ -251,10 +239,8 @@ def test_get_article_returns_image_blocks(mock_supabase):
             "block_type": "IMAGE",
             "display_order": 1,
             "media_id": "66666666-6666-6666-6666-666666666666",
-            "article_block_translations": {
-                "text_content": None,
+            "text_content": None,
                 "caption": "The future of artificial intelligence.",
-            },
             "media_assets": {
                 "id": "66666666-6666-6666-6666-666666666666",
                 "storage_path": "articles/11111111-1111-1111-1111-111111111111/content/future-ai.jpg",
@@ -291,7 +277,6 @@ def test_search_articles_returns_matching_published_articles(
         .table.return_value
         .select.return_value
         .eq.return_value
-        .eq.return_value
         .or_
         .return_value
         .order.return_value
@@ -307,12 +292,10 @@ def test_search_articles_returns_matching_published_articles(
                 "name": "AI",
                 "slug": "ai",
             },
-            "article_translations": {
-                "slug": "future-of-ai",
-                "title": "The Future of AI",
-                "subtitle": "What comes next",
-                "summary": "A look at where AI is heading.",
-            },
+            "slug": "future-of-ai",
+            "title": "The Future of AI",
+            "subtitle": "What comes next",
+            "summary": "A look at where AI is heading.",
         }
     ]
 
@@ -351,7 +334,6 @@ def test_search_articles_returns_empty_list_when_no_matches(
         .table.return_value
         .select.return_value
         .eq.return_value
-        .eq.return_value
         .or_
         .return_value
         .order.return_value
@@ -375,7 +357,6 @@ def test_search_articles_filters_for_published_status(
         mock_supabase
         .table.return_value
         .select.return_value
-        .eq.return_value
         .eq.return_value
         .or_
         .return_value
@@ -412,7 +393,6 @@ def test_search_articles_searches_translation_fields(
         .table.return_value
         .select.return_value
         .eq.return_value
-        .eq.return_value
         .or_
         .return_value
         .order.return_value
@@ -431,7 +411,6 @@ def test_search_articles_searches_translation_fields(
         .table.return_value
         .select.return_value
         .eq.return_value
-        .eq.return_value
         .or_
     )
 
@@ -444,9 +423,7 @@ def test_search_articles_searches_translation_fields(
     assert "summary.ilike.%future%" in search_expression
     assert "slug.ilike.%future%" in search_expression
 
-    assert or_method.call_args.kwargs == {
-        "referenced_table": "article_translations"
-    }
+    assert or_method.call_args.kwargs == {}
 
 
 def test_search_articles_requires_query():
@@ -466,7 +443,6 @@ def test_search_articles_does_not_require_authentication(
         .table.return_value
         .select.return_value
         .eq.return_value
-        .eq.return_value
         .or_
         .return_value
         .order.return_value
@@ -484,7 +460,7 @@ def test_search_articles_does_not_require_authentication(
 @patch("app.routers.articles.supabase")
 def test_get_article_returns_podcast_blocks(mock_supabase):
     article_mock = MagicMock()
-    article_mock.select.return_value.eq.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+    article_mock.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
         "id": "11111111-1111-1111-1111-111111111111",
         "article_type": "STANDARD",
         "published_at": "2026-08-23T10:00:00+00:00",
@@ -493,12 +469,10 @@ def test_get_article_returns_podcast_blocks(mock_supabase):
             "name": "AI",
             "slug": "ai",
         },
-        "article_translations": {
-            "slug": "future-of-ai",
+        "slug": "future-of-ai",
             "title": "The Future of AI",
             "subtitle": "What comes next",
             "summary": "A look at where AI is heading.",
-        },
     }
 
     blocks_mock = MagicMock()
@@ -512,10 +486,8 @@ def test_get_article_returns_podcast_blocks(mock_supabase):
             "display_order": 2,
             "media_id": None,
             "external_url": "https://open.spotify.com/embed/episode/example",
-            "article_block_translations": {
-                "text_content": "Listen to our team discuss the future of AI.",
+            "text_content": "Listen to our team discuss the future of AI.",
                 "caption": None,
-            },
             "media_assets": None,
         }
     ]
@@ -544,7 +516,7 @@ def test_get_article_returns_podcast_blocks(mock_supabase):
 @patch("app.routers.articles.supabase")
 def test_get_article_preserves_podcast_block_order(mock_supabase):
     article_mock = MagicMock()
-    article_mock.select.return_value.eq.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
+    article_mock.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = {
         "id": "11111111-1111-1111-1111-111111111111",
         "article_type": "STANDARD",
         "published_at": "2026-08-23T10:00:00+00:00",
@@ -553,12 +525,10 @@ def test_get_article_preserves_podcast_block_order(mock_supabase):
             "name": "AI",
             "slug": "ai",
         },
-        "article_translations": {
-            "slug": "future-of-ai",
+        "slug": "future-of-ai",
             "title": "The Future of AI",
             "subtitle": None,
             "summary": None,
-        },
     }
 
     blocks_mock = MagicMock()
@@ -572,10 +542,8 @@ def test_get_article_preserves_podcast_block_order(mock_supabase):
             "display_order": 0,
             "media_id": None,
             "external_url": None,
-            "article_block_translations": {
-                "text_content": "Opening paragraph.",
+            "text_content": "Opening paragraph.",
                 "caption": None,
-            },
             "media_assets": None,
         },
         {
@@ -584,10 +552,8 @@ def test_get_article_preserves_podcast_block_order(mock_supabase):
             "display_order": 1,
             "media_id": None,
             "external_url": "https://www.youtube.com/embed/example",
-            "article_block_translations": {
-                "text_content": "Listen to our discussion.",
+            "text_content": "Listen to our discussion.",
                 "caption": None,
-            },
             "media_assets": None,
         },
         {
@@ -596,10 +562,8 @@ def test_get_article_preserves_podcast_block_order(mock_supabase):
             "display_order": 2,
             "media_id": None,
             "external_url": None,
-            "article_block_translations": {
-                "text_content": "Continue reading.",
+            "text_content": "Continue reading.",
                 "caption": None,
-            },
             "media_assets": None,
         },
     ]

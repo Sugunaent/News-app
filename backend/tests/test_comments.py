@@ -144,6 +144,7 @@ def test_create_comment_requires_published_article():
     article_query.eq.return_value = article_query
     article_query.not_.is_.return_value = article_query
     article_query.single.return_value = article_query
+    article_query.maybe_single.return_value = article_query
 
     article_query.execute.return_value.data = None
 
@@ -175,6 +176,7 @@ def test_create_comment_returns_created_comment():
     article_query.eq.return_value = article_query
     article_query.not_.is_.return_value = article_query
     article_query.single.return_value = article_query
+    article_query.maybe_single.return_value = article_query
     article_query.execute.return_value.data = [
         {"id": str(ARTICLE_ID)}
     ]

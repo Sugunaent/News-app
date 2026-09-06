@@ -124,18 +124,10 @@ def test_list_articles_returns_all_statuses():
                 "created_at": "2026-09-01T09:00:00+00:00",
                 "updated_at": "2026-09-01T09:00:00+00:00",
             },
-            "article_translations": [
-                {
-                    "id": "44444444-4444-4444-4444-444444444444",
-                    "language_code": "EN",
-                    "title": "Draft Article",
-                    "subtitle": None,
-                    "summary": "Draft summary",
-                    "slug": "draft-article",
-                    "created_at": "2026-09-01T10:00:00+00:00",
-                    "updated_at": "2026-09-01T10:00:00+00:00",
-                }
-            ],
+            "title": "Draft Article",
+            "subtitle": None,
+            "summary": "Draft summary",
+            "slug": "draft-article",
         }
     ]
 
@@ -155,7 +147,7 @@ def test_list_articles_returns_all_statuses():
 
     assert len(data) == 1
     assert data[0]["status"] == "DRAFT"
-    assert data[0]["translation"]["title"] == (
+    assert data[0]["title"] == (
         "Draft Article"
     )
 
@@ -415,3 +407,33 @@ def test_create_block_rejects_external_url_on_text():
     )
 
     assert response.status_code == 422
+
+
+def test_create_category_duplicate_returns_409():
+    from postgrest.exceptions import APIError
+
+    auth = make_auth_context(role="SUPERADMIN")
+
+    query = MagicMock()
+    api_error = APIError({"code": "23505", "message": "duplicate key value violates unique constraint", "details": "Key (slug)=(pcos) already exists."})
+    query.insert.return_value.select.return_value.single.return_value.execute.side_effect = api_error
+
+    auth.client.table.return_value = query
+
+    app.dependency_overrides[
+        get_current_user
+    ] = lambda: auth
+
+    response = client.post(
+        "/api/v1/superadmin/categories",
+        json={
+            "name": "PCOS",
+            "slug": "pcos",
+            "description": "Category for pcos based articles",
+            "display_order": 1,
+            "is_active": True,
+        },
+    )
+
+    assert response.status_code == 409
+    assert "already exists" in response.json()["detail"]

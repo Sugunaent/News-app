@@ -298,12 +298,7 @@ def test_get_profile_aggregates_gamification_and_activity():
             "completed_at": TIMESTAMP,
             "articles": {
                 "id": ARTICLE_ID,
-                "article_translations": [
-                    {
-                        "language_code": "EN",
-                        "title": "Test Article",
-                    }
-                ],
+                "title": "Test Article",
             },
         }
     ]
@@ -349,22 +344,10 @@ def test_get_profile_aggregates_gamification_and_activity():
             "opinion_questions": {
                 "id": QUESTION_ID,
                 "article_id": ARTICLE_ID,
-                "opinion_question_translations": [
-                    {
-                        "language_code": "EN",
-                        "question_text": (
-                            "What do you think?"
-                        ),
-                    }
-                ],
+                "question_text": "What do you think?",
                 "articles": {
                     "id": ARTICLE_ID,
-                    "article_translations": [
-                        {
-                            "language_code": "EN",
-                            "title": "Test Article",
-                        }
-                    ],
+                    "title": "Test Article",
                 },
             },
         }
@@ -382,12 +365,7 @@ def test_get_profile_aggregates_gamification_and_activity():
         {
             "id": OPTION_ID,
             "question_id": QUESTION_ID,
-            "opinion_option_translations": [
-                {
-                    "language_code": "EN",
-                    "option_text": "I agree",
-                }
-            ],
+            "option_text": "I agree",
         }
     ]
 

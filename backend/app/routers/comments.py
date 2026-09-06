@@ -3,15 +3,16 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
+from app.core.db_utils import extract_single_record
 from app.core.exceptions import (
     AuthorizationError,
     NotFoundError,
 )
+from app.db.supabase import supabase
 from app.dependencies.auth import (
     AuthContext,
     get_current_user,
 )
-from app.db.supabase import supabase
 from app.schemas.comments import (
     CommentCreate,
     CommentListResponse,
@@ -23,7 +24,6 @@ from app.services.analytics import (
     record_comment_created,
 )
 from app.services.audit import record_audit
-
 
 router = APIRouter(
     prefix="/api/v1/articles",
@@ -52,9 +52,7 @@ def _map_comment(
         "content": comment["content"],
         "author": {
             "id": comment["user_id"],
-            "display_name": profile.get(
-                "display_name"
-            ),
+            "display_name": profile.get("display_name"),
         },
         "created_at": comment["created_at"],
         "updated_at": comment["updated_at"],
@@ -72,6 +70,7 @@ def _map_comment(
 async def list_comments(
     article_id: UUID,
 ):
+    # Fetch comments and left-join profiles (handles case where RLS or missing profile yields null profile)
     response = (
         supabase
         .table("comments")
@@ -81,6 +80,8 @@ async def list_comments(
             article_id,
             user_id,
             content,
+            is_deleted,
+            is_hidden,
             created_at,
             updated_at,
             profiles (
@@ -89,12 +90,9 @@ async def list_comments(
             )
             """
         )
-        .eq(
-            "article_id",
-            str(article_id),
-        )
+        .eq("article_id", str(article_id))
         .eq("is_hidden", False)
-        .is_("deleted_at", "null")
+        .eq("is_deleted", False)
         .order("created_at", desc=False)
         .execute()
     )
@@ -127,23 +125,15 @@ async def create_comment(
         context.client
         .table("articles")
         .select("id")
-        .eq(
-            "id",
-            str(article_id),
-        )
+        .eq("id", str(article_id))
         .eq("status", "PUBLISHED")
-        .not_.is_(
-            "published_at",
-            "null",
-        )
-        .single()
+        .not_.is_("published_at", "null")
+        .maybe_single()
         .execute()
     )
 
     if not article_response.data:
-        raise NotFoundError(
-            "Article not found"
-        )
+        raise NotFoundError("Article not found")
 
     response = (
         context.client
@@ -153,37 +143,26 @@ async def create_comment(
                 "article_id": str(article_id),
                 "user_id": str(context.user.id),
                 "content": payload.content.strip(),
+                "is_deleted": False,
             }
         )
         .execute()
     )
 
-    if not response.data:
-        raise NotFoundError(
-            "Comment could not be created"
-        )
-
-    comment = response.data[0]
+    comment = extract_single_record(response.data, "Comment could not be created")
 
     profile_response = (
         context.client
         .table("profiles")
         .select("id, display_name")
-        .eq(
-            "id",
-            str(context.user.id),
-        )
-        .single()
+        .eq("id", str(context.user.id))
+        .maybe_single()
         .execute()
     )
 
     profile = profile_response.data or {}
     comment["profiles"] = profile
 
-    # The comment now exists successfully.
-    #
-    # Analytics is deliberately best-effort. It cannot turn a
-    # successful comment into a failed request.
     try:
         record_comment_created(
             article_id=article_id,
@@ -220,53 +199,31 @@ async def update_comment(
                 "content": payload.content.strip(),
             }
         )
-        .eq(
-            "id",
-            str(comment_id),
-        )
-        .eq(
-            "article_id",
-            str(article_id),
-        )
-        .eq(
-            "user_id",
-            str(context.user.id),
-        )
-        .is_(
-            "deleted_at",
-            "null",
-        )
+        .eq("id", str(comment_id))
+        .eq("article_id", str(article_id))
+        .eq("user_id", str(context.user.id))
+        .eq("is_deleted", False)
         .execute()
     )
 
-    if not response.data:
-        raise NotFoundError(
-            "Comment not found"
-        )
-
-    comment = response.data[0]
+    comment = extract_single_record(response.data, "Comment not found")
 
     profile_response = (
         context.client
         .table("profiles")
         .select("id, display_name")
-        .eq(
-            "id",
-            str(context.user.id),
-        )
-        .single()
+        .eq("id", str(context.user.id))
+        .maybe_single()
         .execute()
     )
 
-    comment["profiles"] = (
-        profile_response.data or {}
-    )
+    comment["profiles"] = profile_response.data or {}
 
     return _map_comment(comment)
 
 
 # ============================================================
-# DELETE OWN COMMENT
+# DELETE OWN COMMENT (SOFT DELETE)
 # ============================================================
 
 @router.delete(
@@ -280,39 +237,26 @@ async def delete_comment(
         get_current_user
     ),
 ):
+    now_iso = datetime.now(timezone.utc).isoformat()
+
     response = (
         context.client
         .table("comments")
         .update(
             {
-                "deleted_at": datetime.now(
-                    timezone.utc
-                ).isoformat(),
+                "is_deleted": True,
+                "deleted_at": now_iso,
             }
         )
-        .eq(
-            "id",
-            str(comment_id),
-        )
-        .eq(
-            "article_id",
-            str(article_id),
-        )
-        .eq(
-            "user_id",
-            str(context.user.id),
-        )
-        .is_(
-            "deleted_at",
-            "null",
-        )
+        .eq("id", str(comment_id))
+        .eq("article_id", str(article_id))
+        .eq("user_id", str(context.user.id))
+        .eq("is_deleted", False)
         .execute()
     )
 
     if not response.data:
-        raise NotFoundError(
-            "Comment not found"
-        )
+        raise NotFoundError("Comment not found")
 
     return None
 
@@ -343,27 +287,13 @@ async def moderate_comment(
                 "is_hidden": hidden,
             }
         )
-        .eq(
-            "id",
-            str(comment_id),
-        )
-        .eq(
-            "article_id",
-            str(article_id),
-        )
-        .is_(
-            "deleted_at",
-            "null",
-        )
+        .eq("id", str(comment_id))
+        .eq("article_id", str(article_id))
+        .eq("is_deleted", False)
         .execute()
     )
 
-    if not response.data:
-        raise NotFoundError(
-            "Comment not found"
-        )
-
-    comment = response.data[0]
+    comment = extract_single_record(response.data, "Comment not found")
 
     record_audit(
         actor_user_id=context.user.id,
@@ -379,17 +309,18 @@ async def moderate_comment(
             "user_id": comment.get("user_id"),
             "is_hidden": comment.get("is_hidden"),
         },
+        client=context.client,
     )
 
     return {
         "id": comment["id"],
         "is_hidden": comment["is_hidden"],
-        "deleted_at": comment["deleted_at"],
+        "deleted_at": comment.get("deleted_at"),
     }
 
 
 # ============================================================
-# SUPERADMIN DELETE
+# SUPERADMIN DELETE (SOFT DELETE)
 # ============================================================
 
 @router.delete(
@@ -405,37 +336,24 @@ async def admin_delete_comment(
 ):
     _require_superadmin(context)
 
+    now_iso = datetime.now(timezone.utc).isoformat()
+
     response = (
         context.client
         .table("comments")
         .update(
             {
-                "deleted_at": datetime.now(
-                    timezone.utc
-                ).isoformat(),
+                "is_deleted": True,
+                "deleted_at": now_iso,
             }
         )
-        .eq(
-            "id",
-            str(comment_id),
-        )
-        .eq(
-            "article_id",
-            str(article_id),
-        )
-        .is_(
-            "deleted_at",
-            "null",
-        )
+        .eq("id", str(comment_id))
+        .eq("article_id", str(article_id))
+        .eq("is_deleted", False)
         .execute()
     )
 
-    if not response.data:
-        raise NotFoundError(
-            "Comment not found"
-        )
-
-    comment = response.data[0]
+    comment = extract_single_record(response.data, "Comment not found")
 
     record_audit(
         actor_user_id=context.user.id,
@@ -448,10 +366,11 @@ async def admin_delete_comment(
             "is_hidden": comment.get("is_hidden"),
             "deleted_at": comment.get("deleted_at"),
         },
+        client=context.client,
     )
 
     return {
         "id": comment["id"],
         "is_hidden": comment["is_hidden"],
-        "deleted_at": comment["deleted_at"],
+        "deleted_at": comment.get("deleted_at"),
     }

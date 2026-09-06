@@ -2,7 +2,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 from fastapi import HTTPException
+from postgrest.exceptions import APIError
 
+from app.core.db_utils import extract_single_record
 from app.core.exceptions import AuthorizationError, NotFoundError
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.superadmin_content import (
@@ -87,18 +89,14 @@ ARTICLE_SELECT = """
         display_order,
         is_active,
         created_at,
-        updated_at
-    ),
-    article_translations (
-        id,
-        language_code,
-        title,
-        subtitle,
-        summary,
-        slug,
+        is_active,
         created_at,
         updated_at
-    )
+    ),
+    title,
+    subtitle,
+    summary,
+    slug
 """
 
 
@@ -112,15 +110,11 @@ ARTICLE_BLOCK_SELECT = """
     opinion_id,
     external_url,
     created_at,
+    external_url,
+    text_content,
+    caption,
+    created_at,
     updated_at,
-    article_block_translations (
-        id,
-        language_code,
-        text_content,
-        caption,
-        created_at,
-        updated_at
-    ),
     media_assets (
         id,
         storage_path,
@@ -139,21 +133,14 @@ ALLOWED_BLOCK_TYPES = {
 }
 
 
-def _normalise_translation(data):
-    if isinstance(data, list):
-        return data[0] if data else None
-
-    return data
-
-
 def _map_article(data: dict) -> dict:
-    translation = _normalise_translation(
-        data.get("article_translations")
-    )
-
     return {
         "id": data["id"],
         "category_id": data["category_id"],
+        "title": data.get("title"),
+        "subtitle": data.get("subtitle"),
+        "summary": data.get("summary"),
+        "slug": data.get("slug"),
         "article_type": data["article_type"],
         "status": data["status"],
         "cover_media_id": data.get("cover_media_id"),
@@ -171,15 +158,10 @@ def _map_article(data: dict) -> dict:
             "author_pick_order"
         ),
         "category": data.get("categories"),
-        "translation": translation,
     }
 
 
 def _map_block(data: dict) -> dict:
-    translation = _normalise_translation(
-        data.get("article_block_translations")
-    )
-
     return {
         "id": data["id"],
         "article_id": data["article_id"],
@@ -189,7 +171,8 @@ def _map_block(data: dict) -> dict:
         "quiz_id": data.get("quiz_id"),
         "opinion_id": data.get("opinion_id"),
         "external_url": data.get("external_url"),
-        "translation": translation,
+        "text_content": data.get("text_content"),
+        "caption": data.get("caption"),
     }
 
 
@@ -208,7 +191,7 @@ def _validate_article_status(
 
     if value not in allowed:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid article status: {value}",
         )
 
@@ -224,7 +207,7 @@ def _validate_article_type(
 
     if value not in allowed:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid article type: {value}",
         )
 
@@ -234,7 +217,7 @@ def _validate_block_type(
 ) -> None:
     if value not in ALLOWED_BLOCK_TYPES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid article block type: {value}",
         )
 
@@ -631,65 +614,56 @@ def create_article(
             ),
         )
 
-    article_response = (
-        current_user.client
-        .table("articles")
-        .insert(
-            {
-                "category_id": str(
-                    payload.category_id
-                ),
-                "article_type": payload.article_type,
-                "status": payload.status,
-                "cover_media_id": (
-                    str(payload.cover_media_id)
-                    if payload.cover_media_id
-                    else None
-                ),
-                "created_by": str(
-                    current_user.user.id
-                ),
-                "updated_by": str(
-                    current_user.user.id
-                ),
-                "published_at": (
-                    payload.published_at.isoformat()
-                    if payload.published_at
-                    else None
-                ),
-                "scheduled_at": (
-                    payload.scheduled_at.isoformat()
-                    if payload.scheduled_at
-                    else None
-                ),
-            }
+    try:
+        article_response = (
+            current_user.client
+            .table("articles")
+            .insert(
+                {
+                    "category_id": str(
+                        payload.category_id
+                    ),
+                    "title": payload.title,
+                    "subtitle": payload.subtitle,
+                    "summary": payload.summary,
+                    "slug": payload.slug,
+                    "article_type": payload.article_type,
+                    "status": payload.status,
+                    "cover_media_id": (
+                        str(payload.cover_media_id)
+                        if payload.cover_media_id
+                        else None
+                    ),
+                    "created_by": str(
+                        current_user.user.id
+                    ),
+                    "updated_by": str(
+                        current_user.user.id
+                    ),
+                    "published_at": (
+                        payload.published_at.isoformat()
+                        if payload.published_at
+                        else None
+                    ),
+                    "scheduled_at": (
+                        payload.scheduled_at.isoformat()
+                        if payload.scheduled_at
+                        else None
+                    ),
+                }
+            )
+            .select(ARTICLE_SELECT)
+            .execute()
         )
-        .select(ARTICLE_SELECT)
-        .single()
-        .execute()
-    )
+    except APIError as e:
+        if getattr(e, "code", None) == "23505":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An article with this slug already exists.",
+            )
+        raise
 
-    article = article_response.data
-
-    current_user.client \
-        .table("article_translations") \
-        .insert(
-            {
-                "article_id": article["id"],
-                "language_code": (
-                    payload.translation.language_code
-                ),
-                "title": payload.translation.title,
-                "subtitle": (
-                    payload.translation.subtitle
-                ),
-                "summary": (
-                    payload.translation.summary
-                ),
-                "slug": payload.translation.slug,
-            }
-        ) \
-        .execute()
+    article = extract_single_record(article_response.data, "Article creation failed")
 
     article_id = UUID(str(article["id"]))
 
@@ -707,10 +681,8 @@ def create_article(
                 if payload.cover_media_id
                 else None
             ),
-            "translation_language": (
-                payload.translation.language_code
-            ),
         },
+        client=current_user.client,
     )
 
     return _map_article(
@@ -746,6 +718,18 @@ def update_article(
     )
 
     updates = {}
+
+    if payload.title is not None:
+        updates["title"] = payload.title
+
+    if payload.subtitle is not None:
+        updates["subtitle"] = payload.subtitle
+
+    if payload.summary is not None:
+        updates["summary"] = payload.summary
+
+    if payload.slug is not None:
+        updates["slug"] = payload.slug
 
     if payload.category_id is not None:
         _get_category(
@@ -794,31 +778,6 @@ def update_article(
             .execute()
         )
 
-    if payload.translation is not None:
-        translation = payload.translation
-
-        (
-            client
-            .table("article_translations")
-            .update(
-                {
-                    "title": translation.title,
-                    "subtitle": translation.subtitle,
-                    "summary": translation.summary,
-                    "slug": translation.slug,
-                }
-            )
-            .eq(
-                "article_id",
-                str(article_id),
-            )
-            .eq(
-                "language_code",
-                translation.language_code,
-            )
-            .execute()
-        )
-
     record_audit(
         actor_user_id=current_user.user.id,
         action="ARTICLE_UPDATED",
@@ -826,13 +785,11 @@ def update_article(
         entity_id=article_id,
         metadata={
             "article_fields": list(updates.keys()),
-            "translation_updated": (
-                payload.translation is not None
-            ),
             "previous_status": existing_article.get(
                 "status"
             ),
         },
+        client=current_user.client,
     )
 
     return _map_article(
@@ -883,6 +840,7 @@ def delete_article(
             "previous_status": article.get("status"),
             "category_id": article.get("category_id"),
         },
+        client=current_user.client,
     )
 
     return None
@@ -939,6 +897,7 @@ def publish_article(
         metadata={
             "previous_status": article.get("status"),
         },
+        client=current_user.client,
     )
 
     return _map_article(
@@ -996,6 +955,7 @@ def unpublish_article(
         metadata={
             "previous_status": article.get("status"),
         },
+        client=current_user.client,
     )
 
     return _map_article(
@@ -1065,6 +1025,7 @@ def schedule_article(
                 payload.scheduled_at.isoformat()
             ),
         },
+        client=current_user.client,
     )
 
     return _map_article(
@@ -1122,6 +1083,7 @@ def archive_article(
         metadata={
             "previous_status": article.get("status"),
         },
+        client=current_user.client,
     )
 
     return _map_article(
@@ -1354,29 +1316,15 @@ def create_article_block(
                     if payload.external_url
                     else None
                 ),
-            }
-        )
-        .select(ARTICLE_BLOCK_SELECT)
-        .single()
-        .execute()
-    )
-
-    block = block_response.data
-
-    (
-        client
-        .table("article_block_translations")
-        .insert(
-            {
-                "article_block_id": block["id"],
-                "language_code": "en",
                 "text_content": payload.text_content,
                 "caption": payload.caption,
             }
         )
+        .select(ARTICLE_BLOCK_SELECT)
         .execute()
     )
 
+    block = extract_single_record(block_response.data, "Article block creation failed")
     block_id = UUID(str(block["id"]))
 
     record_audit(
@@ -1409,6 +1357,7 @@ def create_article_block(
                 else None
             ),
         },
+        client=current_user.client,
     )
 
     return _map_block(
@@ -1472,28 +1421,16 @@ def update_article_block(
         else existing.get("external_url")
     )
 
-    existing_translation = _normalise_translation(
-        existing.get("article_block_translations")
-    )
-
     text_content = (
         payload.text_content
         if payload.text_content is not None
-        else (
-            existing_translation.get("text_content")
-            if existing_translation
-            else None
-        )
+        else existing.get("text_content")
     )
 
     caption = (
         payload.caption
         if payload.caption is not None
-        else (
-            existing_translation.get("caption")
-            if existing_translation
-            else None
-        )
+        else existing.get("caption")
     )
 
     _validate_block_payload(
@@ -1540,6 +1477,12 @@ def update_article_block(
             payload.external_url
         )
 
+    if payload.text_content is not None:
+        block_updates["text_content"] = payload.text_content
+
+    if payload.caption is not None:
+        block_updates["caption"] = payload.caption
+
     if block_updates:
         (
             client
@@ -1547,45 +1490,6 @@ def update_article_block(
             .update(block_updates)
             .eq("id", str(block_id))
             .eq("article_id", str(article_id))
-            .execute()
-        )
-
-    translation_updates = {
-        "text_content": text_content,
-        "caption": caption,
-    }
-
-    translation_query = (
-        client
-        .table("article_block_translations")
-        .update(translation_updates)
-        .eq(
-            "article_block_id",
-            str(block_id),
-        )
-        .eq(
-            "language_code",
-            "en",
-        )
-    )
-
-    translation_response = (
-        translation_query
-        .execute()
-    )
-
-    if not translation_response.data:
-        (
-            client
-            .table("article_block_translations")
-            .insert(
-                {
-                    "article_block_id": str(block_id),
-                    "language_code": "en",
-                    "text_content": text_content,
-                    "caption": caption,
-                }
-            )
             .execute()
         )
 
@@ -1598,8 +1502,8 @@ def update_article_block(
             "article_id": str(article_id),
             "block_type": block_type,
             "updated_fields": list(block_updates.keys()),
-            "translation_updated": True,
         },
+        client=current_user.client,
     )
 
     return _map_block(
@@ -1655,6 +1559,7 @@ def delete_article_block(
             "block_type": block.get("block_type"),
             "display_order": block.get("display_order"),
         },
+        client=current_user.client,
     )
 
     return None
@@ -1850,25 +1755,33 @@ def create_category(
 ):
     _require_superadmin(current_user)
 
-    response = (
-        current_user.client
-        .table("categories")
-        .insert(
-            {
-                "name": payload.name.strip(),
-                "slug": payload.slug.strip(),
-                "description": payload.description,
-                "display_order": (
-                    payload.display_order
-                ),
-                "is_active": payload.is_active,
-            }
+    try:
+        response = (
+            current_user.client
+            .table("categories")
+            .insert(
+                {
+                    "name": payload.name.strip(),
+                    "slug": payload.slug.strip(),
+                    "description": payload.description,
+                    "display_order": (
+                        payload.display_order
+                    ),
+                    "is_active": payload.is_active,
+                }
+            )
+            .select(CATEGORY_SELECT)
+            .execute()
         )
-        .select(CATEGORY_SELECT)
-        .execute()
-    )
+    except APIError as e:
+        if getattr(e, "code", None) == "23505":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A category with this name or slug already exists.",
+            )
+        raise
 
-    category = response.data
+    category = extract_single_record(response.data, "Category creation failed")
     category_id = UUID(str(category["id"]))
 
     record_audit(
@@ -1882,6 +1795,7 @@ def create_category(
             "display_order": payload.display_order,
             "is_active": payload.is_active,
         },
+        client=current_user.client,
     )
 
     return category
@@ -1935,15 +1849,24 @@ def update_category(
     if not updates:
         return existing
 
-    response = (
-        client
-        .table("categories")
-        .update(updates)
-        .eq("id", str(category_id))
-        .select(CATEGORY_SELECT)
-        .single()
-        .execute()
-    )
+    try:
+        response = (
+            client
+            .table("categories")
+            .update(updates)
+            .eq("id", str(category_id))
+            .select(CATEGORY_SELECT)
+            .execute()
+        )
+    except APIError as e:
+        if getattr(e, "code", None) == "23505":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A category with this name or slug already exists.",
+            )
+        raise
+
+    category = extract_single_record(response.data, "Category update failed")
 
     record_audit(
         actor_user_id=current_user.user.id,
@@ -1958,9 +1881,10 @@ def update_category(
             },
             "new_values": updates,
         },
+        client=current_user.client,
     )
 
-    return response.data
+    return category
 
 
 # ============================================================
@@ -2004,6 +1928,7 @@ def delete_category(
             "slug": category.get("slug"),
             "is_active": category.get("is_active"),
         },
+        client=current_user.client,
     )
 
     return None

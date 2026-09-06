@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
+from app.core.db_utils import extract_single_record
 from app.core.exceptions import AuthorizationError, NotFoundError
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.media import (
@@ -62,7 +63,7 @@ def _get_user_id(context: AuthContext) -> UUID:
 def _validate_mime_type(mime_type: str | None) -> str:
     if not mime_type:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="File MIME type is required",
         )
 
@@ -70,7 +71,7 @@ def _validate_mime_type(mime_type: str | None) -> str:
 
     if not normalized.startswith(ALLOWED_MIME_PREFIXES):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 "Unsupported media type. "
                 "Only image, video, and audio files are allowed."
@@ -87,7 +88,7 @@ def _derive_media_type(mime_type: str) -> str:
         return ALLOWED_MEDIA_TYPES[prefix]
     except KeyError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Unsupported media type",
         )
 
@@ -95,7 +96,7 @@ def _derive_media_type(mime_type: str) -> str:
 def _sanitize_filename(filename: str | None) -> str:
     if not filename:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Filename is required",
         )
 
@@ -104,7 +105,7 @@ def _sanitize_filename(filename: str | None) -> str:
 
     if not suffix:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Uploaded file must have an extension",
         )
 
@@ -472,7 +473,7 @@ def upload_media_asset(
 
     if not file_bytes:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Uploaded file is empty",
         )
 
@@ -509,17 +510,10 @@ def upload_media_asset(
             created_at
             """
         )
-        .single()
         .execute()
     )
 
-    media_data = metadata_result.data
-
-    if not media_data:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create media metadata",
-        )
+    media_data = extract_single_record(metadata_result.data, "Failed to create media metadata")
 
     media_id = UUID(str(media_data["id"]))
 
@@ -557,7 +551,7 @@ def upload_media_asset(
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Media upload failed",
+            detail=f"Media upload failed: {str(exc)}",
         ) from exc
 
     signed_url = _create_signed_url(
@@ -576,6 +570,7 @@ def upload_media_asset(
             "mime_type": mime_type,
             "file_size": len(file_bytes),
         },
+        client=current_user.client,
     )
 
     return _build_media_response(
@@ -687,6 +682,7 @@ def delete_media_asset(
         metadata={
             "storage_path": storage_path,
         },
+        client=current_user.client,
     )
 
     return None

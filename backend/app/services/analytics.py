@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import UUID
 
+from app.core.db_utils import extract_single_record
 from app.db.supabase import supabase
 
 
@@ -48,11 +49,10 @@ def record_event(
         .table("analytics_events")
         .insert(data)
         .select("*")
-        .single()
         .execute()
     )
 
-    return response.data
+    return extract_single_record(response.data)
 
 
 def record_article_view(
@@ -124,10 +124,9 @@ def record_quiz_attempt(
         db.table("quiz_attempts")
         .insert(payload)
         .select()
-        .single()
         .execute()
     )
-    return result.data
+    return extract_single_record(result.data)
 
 
 def record_comment_created(

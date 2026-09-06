@@ -16,62 +16,48 @@ router = APIRouter(
 )
 
 
-def _extract_translation(data: dict | list) -> dict:
-    """Helper to safely get translation dict whether returned as list or dict by Supabase."""
-    if isinstance(data, list):
-        return data[0] if data else {}
-    return data or {}
-
-
 @router.get(
     "",
     response_model=ArticleListResponse,
 )
-async def list_articles(
-    language: str = Query(default="en"),
-):
+async def list_articles():
     response = (
         supabase
         .table("articles")
         .select(
             """
             id,
+            slug,
+            title,
+            subtitle,
+            summary,
             article_type,
             published_at,
             categories (
                 id,
                 name,
                 slug
-            ),
-            article_translations!inner (
-                slug,
-                title,
-                subtitle,
-                summary
             )
             """
         )
         .eq("status", "PUBLISHED")
-        .eq("article_translations.language_code", language)
         .order("published_at", desc=True)
         .execute()
     )
 
     items = []
+    data = response.data if response and response.data else []
 
-    for article in response.data or []:
-        translation = _extract_translation(
-            article.get("article_translations")
-        )
+    for article in data:
         category = article.get("categories")
 
         items.append(
             {
                 "id": article["id"],
-                "slug": translation.get("slug"),
-                "title": translation.get("title"),
-                "subtitle": translation.get("subtitle"),
-                "summary": translation.get("summary"),
+                "slug": article.get("slug"),
+                "title": article.get("title"),
+                "subtitle": article.get("subtitle"),
+                "summary": article.get("summary"),
                 "article_type": article["article_type"],
                 "category": category,
                 "published_at": article["published_at"],
@@ -87,7 +73,6 @@ async def list_articles(
 )
 async def search_articles(
     q: str = Query(..., min_length=1, max_length=100),
-    language: str = Query(default="en"),
 ):
     search_term = q.strip()
 
@@ -100,51 +85,45 @@ async def search_articles(
         .select(
             """
             id,
+            slug,
+            title,
+            subtitle,
+            summary,
             article_type,
             published_at,
             categories (
                 id,
                 name,
                 slug
-            ),
-            article_translations!inner (
-                slug,
-                title,
-                subtitle,
-                summary
             )
             """
         )
         .eq("status", "PUBLISHED")
-        .eq("article_translations.language_code", language)
         .or_(
             (
                 f"title.ilike.%{search_term}%,"
                 f"subtitle.ilike.%{search_term}%,"
                 f"summary.ilike.%{search_term}%,"
                 f"slug.ilike.%{search_term}%"
-            ),
-            referenced_table="article_translations",
+            )
         )
         .order("published_at", desc=True)
         .execute()
     )
 
     items = []
+    data = response.data if response and response.data else []
 
-    for article in response.data or []:
-        translation = _extract_translation(
-            article.get("article_translations")
-        )
+    for article in data:
         category = article.get("categories")
 
         items.append(
             {
                 "id": article["id"],
-                "slug": translation.get("slug"),
-                "title": translation.get("title"),
-                "subtitle": translation.get("subtitle"),
-                "summary": translation.get("summary"),
+                "slug": article.get("slug"),
+                "title": article.get("title"),
+                "subtitle": article.get("subtitle"),
+                "summary": article.get("summary"),
                 "article_type": article["article_type"],
                 "category": category,
                 "published_at": article["published_at"],
@@ -160,49 +139,39 @@ async def search_articles(
 )
 async def get_article(
     slug: str,
-    language: str = Query(default="en"),
 ):
-    try:
-        response = (
-            supabase
-            .table("articles")
-            .select(
-                """
+    response = (
+        supabase
+        .table("articles")
+        .select(
+            """
+            id,
+            slug,
+            title,
+            subtitle,
+            summary,
+            article_type,
+            published_at,
+            categories (
                 id,
-                article_type,
-                published_at,
-                categories (
-                    id,
-                    name,
-                    slug
-                ),
-                article_translations!inner (
-                    slug,
-                    title,
-                    subtitle,
-                    summary
-                )
-                """
+                name,
+                slug
             )
-            .eq("status", "PUBLISHED")
-            .eq("article_translations.slug", slug)
-            .eq("article_translations.language_code", language)
-            .single()
-            .execute()
+            """
         )
-    except APIError as exc:
-        if exc.code == "PGRST116":
-            raise NotFoundError("Article not found") from exc
-        raise
+        .eq("status", "PUBLISHED")
+        .ilike("slug", slug)
+        .maybe_single()
+        .execute()
+    )
 
-    if not response.data:
+    # Null-safe extraction for response object and data
+    article_data = getattr(response, "data", None) if response else None
+
+    if not article_data:
         raise NotFoundError("Article not found")
 
-    article = response.data
-
-    translation = _extract_translation(
-        article.get("article_translations")
-    )
+    article = article_data
 
     try:
         blocks_response = (
@@ -215,10 +184,8 @@ async def get_article(
                 display_order,
                 media_id,
                 external_url,
-                article_block_translations!inner (
-                    text_content,
-                    caption
-                ),
+                text_content,
+                caption,
                 media_assets (
                     id,
                     storage_path,
@@ -228,10 +195,6 @@ async def get_article(
                 """
             )
             .eq("article_id", article["id"])
-            .eq(
-                "article_block_translations.language_code",
-                language,
-            )
             .order("display_order")
             .execute()
         )
@@ -239,13 +202,10 @@ async def get_article(
         raise
 
     blocks = []
+    blocks_data = getattr(blocks_response, "data", None) if blocks_response else None
 
-    for block in blocks_response.data or []:
-        block_translation = _extract_translation(
-            block.get("article_block_translations")
-        )
-
-        block_type = block["block_type"]
+    for block in blocks_data or []:
+        block_type = block.get("block_type")
 
         if block_type == "TEXT":
             blocks.append(
@@ -253,9 +213,7 @@ async def get_article(
                     "id": block["id"],
                     "type": "TEXT",
                     "display_order": block["display_order"],
-                    "text": block_translation.get(
-                        "text_content"
-                    ),
+                    "text": block.get("text_content"),
                 }
             )
 
@@ -270,9 +228,7 @@ async def get_article(
                     "id": block["id"],
                     "type": "IMAGE",
                     "display_order": block["display_order"],
-                    "caption": block_translation.get(
-                        "caption"
-                    ),
+                    "caption": block.get("caption"),
                     "media": media,
                 }
             )
@@ -283,23 +239,10 @@ async def get_article(
                     "id": block["id"],
                     "type": "PODCAST",
                     "display_order": block["display_order"],
-                    "description": block_translation.get(
-                        "text_content"
-                    ),
-                    "external_url": block["external_url"],
+                    "description": block.get("text_content") or "",
+                    "external_url": block.get("external_url") or "",
                 }
             )
-
-    # ---------------------------------------------------------
-    # ANALYTICS
-    #
-    # The article has already been successfully validated as
-    # published and its content has been successfully loaded.
-    #
-    # Analytics is intentionally best-effort. A failure in the
-    # analytics pipeline must never prevent the article from
-    # being returned to the user.
-    # ---------------------------------------------------------
 
     try:
         record_article_view(
@@ -310,10 +253,10 @@ async def get_article(
 
     return {
         "id": article["id"],
-        "slug": translation.get("slug"),
-        "title": translation.get("title"),
-        "subtitle": translation.get("subtitle"),
-        "summary": translation.get("summary"),
+        "slug": article.get("slug"),
+        "title": article.get("title"),
+        "subtitle": article.get("subtitle"),
+        "summary": article.get("summary"),
         "article_type": article["article_type"],
         "category": article.get("categories"),
         "published_at": article["published_at"],

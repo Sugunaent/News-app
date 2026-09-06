@@ -2,9 +2,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.core.db_utils import extract_single_record
 from app.core.exceptions import AuthorizationError, NotFoundError
 from app.db.supabase import supabase
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.promotions import (
     PromotionalItemCreate,
     PromotionalItemResponse,
@@ -20,17 +21,20 @@ router = APIRouter(
 )
 
 
-def _require_superadmin(current_user: CurrentUser) -> None:
-    user_role = getattr(current_user, "role", None)
+def _require_superadmin(current_user: AuthContext | CurrentUser) -> None:
+    # Unwrap CurrentUser if AuthContext was passed
+    user = current_user.user if isinstance(current_user, AuthContext) else current_user
 
-    if not user_role and hasattr(current_user, "profile"):
+    user_role = getattr(user, "role", None)
+
+    if not user_role and hasattr(user, "profile"):
         user_role = (
-            current_user.profile.get("role")
-            if isinstance(current_user.profile, dict)
-            else getattr(current_user.profile, "role", None)
+            user.profile.get("role")
+            if isinstance(user.profile, dict)
+            else getattr(user.profile, "role", None)
         )
 
-    if user_role != "SUPERADMIN":
+    if not user_role or str(user_role).upper() != "SUPERADMIN":
         raise AuthorizationError("Superadmin access required")
 
 
@@ -78,9 +82,6 @@ def list_promotions():
 
     items = result.data or []
 
-    # Keep visibility enforcement explicit at the API layer as well as
-    # in RLS. This prevents accidental exposure if query construction
-    # changes later.
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc)
@@ -124,7 +125,7 @@ def list_promotions():
     response_model=list[PromotionalItemResponse],
 )
 def list_promotions_admin(
-    current_user=Depends(get_current_user),
+    current_user: AuthContext = Depends(get_current_user),
 ):
     """
     Return all promotional items for Superadmin management.
@@ -140,7 +141,7 @@ def list_promotions_admin(
         .execute()
     )
 
-    return result.data or []
+    return getattr(result, "data", None) or []
 
 
 @router.post(
@@ -150,7 +151,7 @@ def list_promotions_admin(
 )
 def create_promotion(
     payload: PromotionalItemCreate,
-    current_user=Depends(get_current_user),
+    current_user: AuthContext = Depends(get_current_user),
 ):
     """
     Create a promotional carousel item.
@@ -160,38 +161,38 @@ def create_promotion(
     if payload.starts_at and payload.ends_at:
         if payload.ends_at <= payload.starts_at:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="ends_at must be later than starts_at",
             )
 
-    media_result = (
-        current_user.client
-        .table("media_assets")
-        .select("id, storage_path")
-        .eq("id", str(payload.image_media_id))
-        .maybe_single()
-        .execute()
-    )
+    if payload.image_media_id is not None:
+        media_result = (
+            current_user.client
+            .table("media_assets")
+            .select("id, storage_path")
+            .eq("id", str(payload.image_media_id))
+            .maybe_single()
+            .execute()
+        )
 
-    if not media_result.data:
-        raise NotFoundError("Promotional image media not found")
+        media_data = getattr(media_result, "data", None) if media_result else None
+        if not media_data:
+            raise NotFoundError("Promotional image media not found")
 
     data = payload.model_dump(mode="json")
-    data["external_url"] = str(payload.external_url)
+    if payload.external_url is not None:
+        data["external_url"] = str(payload.external_url)
 
     result = (
         current_user.client
         .table("promotional_items")
         .insert(data)
         .select(_build_select_query())
-        .single()
         .execute()
     )
 
-    if not result.data:
-        raise NotFoundError("Promotional item could not be created")
-
-    promotion = result.data
+    result_data = getattr(result, "data", None) if result else None
+    promotion = extract_single_record(result_data, "Promotional item could not be created")
 
     record_audit(
         actor_user_id=current_user.user.id,
@@ -208,6 +209,7 @@ def create_promotion(
             "starts_at": promotion.get("starts_at"),
             "ends_at": promotion.get("ends_at"),
         },
+        client=current_user.client,
     )
 
     return promotion
@@ -220,7 +222,7 @@ def create_promotion(
 def update_promotion(
     promotion_id: UUID,
     payload: PromotionalItemUpdate,
-    current_user=Depends(get_current_user),
+    current_user: AuthContext = Depends(get_current_user),
 ):
     """
     Update a promotional carousel item.
@@ -236,10 +238,11 @@ def update_promotion(
         .execute()
     )
 
-    if not existing_result.data:
+    existing_data = getattr(existing_result, "data", None) if existing_result else None
+    if not existing_data:
         raise NotFoundError("Promotional item not found")
 
-    existing = existing_result.data
+    existing = existing_data
 
     merged_starts_at = payload.starts_at
 
@@ -266,7 +269,7 @@ def update_promotion(
 
         if merged_ends_at <= merged_starts_at:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="ends_at must be later than starts_at",
             )
 
@@ -281,7 +284,8 @@ def update_promotion(
                 .execute()
             )
 
-            if not media_result.data:
+            media_data = getattr(media_result, "data", None) if media_result else None
+            if not media_data:
                 raise NotFoundError(
                     "Promotional image media not found"
                 )
@@ -300,14 +304,11 @@ def update_promotion(
         .update(data)
         .eq("id", str(promotion_id))
         .select(_build_select_query())
-        .single()
         .execute()
     )
 
-    if not result.data:
-        raise NotFoundError("Promotional item not found")
-
-    promotion = result.data
+    result_data = getattr(result, "data", None) if result else None
+    promotion = extract_single_record(result_data, "Promotional item not found")
 
     record_audit(
         actor_user_id=current_user.user.id,
@@ -324,6 +325,7 @@ def update_promotion(
             "starts_at": promotion.get("starts_at"),
             "ends_at": promotion.get("ends_at"),
         },
+        client=current_user.client,
     )
 
     return promotion
@@ -335,7 +337,7 @@ def update_promotion(
 )
 def delete_promotion(
     promotion_id: UUID,
-    current_user=Depends(get_current_user),
+    current_user: AuthContext = Depends(get_current_user),
 ):
     """
     Delete a promotional carousel item.
@@ -351,10 +353,11 @@ def delete_promotion(
         .execute()
     )
 
-    if not existing_result.data:
+    existing_data = getattr(existing_result, "data", None) if existing_result else None
+    if not existing_data:
         raise NotFoundError("Promotional item not found")
 
-    existing = existing_result.data
+    existing = existing_data
 
     (
         current_user.client
@@ -379,6 +382,7 @@ def delete_promotion(
             "starts_at": existing.get("starts_at"),
             "ends_at": existing.get("ends_at"),
         },
+        client=current_user.client,
     )
 
     return None

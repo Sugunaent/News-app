@@ -59,19 +59,8 @@ class SuperadminCategoryUpdate(BaseModel):
 # ARTICLE
 # ============================================================
 
-class SuperadminArticleTranslation(BaseModel):
-    id: UUID
-    language_code: str
-    title: str
-    subtitle: str | None
-    summary: str | None
-    slug: str
-    created_at: datetime
-    updated_at: datetime
-
-
-class SuperadminArticleTranslationInput(BaseModel):
-    language_code: str
+class SuperadminArticleCreate(BaseModel):
+    category_id: UUID
     title: str = Field(min_length=1, max_length=500)
     subtitle: str | None = Field(
         default=None,
@@ -82,27 +71,23 @@ class SuperadminArticleTranslationInput(BaseModel):
         max_length=5000,
     )
     slug: str = Field(min_length=1, max_length=300)
-
-
-class SuperadminArticleCreate(BaseModel):
-    category_id: UUID
     article_type: str = "STANDARD"
     status: str = "DRAFT"
     cover_media_id: UUID | None = None
     published_at: datetime | None = None
     scheduled_at: datetime | None = None
 
-    translation: SuperadminArticleTranslationInput
-
 
 class SuperadminArticleUpdate(BaseModel):
     category_id: UUID | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    subtitle: str | None = Field(default=None, max_length=1000)
+    summary: str | None = Field(default=None, max_length=5000)
+    slug: str | None = Field(default=None, min_length=1, max_length=300)
     article_type: str | None = None
     cover_media_id: UUID | None = None
     published_at: datetime | None = None
     scheduled_at: datetime | None = None
-
-    translation: SuperadminArticleTranslationInput | None = None
 
 
 class SuperadminArticleStatusUpdate(BaseModel):
@@ -120,6 +105,10 @@ class SuperadminAuthorPickUpdate(BaseModel):
 class SuperadminArticleListItem(BaseModel):
     id: UUID
     category_id: UUID
+    title: str
+    subtitle: str | None
+    summary: str | None
+    slug: str
     article_type: str
     status: str
     cover_media_id: UUID | None
@@ -134,7 +123,6 @@ class SuperadminArticleListItem(BaseModel):
     author_pick_order: int | None
 
     category: SuperadminCategoryResponse | None
-    translation: SuperadminArticleTranslation | None
 
 
 class SuperadminArticleDetailResponse(
@@ -156,13 +144,6 @@ class SuperadminHomeResponse(BaseModel):
 # ARTICLE BLOCKS
 # ============================================================
 
-class SuperadminArticleBlockTranslation(BaseModel):
-    id: UUID
-    language_code: str
-    text_content: str | None
-    caption: str | None
-
-
 class SuperadminArticleBlockResponse(BaseModel):
     id: UUID
     article_id: UUID
@@ -172,7 +153,8 @@ class SuperadminArticleBlockResponse(BaseModel):
     quiz_id: UUID | None
     opinion_id: UUID | None
     external_url: str | None
-    translation: SuperadminArticleBlockTranslation | None
+    text_content: str | None
+    caption: str | None
 
 
 class SuperadminArticleBlockCreate(BaseModel):

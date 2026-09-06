@@ -2,6 +2,7 @@ from uuid import UUID
 
 from postgrest.exceptions import APIError
 
+from app.core.db_utils import extract_single_record
 from app.db.supabase import supabase
 
 
@@ -80,11 +81,10 @@ def award_xp(
                 "id, xp_rule_id, article_id, source_type, "
                 "source_id, amount, created_at"
             )
-            .single()
             .execute()
         )
 
-        return response.data
+        return extract_single_record(response.data)
 
     except APIError:
         # Protect against a concurrent request winning the unique
@@ -255,11 +255,10 @@ def _award_badge(
             .select(
                 "user_id, badge_id, earned_at"
             )
-            .single()
             .execute()
         )
 
-        return response.data
+        return extract_single_record(response.data)
 
     except APIError:
         # A concurrent request may have assigned the same badge

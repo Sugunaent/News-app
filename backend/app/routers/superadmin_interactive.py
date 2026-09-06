@@ -1,8 +1,8 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
-from postgrest.exceptions import APIError
 
+from app.core.db_utils import extract_single_record
 from app.core.exceptions import AuthorizationError, NotFoundError
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.superadmin_interactive import (
@@ -76,6 +76,7 @@ def _audit(
         entity_type=entity_type,
         entity_id=entity_id,
         metadata=metadata or {},
+        client=auth.client,
     )
 
 
@@ -154,7 +155,7 @@ def _get_quiz_question(
         client.table("quiz_questions")
         .select(
             "id, quiz_id, display_order, "
-            "created_at, updated_at"
+            "question_text, created_at, updated_at"
         )
         .eq("id", str(question_id))
         .eq("quiz_id", str(quiz_id))
@@ -179,7 +180,7 @@ def _get_quiz_option(
         client.table("quiz_options")
         .select(
             "id, question_id, display_order, "
-            "is_correct, created_at, updated_at"
+            "is_correct, option_text, created_at, updated_at"
         )
         .eq("id", str(option_id))
         .eq("question_id", str(question_id))
@@ -203,7 +204,7 @@ def _get_opinion(
         client.table("opinion_questions")
         .select(
             "id, article_id, display_order, "
-            "allow_custom_response, created_at, updated_at"
+            "allow_custom_response, question_text, created_at, updated_at"
         )
         .eq("id", str(opinion_id))
         .maybe_single()
@@ -227,7 +228,7 @@ def _get_opinion_option(
         client.table("opinion_options")
         .select(
             "id, question_id, display_order, "
-            "created_at, updated_at"
+            "option_text, created_at, updated_at"
         )
         .eq("id", str(option_id))
         .eq("question_id", str(question_id))
@@ -427,12 +428,7 @@ async def get_quiz(
                 question_id=option["question_id"],
                 display_order=option["display_order"],
                 is_correct=option["is_correct"],
-                option_text=_extract_text(
-                    option.get(
-                        "quiz_option_translations"
-                    ),
-                    "option_text",
-                ),
+                option_text=option.get("option_text"),
                 created_at=option["created_at"],
                 updated_at=option["updated_at"],
             )
@@ -446,12 +442,7 @@ async def get_quiz(
                 id=question["id"],
                 quiz_id=question["quiz_id"],
                 display_order=question["display_order"],
-                question_text=_extract_text(
-                    question.get(
-                        "quiz_question_translations"
-                    ),
-                    "question_text",
-                ),
+                question_text=question.get("question_text"),
                 created_at=question["created_at"],
                 updated_at=question["updated_at"],
                 options=options,
@@ -513,11 +504,10 @@ async def create_quiz(
         .select(
             "id, article_id, created_at, updated_at"
         )
-        .single()
         .execute()
     )
 
-    quiz = result.data
+    quiz = extract_single_record(result.data, "Quiz creation failed")
     quiz_id = UUID(str(quiz["id"]))
 
     _audit(
@@ -594,11 +584,10 @@ async def update_quiz(
             .select(
                 "id, article_id, created_at, updated_at"
             )
-            .single()
             .execute()
         )
 
-        updated_quiz = result.data
+        updated_quiz = extract_single_record(result.data, "Quiz update failed")
 
         _audit(
             auth,
@@ -715,12 +704,7 @@ async def list_quiz_questions(
                 id=question["id"],
                 quiz_id=question["quiz_id"],
                 display_order=question["display_order"],
-                question_text=_extract_text(
-                    question.get(
-                        "quiz_question_translations"
-                    ),
-                    "question_text",
-                ),
+                question_text=question.get("question_text"),
                 created_at=question["created_at"],
                 updated_at=question["updated_at"],
                 options=[
@@ -731,12 +715,7 @@ async def list_quiz_questions(
                             "display_order"
                         ],
                         is_correct=option["is_correct"],
-                        option_text=_extract_text(
-                            option.get(
-                                "quiz_option_translations"
-                            ),
-                            "option_text",
-                        ),
+                        option_text=option.get("option_text"),
                         created_at=option["created_at"],
                         updated_at=option["updated_at"],
                     )
@@ -775,27 +754,18 @@ async def create_quiz_question(
             {
                 "quiz_id": str(quiz_id),
                 "display_order": payload.display_order,
+                "question_text": payload.question_text,
             }
         )
         .select(
             "id, quiz_id, display_order, "
-            "created_at, updated_at"
+            "question_text, created_at, updated_at"
         )
-        .single()
         .execute()
     )
 
-    question = result.data
+    question = extract_single_record(result.data, "Quiz question creation failed")
     question_id = UUID(str(question["id"]))
-
-    _upsert_translation(
-        client,
-        "quiz_question_translations",
-        "question_id",
-        question_id,
-        "question_text",
-        payload.question_text,
-    )
 
     _audit(
         auth,
@@ -805,6 +775,7 @@ async def create_quiz_question(
         metadata={
             "quiz_id": str(quiz_id),
             "display_order": payload.display_order,
+                "question_text": payload.question_text,
             "question_text": payload.question_text,
         },
     )
@@ -855,23 +826,15 @@ async def update_quiz_question(
             .eq("quiz_id", str(quiz_id))
             .select(
                 "id, quiz_id, display_order, "
-                "created_at, updated_at"
+            "question_text, created_at, updated_at"
             )
-            .single()
             .execute()
         )
 
-        question = result.data
+        question = extract_single_record(result.data, "Quiz question update failed")
 
     if payload.question_text is not None:
-        _upsert_translation(
-            client,
-            "quiz_question_translations",
-            "question_id",
-            question_id,
-            "question_text",
-            payload.question_text,
-        )
+        update_data["question_text"] = payload.question_text
 
     _audit(
         auth,
@@ -900,25 +863,7 @@ async def update_quiz_question(
         question_text=(
             payload.question_text
             if payload.question_text is not None
-            else _extract_text(
-                (
-                    client.table(
-                        "quiz_question_translations"
-                    )
-                    .select(
-                        "language_code, question_text"
-                    )
-                    .eq(
-                        "question_id",
-                        str(question_id),
-                    )
-                    .eq("language_code", "en")
-                    .maybe_single()
-                    .execute()
-                    .data
-                ),
-                "question_text",
-            )
+            else question.get("question_text")
         ),
         created_at=question["created_at"],
         updated_at=question["updated_at"],
@@ -1076,10 +1021,7 @@ async def list_quiz_options(
             question_id=option["question_id"],
             display_order=option["display_order"],
             is_correct=option["is_correct"],
-            option_text=_extract_text(
-                option.get("quiz_option_translations"),
-                "option_text",
-            ),
+            option_text=option.get("option_text"),
             created_at=option["created_at"],
             updated_at=option["updated_at"],
         )
@@ -1125,28 +1067,20 @@ async def create_quiz_option(
             {
                 "question_id": str(question_id),
                 "display_order": payload.display_order,
+                "option_text": payload.option_text,
                 "is_correct": payload.is_correct,
+                "option_text": payload.option_text,
             }
         )
         .select(
             "id, question_id, display_order, "
-            "is_correct, created_at, updated_at"
+            "is_correct, option_text, created_at, updated_at"
         )
-        .single()
         .execute()
     )
 
-    option = result.data
+    option = extract_single_record(result.data, "Quiz option creation failed")
     option_id = UUID(str(option["id"]))
-
-    _upsert_translation(
-        client,
-        "quiz_option_translations",
-        "option_id",
-        option_id,
-        "option_text",
-        payload.option_text,
-    )
 
     _audit(
         auth,
@@ -1157,7 +1091,9 @@ async def create_quiz_option(
             "quiz_id": str(quiz_id),
             "question_id": str(question_id),
             "display_order": payload.display_order,
+                "option_text": payload.option_text,
             "is_correct": payload.is_correct,
+                "option_text": payload.option_text,
             "option_text": payload.option_text,
         },
     )
@@ -1237,21 +1173,13 @@ async def update_quiz_option(
                 "language_code, option_text"
                 ")"
             )
-            .single()
             .execute()
         )
 
-        option = result.data
+        option = extract_single_record(result.data, "Quiz option update failed")
 
     if payload.option_text is not None:
-        _upsert_translation(
-            client,
-            "quiz_option_translations",
-            "option_id",
-            option_id,
-            "option_text",
-            payload.option_text,
-        )
+        update_data["option_text"] = payload.option_text
 
     _audit(
         auth,
@@ -1282,10 +1210,7 @@ async def update_quiz_option(
         option_text=(
             payload.option_text
             if payload.option_text is not None
-            else _extract_text(
-                option.get("quiz_option_translations"),
-                "option_text",
-            )
+            else option.get("option_text")
         ),
         created_at=option["created_at"],
         updated_at=option["updated_at"],
@@ -1465,11 +1390,10 @@ async def set_quiz_correct_answer(
             "language_code, option_text"
             ")"
         )
-        .single()
         .execute()
     )
 
-    option = result.data
+    option = extract_single_record(result.data, "Quiz correct answer update failed")
 
     _audit(
         auth,
@@ -1487,10 +1411,7 @@ async def set_quiz_correct_answer(
         question_id=option["question_id"],
         display_order=option["display_order"],
         is_correct=option["is_correct"],
-        option_text=_extract_text(
-            option.get("quiz_option_translations"),
-            "option_text",
-        ),
+        option_text=option.get("option_text"),
         created_at=option["created_at"],
         updated_at=option["updated_at"],
     )
@@ -1568,12 +1489,7 @@ async def list_opinions(
                         display_order=option[
                             "display_order"
                         ],
-                        option_text=_extract_text(
-                            option.get(
-                                "opinion_option_translations"
-                            ),
-                            "option_text",
-                        ),
+                        option_text=option.get("option_text"),
                         created_at=option[
                             "created_at"
                         ],
@@ -1657,12 +1573,7 @@ async def get_opinion(
                 id=option["id"],
                 question_id=option["question_id"],
                 display_order=option["display_order"],
-                option_text=_extract_text(
-                    option.get(
-                        "opinion_option_translations"
-                    ),
-                    "option_text",
-                ),
+                option_text=option.get("option_text"),
                 created_at=option["created_at"],
                 updated_at=option["updated_at"],
             )
@@ -1702,27 +1613,18 @@ async def create_opinion(
                 "allow_custom_response": (
                     payload.allow_custom_response
                 ),
+                "question_text": payload.question_text,
             }
         )
         .select(
             "id, article_id, display_order, "
-            "allow_custom_response, created_at, updated_at"
+            "allow_custom_response, question_text, created_at, updated_at"
         )
-        .single()
         .execute()
     )
 
-    opinion = result.data
+    opinion = extract_single_record(result.data, "Opinion question creation failed")
     opinion_id = UUID(str(opinion["id"]))
-
-    _upsert_translation(
-        client,
-        "opinion_question_translations",
-        "question_id",
-        opinion_id,
-        "question_text",
-        payload.question_text,
-    )
 
     _audit(
         auth,
@@ -1790,23 +1692,15 @@ async def update_opinion(
             .eq("id", str(opinion_id))
             .select(
                 "id, article_id, display_order, "
-                "allow_custom_response, created_at, updated_at"
+            "allow_custom_response, question_text, created_at, updated_at"
             )
-            .single()
             .execute()
         )
 
-        opinion = result.data
+        opinion = extract_single_record(result.data, "Opinion question update failed")
 
     if payload.question_text is not None:
-        _upsert_translation(
-            client,
-            "opinion_question_translations",
-            "question_id",
-            opinion_id,
-            "question_text",
-            payload.question_text,
-        )
+        update_data["question_text"] = payload.question_text
 
     _audit(
         auth,
@@ -2027,12 +1921,7 @@ async def list_opinion_options(
             id=option["id"],
             question_id=option["question_id"],
             display_order=option["display_order"],
-            option_text=_extract_text(
-                option.get(
-                    "opinion_option_translations"
-                ),
-                "option_text",
-            ),
+            option_text=option.get("option_text"),
             created_at=option["created_at"],
             updated_at=option["updated_at"],
         )
@@ -2067,27 +1956,18 @@ async def create_opinion_option(
             {
                 "question_id": str(opinion_id),
                 "display_order": payload.display_order,
+                "option_text": payload.option_text,
             }
         )
         .select(
             "id, question_id, display_order, "
-            "created_at, updated_at"
+            "option_text, created_at, updated_at"
         )
-        .single()
         .execute()
     )
 
-    option = result.data
+    option = extract_single_record(result.data, "Opinion option creation failed")
     option_id = UUID(str(option["id"]))
-
-    _upsert_translation(
-        client,
-        "opinion_option_translations",
-        "option_id",
-        option_id,
-        "option_text",
-        payload.option_text,
-    )
 
     _audit(
         auth,
@@ -2158,20 +2038,12 @@ async def update_opinion_option(
                 "opinion_option_translations("
                 "language_code, option_text)"
             )
-            .single()
             .execute()
         )
-        option = result.data
+        option = extract_single_record(result.data, "Opinion option update failed")
 
     if payload.option_text is not None:
-        _upsert_translation(
-            client,
-            "opinion_option_translations",
-            "option_id",
-            option_id,
-            "option_text",
-            payload.option_text,
-        )
+        update_data["option_text"] = payload.option_text
 
     _audit(
         auth,
@@ -2200,12 +2072,7 @@ async def update_opinion_option(
         option_text=(
             payload.option_text
             if payload.option_text is not None
-            else _extract_text(
-                option.get(
-                    "opinion_option_translations"
-                ),
-                "option_text",
-            )
+            else option.get("option_text")
         ),
         created_at=option["created_at"],
         updated_at=option["updated_at"],
