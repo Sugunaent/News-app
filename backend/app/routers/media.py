@@ -63,7 +63,7 @@ def _get_user_id(context: AuthContext) -> UUID:
 def _validate_mime_type(mime_type: str | None) -> str:
     if not mime_type:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="File MIME type is required",
         )
 
@@ -71,7 +71,7 @@ def _validate_mime_type(mime_type: str | None) -> str:
 
     if not normalized.startswith(ALLOWED_MIME_PREFIXES):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
                 "Unsupported media type. "
                 "Only image, video, and audio files are allowed."
@@ -88,7 +88,7 @@ def _derive_media_type(mime_type: str) -> str:
         return ALLOWED_MEDIA_TYPES[prefix]
     except KeyError:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Unsupported media type",
         )
 
@@ -96,7 +96,7 @@ def _derive_media_type(mime_type: str) -> str:
 def _sanitize_filename(filename: str | None) -> str:
     if not filename:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Filename is required",
         )
 
@@ -105,7 +105,7 @@ def _sanitize_filename(filename: str | None) -> str:
 
     if not suffix:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Uploaded file must have an extension",
         )
 
@@ -324,8 +324,10 @@ def list_media_assets(
 
     _require_superadmin(current_user)
 
+    db = getattr(current_user, "admin_client", current_user.client)
+
     result = (
-        current_user.client
+        db
         .table("media_assets")
         .select(
             """
@@ -348,7 +350,7 @@ def list_media_assets(
 
     for media in media_assets:
         signed_url = _create_signed_url(
-            current_user.client,
+            db,
             media["storage_path"],
         )
 
@@ -381,8 +383,10 @@ def get_media_asset(
 
     _require_superadmin(current_user)
 
+    db = getattr(current_user, "admin_client", current_user.client)
+
     result = (
-        current_user.client
+        db
         .table("media_assets")
         .select(
             """
@@ -406,12 +410,12 @@ def get_media_asset(
         )
 
     references = _find_media_references(
-        current_user.client,
+        db,
         media_id,
     )
 
     signed_url = _create_signed_url(
-        current_user.client,
+        db,
         result.data["storage_path"],
     )
 
@@ -442,15 +446,14 @@ def upload_media_asset(
 ):
     """
     Upload a media file and create its media_assets metadata.
-
-    The metadata row is created before the Storage object because
-    the existing Storage INSERT policy requires the matching
-    media_assets row to already exist and belong to the uploader.
+    Uses admin_client to bypass Storage RLS policies safely after
+    verifying superadmin status in FastAPI.
     """
 
     _require_superadmin(current_user)
 
     user_id = _get_user_id(current_user)
+    db = getattr(current_user, "admin_client", current_user.client)
 
     mime_type = _validate_mime_type(
         file.content_type
@@ -473,7 +476,7 @@ def upload_media_asset(
 
     if not file_bytes:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Uploaded file is empty",
         )
 
@@ -488,7 +491,7 @@ def upload_media_asset(
     # ---------------------------------------------------------
 
     metadata_result = (
-        current_user.client
+        db
         .table("media_assets")
         .insert(
             {
@@ -518,12 +521,12 @@ def upload_media_asset(
     media_id = UUID(str(media_data["id"]))
 
     # ---------------------------------------------------------
-    # 2. Upload the actual object.
+    # 2. Upload the actual object using admin_client.
     # ---------------------------------------------------------
 
     try:
         (
-            current_user.client
+            db
             .storage
             .from_(BUCKET_NAME)
             .upload(
@@ -540,7 +543,7 @@ def upload_media_asset(
         # The metadata row must not remain without its object.
         try:
             (
-                current_user.client
+                db
                 .table("media_assets")
                 .delete()
                 .eq("id", str(media_id))
@@ -555,7 +558,7 @@ def upload_media_asset(
         ) from exc
 
     signed_url = _create_signed_url(
-        current_user.client,
+        db,
         storage_path,
     )
 
@@ -570,7 +573,7 @@ def upload_media_asset(
             "mime_type": mime_type,
             "file_size": len(file_bytes),
         },
-        client=current_user.client,
+        client=db,
     )
 
     return _build_media_response(
@@ -600,9 +603,10 @@ def delete_media_asset(
     _require_superadmin(current_user)
 
     user_id = _get_user_id(current_user)
+    db = getattr(current_user, "admin_client", current_user.client)
 
     result = (
-        current_user.client
+        db
         .table("media_assets")
         .select(
             """
@@ -623,7 +627,7 @@ def delete_media_asset(
     storage_path = result.data["storage_path"]
 
     references = _find_media_references(
-        current_user.client,
+        db,
         media_id,
     )
 
@@ -637,12 +641,12 @@ def delete_media_asset(
         )
 
     # ---------------------------------------------------------
-    # 1. Delete Storage object.
+    # 1. Delete Storage object using admin_client.
     # ---------------------------------------------------------
 
     try:
         (
-            current_user.client
+            db
             .storage
             .from_(BUCKET_NAME)
             .remove([storage_path])
@@ -660,7 +664,7 @@ def delete_media_asset(
 
     try:
         (
-            current_user.client
+            db
             .table("media_assets")
             .delete()
             .eq("id", str(media_id))
@@ -682,7 +686,7 @@ def delete_media_asset(
         metadata={
             "storage_path": storage_path,
         },
-        client=current_user.client,
+        client=db,
     )
 
     return None

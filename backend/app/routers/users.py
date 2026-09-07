@@ -41,7 +41,24 @@ def _resolve_opinion_text(
 async def get_me(
     auth: AuthContext = Depends(get_current_user),
 ):
-    profile = auth.profile
+    client = auth.client
+    user_id = str(auth.user.id)
+
+    profile_response = (
+        client.table("profiles")
+        .select("id, email, display_name, avatar_media_id, role, is_active")
+        .eq("id", user_id)
+        .maybe_single()
+        .execute()
+    )
+
+    if not profile_response or not profile_response.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found.",
+        )
+
+    profile = profile_response.data
 
     return UserProfileResponse(
         id=profile["id"],
@@ -69,21 +86,19 @@ async def get_my_profile(
 
     profile_response = (
         client.table("profiles")
-        .select(
-            "id, email, display_name, avatar_media_id, role, is_active"
-        )
+        .select("id, email, display_name, avatar_media_id, role, is_active")
         .eq("id", user_id)
         .maybe_single()
         .execute()
     )
 
-    profile = auth.profile
+    if not profile_response or not profile_response.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found.",
+        )
 
-    if (
-        profile_response
-        and isinstance(profile_response.data, dict)
-    ):
-        profile = profile_response.data
+    profile = profile_response.data
 
     user_profile = UserProfileResponse(
         id=profile["id"],
@@ -93,7 +108,7 @@ async def get_my_profile(
         role=profile["role"],
         is_active=profile["is_active"],
     )
-
+    
     # ---------------------------------------------------------
     # 2. Gamification
     # ---------------------------------------------------------

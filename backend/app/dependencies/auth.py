@@ -1,7 +1,7 @@
 import os
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from supabase import Client
+from supabase import Client, create_client  # <--- Import create_client
 
 from app.core.config import settings
 from app.core.exceptions import (
@@ -12,9 +12,7 @@ from app.core.exceptions import (
 from app.db.supabase import create_user_client, supabase
 from app.schemas.auth import CurrentUser
 
-
 bearer_scheme = HTTPBearer()
-
 
 class AuthContext:
     def __init__(
@@ -24,7 +22,6 @@ class AuthContext:
     ):
         self.user = user
         self.client = client
-
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
@@ -48,9 +45,16 @@ async def get_current_user(
             role="SUPERADMIN",
             is_active=True,
         )
+
+        # Create full admin client using Service Role Key
+        admin_client = create_client(
+            settings.supabase_url, 
+            service_role_key.strip()
+        )
+        
         return AuthContext(
             user=service_user,
-            client=create_user_client(access_token.strip()),
+            client=admin_client,  # <--- Return admin_client here
         )
 
     # 2. Standard User JWT validation
@@ -70,9 +74,7 @@ async def get_current_user(
         response = (
             user_client
             .table("profiles")
-            .select(
-                "id, email, display_name, role, is_active"
-            )
+            .select("id, email, display_name, role, is_active")
             .eq("id", str(auth_user.id))
             .maybe_single()
             .execute()

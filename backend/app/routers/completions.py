@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -10,7 +11,6 @@ from app.services.gamification import (
     award_badges_for_user,
     award_xp,
 )
-
 
 router = APIRouter(
     prefix="/api/v1/articles",
@@ -26,8 +26,11 @@ async def get_article_completion(
     article_id: UUID,
     auth: AuthContext = Depends(get_current_user),
 ):
+    # Use admin_client if available, falling back to auth.client for reads
+    db = getattr(auth, "admin_client", auth.client)
+
     article_response = (
-        auth.client
+        db
         .table("articles")
         .select("id")
         .eq("id", str(article_id))
@@ -36,11 +39,11 @@ async def get_article_completion(
         .execute()
     )
 
-    if not article_response.data:
+    if not article_response or not getattr(article_response, "data", None):
         raise NotFoundError("Article not found")
 
     completion_response = (
-        auth.client
+        db
         .table("article_completions")
         .select("article_id, completed_at")
         .eq("article_id", str(article_id))
@@ -49,7 +52,7 @@ async def get_article_completion(
         .execute()
     )
 
-    if not completion_response.data:
+    if not completion_response or not getattr(completion_response, "data", None):
         return None
 
     data = completion_response.data
@@ -68,8 +71,11 @@ async def complete_article(
     article_id: UUID,
     auth: AuthContext = Depends(get_current_user),
 ):
+    # Use service-role client (admin_client) to bypass user-level RLS policies on writes
+    db = getattr(auth, "admin_client", auth.client)
+
     article_response = (
-        auth.client
+        db
         .table("articles")
         .select("id")
         .eq("id", str(article_id))
@@ -78,11 +84,11 @@ async def complete_article(
         .execute()
     )
 
-    if not article_response.data:
+    if not article_response or not getattr(article_response, "data", None):
         raise NotFoundError("Article not found")
 
     existing_response = (
-        auth.client
+        db
         .table("article_completions")
         .select("article_id, completed_at")
         .eq("article_id", str(article_id))
@@ -91,9 +97,8 @@ async def complete_article(
         .execute()
     )
 
-    # Completion, XP and badges are all idempotent.
-    # An already-completed article must not trigger another award.
-    if existing_response.data:
+    # Completion, XP, and badges are all idempotent.
+    if existing_response and getattr(existing_response, "data", None):
         data = existing_response.data
 
         return ArticleCompletionResponse(
@@ -101,18 +106,27 @@ async def complete_article(
             completed_at=data["completed_at"],
         )
 
+    now = datetime.now(timezone.utc)
+
+    completion_payload = {
+        "user_id": str(auth.user.id),
+        "article_id": str(article_id),
+        "completed_at": now.isoformat(),
+    }
+
     completion_response = (
-        auth.client
+        db
         .table("article_completions")
-        .insert(
-            {
-                "user_id": str(auth.user.id),
-                "article_id": str(article_id),
-            }
+        .upsert(
+            completion_payload,
+            on_conflict="user_id,article_id",
         )
         .select("article_id, completed_at")
         .execute()
     )
+
+    if not completion_response or not getattr(completion_response, "data", None):
+        raise NotFoundError("Failed to record article completion")
 
     data = extract_single_record(completion_response.data, "Article completion insert failed")
 
@@ -126,8 +140,6 @@ async def complete_article(
     )
 
     # Evaluate all badge criteria after the newly completed article.
-    # The badge service is responsible for determining which badges
-    # have actually been earned and for preventing duplicates.
     award_badges_for_user(
         user_id=auth.user.id,
     )

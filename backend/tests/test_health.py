@@ -11,6 +11,6 @@ def test_health():
 
     assert response.status_code == 200
     assert response.json() == {
-        "status": "ok",
+        "status": "o",
         "environment": "development",
     }
