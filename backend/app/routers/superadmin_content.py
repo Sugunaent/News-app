@@ -691,8 +691,133 @@ def create_article(
             article_id,
         )
     )
+# ============================================================
+# ARTICLE BLOCKS — REORDER
+# IMPORTANT: Defined ABOVE any dynamic /{block_id} routes
+# ============================================================
 
+@router.patch(
+    "/articles/{article_id}/blocks/reorder",
+    response_model=list[SuperadminArticleBlockResponse],
+)
+def reorder_article_blocks(
+    article_id: UUID,
+    payload: SuperadminArticleBlockReorder,
+    current_user: AuthContext = Depends(get_current_user),
+):
+    _require_superadmin(current_user)
 
+    client = current_user.client
+
+    _get_article(
+        client,
+        article_id,
+    )
+
+    if not payload.items:
+        raise HTTPException(
+            status_code=422,
+            detail="At least one block is required",
+        )
+
+    block_ids = [item.block_id for item in payload.items]
+
+    if len(block_ids) != len(set(block_ids)):
+        raise HTTPException(
+            status_code=422,
+            detail="Duplicate block_id values are not allowed",
+        )
+
+    display_orders = [item.display_order for item in payload.items]
+
+    if len(display_orders) != len(set(display_orders)):
+        raise HTTPException(
+            status_code=422,
+            detail="Duplicate display_order values are not allowed",
+        )
+
+    existing_response = (
+        client.table("article_blocks")
+        .select("id, display_order")
+        .eq("article_id", str(article_id))
+        .execute()
+    )
+
+    existing_blocks = existing_response.data or []
+
+    existing_ids = {
+        UUID(str(block["id"]))
+        for block in existing_blocks
+        if isinstance(block, dict) and "id" in block
+    }
+
+    requested_ids = set(block_ids)
+
+    if requested_ids != existing_ids:
+        missing_ids = [str(i) for i in (existing_ids - requested_ids)]
+        invalid_ids = [str(i) for i in (requested_ids - existing_ids)]
+
+        detail_msg = "Reorder payload must contain every block belonging to the article exactly once."
+        if missing_ids:
+            detail_msg += f" Missing IDs: {missing_ids}"
+        if invalid_ids:
+            detail_msg += f" Invalid IDs: {invalid_ids}"
+
+        raise HTTPException(
+            status_code=422,
+            detail=detail_msg,
+        )
+
+    # Step 1: Assign high positive offset (e.g., 10000 + index) to avoid both 
+    # UNIQUE constraint collisions and non-negative check constraints
+    for index, item in enumerate(payload.items):
+        (
+            client.table("article_blocks")
+            .update({"display_order": 10000 + index + 1})
+            .eq("id", str(item.block_id))
+            .eq("article_id", str(article_id))
+            .execute()
+        )
+
+    # Step 2: Assign actual target display_order (e.g., 1, 2, 3)
+    for item in payload.items:
+        (
+            client.table("article_blocks")
+            .update({"display_order": item.display_order})
+            .eq("id", str(item.block_id))
+            .eq("article_id", str(article_id))
+            .execute()
+        )
+
+    try:
+        record_audit(
+            actor_user_id=current_user.user.id,
+            action="ARTICLE_BLOCKS_REORDERED",
+            entity_type="ARTICLE",
+            entity_id=article_id,
+            metadata={
+                "block_order": [
+                    {
+                        "block_id": str(item.block_id),
+                        "display_order": item.display_order,
+                    }
+                    for item in payload.items
+                ],
+            },
+            client=client,
+        )
+    except Exception:
+        pass
+
+    response = (
+        client.table("article_blocks")
+        .select(ARTICLE_BLOCK_SELECT)
+        .eq("article_id", str(article_id))
+        .order("display_order")
+        .execute()
+    )
+
+    return [_map_block(block) for block in (response.data or [])]
 # ============================================================
 # ARTICLES — UPDATE
 # ============================================================
@@ -1564,152 +1689,6 @@ def delete_article_block(
 
     return None
 
-
-# ============================================================
-# ARTICLE BLOCKS — REORDER
-# ============================================================
-
-@router.patch(
-    "/articles/{article_id}/blocks/reorder",
-    response_model=list[SuperadminArticleBlockResponse],
-)
-def reorder_article_blocks(
-    article_id: UUID,
-    payload: SuperadminArticleBlockReorder,
-    current_user: AuthContext = Depends(
-        get_current_user
-    ),
-):
-    _require_superadmin(current_user)
-
-    client = current_user.client
-
-    _get_article(
-        client,
-        article_id,
-    )
-
-    if not payload.items:
-        raise HTTPException(
-            status_code=422,
-            detail="At least one block is required",
-        )
-
-    block_ids = [
-        item.block_id
-        for item in payload.items
-    ]
-
-    if len(block_ids) != len(set(block_ids)):
-        raise HTTPException(
-            status_code=422,
-            detail="Duplicate block_id values are not allowed",
-        )
-
-    display_orders = [
-        item.display_order
-        for item in payload.items
-    ]
-
-    if len(display_orders) != len(
-        set(display_orders)
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Duplicate display_order values "
-                "are not allowed"
-            ),
-        )
-
-    existing_response = (
-        client
-        .table("article_blocks")
-        .select("id, display_order")
-        .eq("article_id", str(article_id))
-        .execute()
-    )
-
-    existing_blocks = (
-        existing_response.data or []
-    )
-
-    existing_ids = {
-        UUID(str(block["id"]))
-        for block in existing_blocks
-    }
-
-    requested_ids = set(block_ids)
-
-    if requested_ids != existing_ids:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Reorder payload must contain "
-                "every block belonging to the article "
-                "exactly once"
-            ),
-        )
-
-    for index, item in enumerate(payload.items):
-        (
-            client
-            .table("article_blocks")
-            .update(
-                {
-                    "display_order": -(
-                        index + 1
-                    )
-                }
-            )
-            .eq("id", str(item.block_id))
-            .eq("article_id", str(article_id))
-            .execute()
-        )
-
-    for item in payload.items:
-        (
-            client
-            .table("article_blocks")
-            .update(
-                {
-                    "display_order": item.display_order
-                }
-            )
-            .eq("id", str(item.block_id))
-            .eq("article_id", str(article_id))
-            .execute()
-        )
-
-    record_audit(
-        actor_user_id=current_user.user.id,
-        action="ARTICLE_BLOCKS_REORDERED",
-        entity_type="ARTICLE",
-        entity_id=article_id,
-        metadata={
-            "block_order": [
-                {
-                    "block_id": str(item.block_id),
-                    "display_order": item.display_order,
-                }
-                for item in payload.items
-            ],
-        },
-    )
-
-    response = (
-        client
-        .table("article_blocks")
-        .select(ARTICLE_BLOCK_SELECT)
-        .eq("article_id", str(article_id))
-        .order("display_order")
-        .execute()
-    )
-
-    return [
-        _map_block(block)
-        for block in (response.data or [])
-    ]
 
 
 # ============================================================

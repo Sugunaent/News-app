@@ -59,20 +59,29 @@ def _map_comment(
     }
 
 
+
 # ============================================================
-# PUBLIC COMMENTS
+# AUTHORIZED COMMENTS RETRIEVAL
 # ============================================================
 
 @router.get(
     "/{article_id}/comments",
     response_model=CommentListResponse,
 )
-async def list_comments(
+def list_comments(
     article_id: UUID,
+    current_user: AuthContext = Depends(get_current_user),
 ):
-    # Fetch comments and left-join profiles (handles case where RLS or missing profile yields null profile)
-    response = (
-        supabase
+    """
+    List comments for a specific article.
+
+    Requires authentication. Works with JWTs, Superadmins, or the Service Role key.
+    Superadmins / Service Role bypass 'is_hidden' and 'is_deleted' filters.
+    """
+    # Use current_user.client (which will be admin_client for Service Role/Superadmin,
+    # or user_client for regular users)
+    query = (
+        current_user.client
         .table("comments")
         .select(
             """
@@ -91,16 +100,30 @@ async def list_comments(
             """
         )
         .eq("article_id", str(article_id))
-        .eq("is_hidden", False)
-        .eq("is_deleted", False)
+    )
+
+    # Regular users should only see non-hidden, non-deleted comments.
+    # Using .neq(True) includes both False and NULL column values safely.
+    is_superadmin = (
+        getattr(current_user.user, "role", None) == "SUPERADMIN"
+        or getattr(current_user.user, "role", None) == "SUPER_ADMIN"
+    )
+
+    if not is_superadmin:
+        query = query.neq("is_hidden", True).neq("is_deleted", True)
+
+    response = (
+        query
         .order("created_at", desc=False)
         .execute()
     )
 
+    comments_data = response.data or []
+
     return {
         "items": [
             _map_comment(comment)
-            for comment in (response.data or [])
+            for comment in comments_data
         ]
     }
 

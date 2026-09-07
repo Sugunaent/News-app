@@ -247,42 +247,30 @@ def _get_opinion_option(
 def _reorder_rows(
     client,
     table_name: str,
-    parent_column: str,
-    parent_id: UUID,
-    items,
+    foreign_key_name: str,
+    foreign_key_value: UUID,
+    items: list,
 ) -> None:
-    # Use temporary negative values first so a unique
-    # (parent_id, display_order) constraint cannot collide
-    # while positions are being rearranged.
-    for index, item in enumerate(items):
-        (
-            client.table(table_name)
-            .update(
-                {
-                    "display_order": -(index + 1),
-                }
-            )
-            .eq("id", str(item.id))
-            .eq(
-                parent_column,
-                str(parent_id),
-            )
-            .execute()
-        )
-
+    # Step 1: Shift existing orders into high positive numbers to prevent unique collision
+    # (avoiding negative values so check constraints like display_order >= 0 do not fail)
+    OFFSET = 10000
+    
     for item in items:
         (
             client.table(table_name)
-            .update(
-                {
-                    "display_order": item.display_order,
-                }
-            )
+            .update({"display_order": item.display_order + OFFSET})
             .eq("id", str(item.id))
-            .eq(
-                parent_column,
-                str(parent_id),
-            )
+            .eq(foreign_key_name, str(foreign_key_value))
+            .execute()
+        )
+
+    # Step 2: Apply the final desired display order
+    for item in items:
+        (
+            client.table(table_name)
+            .update({"display_order": item.display_order})
+            .eq("id", str(item.id))
+            .eq(foreign_key_name, str(foreign_key_value))
             .execute()
         )
 
@@ -369,6 +357,7 @@ async def list_quizzes(
     )
 
     return result.data or []
+
 
 
 @router.get(
@@ -790,6 +779,132 @@ async def create_quiz_question(
         options=[],
     )
 
+# ============================================================
+# QUIZ QUESTIONS — REORDER
+# IMPORTANT: Place this route ABOVE any dynamic /{question_id} routes!
+# ============================================================
+
+@router.patch(
+    "/quizzes/{quiz_id}/questions/reorder",
+    response_model=list[SuperadminQuizQuestionResponse],
+)
+async def reorder_quiz_questions(
+    quiz_id: UUID,
+    payload: SuperadminQuizQuestionReorder,
+    auth: AuthContext = Depends(get_current_user),
+):
+    _require_superadmin(auth)
+
+    client = auth.client
+
+    # Verify target quiz exists
+    _get_quiz(client, quiz_id)
+
+    if not payload.items:
+        raise HTTPException(
+            status_code=422,
+            detail="At least one question item is required",
+        )
+
+    # Validate duplicate inputs in the payload
+    item_ids = [item.id for item in payload.items]
+    display_orders = [item.display_order for item in payload.items]
+
+    if len(item_ids) != len(set(item_ids)):
+        raise HTTPException(
+            status_code=422,
+            detail="Duplicate question IDs are not allowed in payload",
+        )
+
+    if len(display_orders) != len(set(display_orders)):
+        raise HTTPException(
+            status_code=422,
+            detail="Duplicate display_order values are not allowed in payload",
+        )
+
+    # Fetch existing questions from database
+    existing = (
+        client.table("quiz_questions")
+        .select("id")
+        .eq("quiz_id", str(quiz_id))
+        .execute()
+    )
+
+    existing_ids = {
+        UUID(str(row["id"]))
+        for row in (existing.data or [])
+        if isinstance(row, dict) and "id" in row
+    }
+
+    supplied_ids = set(item_ids)
+
+    # Ensure all questions for this quiz are present
+    if existing_ids != supplied_ids:
+        missing_ids = [str(i) for i in (existing_ids - supplied_ids)]
+        invalid_ids = [str(i) for i in (supplied_ids - existing_ids)]
+
+        detail_msg = "Reorder payload must contain every question belonging to the quiz exactly once."
+        if missing_ids:
+            detail_msg += f" Missing Question IDs: {missing_ids}"
+        if invalid_ids:
+            detail_msg += f" Invalid Question IDs: {invalid_ids}"
+
+        raise HTTPException(
+            status_code=422,
+            detail=detail_msg,
+        )
+
+    # Apply positive offset first (10000 + index) to prevent unique key collisions 
+    # and satisfy non-negative CHECK constraints
+    for index, item in enumerate(payload.items):
+        (
+            client.table("quiz_questions")
+            .update({"display_order": 10000 + index + 1})
+            .eq("id", str(item.id))
+            .eq("quiz_id", str(quiz_id))
+            .execute()
+        )
+
+    # Assign final display orders
+    for item in payload.items:
+        (
+            client.table("quiz_questions")
+            .update({"display_order": item.display_order})
+            .eq("id", str(item.id))
+            .eq("quiz_id", str(quiz_id))
+            .execute()
+        )
+
+    # Audit logging
+    try:
+        _audit(
+            auth,
+            action="QUIZ_QUESTIONS_REORDERED",
+            entity_type="QUIZ",
+            entity_id=quiz_id,
+            metadata={
+                "items": [
+                    {
+                        "id": str(item.id),
+                        "display_order": item.display_order,
+                    }
+                    for item in payload.items
+                ],
+            },
+        )
+    except Exception:
+        pass
+
+    # Fetch sorted questions
+    response = (
+        client.table("quiz_questions")
+        .select("*")
+        .eq("quiz_id", str(quiz_id))
+        .order("display_order")
+        .execute()
+    )
+
+    return response.data or []
 
 @router.patch(
     "/quizzes/{quiz_id}/questions/{question_id}",
@@ -914,67 +1029,7 @@ async def delete_quiz_question(
     "/quizzes/{quiz_id}/questions/reorder",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-async def reorder_quiz_questions(
-    quiz_id: UUID,
-    payload: SuperadminQuizQuestionReorder,
-    auth: AuthContext = Depends(get_current_user),
-):
-    _require_superadmin(auth)
 
-    client = auth.client
-
-    _get_quiz(
-        client,
-        quiz_id,
-    )
-
-    existing = (
-        client.table("quiz_questions")
-        .select("id")
-        .eq("quiz_id", str(quiz_id))
-        .execute()
-    )
-
-    existing_ids = {
-        str(row["id"])
-        for row in (
-            existing.data or []
-        )
-    }
-
-    supplied_ids = {
-        str(item.id)
-        for item in payload.items
-    }
-
-    if existing_ids != supplied_ids:
-        raise AuthorizationError(
-            "Reorder payload must contain every quiz question"
-        )
-
-    _reorder_rows(
-        client,
-        "quiz_questions",
-        "quiz_id",
-        quiz_id,
-        payload.items,
-    )
-
-    _audit(
-        auth,
-        action="QUIZ_QUESTIONS_REORDERED",
-        entity_type="QUIZ",
-        entity_id=quiz_id,
-        metadata={
-            "items": [
-                {
-                    "id": str(item.id),
-                    "display_order": item.display_order,
-                }
-                for item in payload.items
-            ],
-        },
-    )
 
 
 # ============================================================
@@ -1108,6 +1163,141 @@ async def create_quiz_option(
         updated_at=option["updated_at"],
     )
 
+
+@router.patch(
+    "/{quiz_id}/questions/{question_id}/options/reorder",
+    response_model=list[SuperadminQuizOptionResponse],
+)
+async def reorder_quiz_options(
+    quiz_id: UUID,
+    question_id: UUID,
+    payload: SuperadminQuizOptionReorder,
+    auth: AuthContext = Depends(get_current_user),
+):
+    _require_superadmin(auth)
+
+    client = auth.client
+
+    _get_quiz_question(
+        client,
+        quiz_id,
+        question_id,
+    )
+
+    if not payload.items:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="At least one option is required in the payload",
+        )
+
+    option_ids = [item.id for item in payload.items]
+    display_orders = [item.display_order for item in payload.items]
+
+    if len(option_ids) != len(set(option_ids)):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Duplicate option IDs are not allowed in payload",
+        )
+
+    if len(display_orders) != len(set(display_orders)):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Duplicate display_order values are not allowed in payload",
+        )
+
+    existing = (
+        client.table("quiz_options")
+        .select("id")
+        .eq(
+            "question_id",
+            str(question_id),
+        )
+        .execute()
+    )
+
+    existing_ids = {
+        UUID(str(row["id"]))
+        for row in (existing.data or [])
+        if isinstance(row, dict) and "id" in row
+    }
+
+    supplied_ids = set(option_ids)
+
+    if existing_ids != supplied_ids:
+        missing_ids = [str(i) for i in (existing_ids - supplied_ids)]
+        invalid_ids = [str(i) for i in (supplied_ids - existing_ids)]
+
+        detail_msg = "Reorder payload must contain every quiz option belonging to the question exactly once."
+        if missing_ids:
+            detail_msg += f" Missing Option IDs: {missing_ids}"
+        if invalid_ids:
+            detail_msg += f" Invalid Option IDs: {invalid_ids}"
+
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail_msg,
+        )
+
+    try:
+        for index, item in enumerate(payload.items):
+            (
+                client.table("quiz_options")
+                .update({"display_order": 10000 + index + 1})
+                .eq("id", str(item.id))
+                .eq("question_id", str(question_id))
+                .execute()
+            )
+
+        for item in payload.items:
+            (
+                client.table("quiz_options")
+                .update({"display_order": item.display_order})
+                .eq("id", str(item.id))
+                .eq("question_id", str(question_id))
+                .execute()
+            )
+    except APIError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to update option order: {exc.message}",
+        ) from exc
+
+    try:
+        _audit(
+            auth,
+            action="QUIZ_OPTIONS_REORDERED",
+            entity_type="QUIZ_QUESTION",
+            entity_id=question_id,
+            metadata={
+                "quiz_id": str(quiz_id),
+                "items": [
+                    {
+                        "id": str(item.id),
+                        "display_order": item.display_order,
+                    }
+                    for item in payload.items
+                ],
+            },
+        )
+    except Exception:
+        pass
+
+    response = (
+        client.table("quiz_options")
+        .select("id, display_order, option_text")
+        .eq("question_id", str(question_id))
+        .order("display_order")
+        .execute()
+    )
+
+    return [
+        QuizOptionResponse(
+            id=opt["id"],
+            display_order=opt["display_order"],
+            option_text=opt["option_text"],
+        )
+        for opt in (response.data or [])
+    ]
 
 @router.patch(
     "/quizzes/{quiz_id}/questions/{question_id}/options/{option_id}",
@@ -1272,72 +1462,6 @@ async def delete_quiz_option(
     "/quizzes/{quiz_id}/questions/{question_id}/options/reorder",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-async def reorder_quiz_options(
-    quiz_id: UUID,
-    question_id: UUID,
-    payload: SuperadminQuizOptionReorder,
-    auth: AuthContext = Depends(get_current_user),
-):
-    _require_superadmin(auth)
-
-    client = auth.client
-
-    _get_quiz_question(
-        client,
-        quiz_id,
-        question_id,
-    )
-
-    existing = (
-        client.table("quiz_options")
-        .select("id")
-        .eq(
-            "question_id",
-            str(question_id),
-        )
-        .execute()
-    )
-
-    existing_ids = {
-        str(row["id"])
-        for row in (existing.data or [])
-    }
-
-    supplied_ids = {
-        str(item.id)
-        for item in payload.items
-    }
-
-    if existing_ids != supplied_ids:
-        raise AuthorizationError(
-            "Reorder payload must contain every quiz option"
-        )
-
-    _reorder_rows(
-        client,
-        "quiz_options",
-        "question_id",
-        question_id,
-        payload.items,
-    )
-
-    _audit(
-        auth,
-        action="QUIZ_OPTIONS_REORDERED",
-        entity_type="QUIZ_QUESTION",
-        entity_id=question_id,
-        metadata={
-            "quiz_id": str(quiz_id),
-            "items": [
-                {
-                    "id": str(item.id),
-                    "display_order": item.display_order,
-                }
-                for item in payload.items
-            ],
-        },
-    )
-
 
 @router.patch(
     "/quizzes/{quiz_id}/questions/{question_id}/correct-answer",
@@ -1505,6 +1629,89 @@ async def list_opinions(
         )
 
     return output
+
+@router.patch("/opinions/reorder",status_code=status.HTTP_204_NO_CONTENT,)
+async def reorder_opinions(
+    payload: SuperadminOpinionReorder,
+    auth: AuthContext = Depends(get_current_user),
+):
+    _require_superadmin(auth)
+
+    client = auth.client
+
+    if not payload.items:
+        return
+
+    first = _get_opinion(
+        client,
+        payload.items[0].id,
+    )
+
+    article_id = first["article_id"]
+
+    existing = (
+        client.table("opinion_questions")
+        .select("id")
+        .eq(
+            "article_id",
+            str(article_id),
+        )
+        .execute()
+    )
+
+    existing_ids = {
+        str(row["id"])
+        for row in (
+            existing.data or []
+        )
+    }
+
+    supplied_ids = {
+        str(item.id)
+        for item in payload.items
+    }
+
+    if existing_ids != supplied_ids:
+        raise AuthorizationError(
+            "Reorder payload must contain every opinion for the article"
+        )
+
+    for item in payload.items:
+        current = _get_opinion(
+            client,
+            item.id,
+        )
+
+        if str(current["article_id"]) != str(
+            article_id
+        ):
+            raise AuthorizationError(
+                "All opinions must belong to the same article"
+            )
+
+    _reorder_rows(
+        client,
+        "opinion_questions",
+        "article_id",
+        article_id,
+        payload.items,
+    )
+
+    _audit(
+        auth,
+        action="OPINIONS_REORDERED",
+        entity_type="ARTICLE",
+        entity_id=UUID(str(article_id)),
+        metadata={
+            "items": [
+                {
+                    "id": str(item.id),
+                    "display_order": item.display_order,
+                }
+                for item in payload.items
+            ],
+        },
+    )
 
 
 @router.get(
@@ -1754,92 +1961,6 @@ async def update_opinion(
     )
 
 
-@router.patch(
-    "/opinions/reorder",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def reorder_opinions(
-    payload: SuperadminOpinionReorder,
-    auth: AuthContext = Depends(get_current_user),
-):
-    _require_superadmin(auth)
-
-    client = auth.client
-
-    if not payload.items:
-        return
-
-    first = _get_opinion(
-        client,
-        payload.items[0].id,
-    )
-
-    article_id = first["article_id"]
-
-    existing = (
-        client.table("opinion_questions")
-        .select("id")
-        .eq(
-            "article_id",
-            str(article_id),
-        )
-        .execute()
-    )
-
-    existing_ids = {
-        str(row["id"])
-        for row in (
-            existing.data or []
-        )
-    }
-
-    supplied_ids = {
-        str(item.id)
-        for item in payload.items
-    }
-
-    if existing_ids != supplied_ids:
-        raise AuthorizationError(
-            "Reorder payload must contain every opinion for the article"
-        )
-
-    for item in payload.items:
-        current = _get_opinion(
-            client,
-            item.id,
-        )
-
-        if str(current["article_id"]) != str(
-            article_id
-        ):
-            raise AuthorizationError(
-                "All opinions must belong to the same article"
-            )
-
-    _reorder_rows(
-        client,
-        "opinion_questions",
-        "article_id",
-        article_id,
-        payload.items,
-    )
-
-    _audit(
-        auth,
-        action="OPINIONS_REORDERED",
-        entity_type="ARTICLE",
-        entity_id=UUID(str(article_id)),
-        metadata={
-            "items": [
-                {
-                    "id": str(item.id),
-                    "display_order": item.display_order,
-                }
-                for item in payload.items
-            ],
-        },
-    )
-
 
 @router.delete(
     "/opinions/{opinion_id}",
@@ -1990,6 +2111,75 @@ async def create_opinion_option(
         updated_at=option["updated_at"],
     )
 
+@router.patch(
+    "/opinions/{opinion_id}/options/reorder",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def reorder_opinion_options(
+    opinion_id: UUID,
+    payload: SuperadminOpinionOptionReorder,
+    auth: AuthContext = Depends(get_current_user),
+):
+    _require_superadmin(auth)
+
+    client = auth.client
+
+    _get_opinion(
+        client,
+        opinion_id,
+    )
+
+    existing = (
+        client.table("opinion_options")
+        .select("id")
+        .eq(
+            "question_id",
+            str(opinion_id),
+        )
+        .execute()
+    )
+
+    existing_ids = {
+        str(row["id"])
+        for row in (
+            existing.data or []
+        )
+    }
+
+    supplied_ids = {
+        str(item.id)
+        for item in payload.items
+    }
+
+    if existing_ids != supplied_ids:
+        raise AuthorizationError(
+            "Reorder payload must contain every opinion option"
+        )
+
+    _reorder_rows(
+        client,
+        "opinion_options",
+        "question_id",
+        opinion_id,
+        payload.items,
+    )
+
+    _audit(
+        auth,
+        action="OPINION_OPTIONS_REORDERED",
+        entity_type="OPINION",
+        entity_id=opinion_id,
+        metadata={
+            "items": [
+                {
+                    "id": str(item.id),
+                    "display_order": item.display_order,
+                }
+                for item in payload.items
+            ],
+        },
+    )
+
 
 @router.patch(
     "/opinions/{opinion_id}/options/{option_id}",
@@ -2126,71 +2316,3 @@ async def delete_opinion_option(
     )
 
 
-@router.patch(
-    "/opinions/{opinion_id}/options/reorder",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def reorder_opinion_options(
-    opinion_id: UUID,
-    payload: SuperadminOpinionOptionReorder,
-    auth: AuthContext = Depends(get_current_user),
-):
-    _require_superadmin(auth)
-
-    client = auth.client
-
-    _get_opinion(
-        client,
-        opinion_id,
-    )
-
-    existing = (
-        client.table("opinion_options")
-        .select("id")
-        .eq(
-            "question_id",
-            str(opinion_id),
-        )
-        .execute()
-    )
-
-    existing_ids = {
-        str(row["id"])
-        for row in (
-            existing.data or []
-        )
-    }
-
-    supplied_ids = {
-        str(item.id)
-        for item in payload.items
-    }
-
-    if existing_ids != supplied_ids:
-        raise AuthorizationError(
-            "Reorder payload must contain every opinion option"
-        )
-
-    _reorder_rows(
-        client,
-        "opinion_options",
-        "question_id",
-        opinion_id,
-        payload.items,
-    )
-
-    _audit(
-        auth,
-        action="OPINION_OPTIONS_REORDERED",
-        entity_type="OPINION",
-        entity_id=opinion_id,
-        metadata={
-            "items": [
-                {
-                    "id": str(item.id),
-                    "display_order": item.display_order,
-                }
-                for item in payload.items
-            ],
-        },
-    )

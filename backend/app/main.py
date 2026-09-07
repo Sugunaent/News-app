@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from postgrest.exceptions import APIError
 
+from supabase import create_client
+from contextlib import asynccontextmanager
+
 from app.core.exceptions import AppException
 from app.core.handlers import api_error_handler, app_exception_handler
 from app.routers.articles import router as articles_router
@@ -22,6 +25,26 @@ from app.routers.superadmin_interactive import router as superadmin_interactive_
 from app.routers.media import router as media_router
 from app.routers.superadmin_management import router as superadmin_management_router
 from app.routers.audit import router as audit_router
+from app.services.scheduler import (
+    shutdown_article_scheduler,
+    start_article_scheduler,
+)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize administrative Supabase client using Service Role Key
+    admin_client = create_client(
+        settings.SUPABASE_URL,
+        settings.SUPABASE_SERVICE_ROLE_KEY,
+    )
+
+    # Start the cron job to run every 1 minute
+    start_article_scheduler(admin_client=admin_client, interval_minutes=1)
+
+    yield
+
+    # Shutdown scheduler when application stops
+    shutdown_article_scheduler()
 
 app = FastAPI(
     title="Cognition News API",

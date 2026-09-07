@@ -11,24 +11,24 @@ router = APIRouter(
 
 
 def _map_article(article: dict) -> dict:
-    translation = article["article_translations"]
-    category = article["categories"]
+    translations = article.get("article_translations") or []
+    translation = translations[0] if translations else {}
+    category = article.get("categories") or {}
 
     return {
         "id": article["id"],
-        "slug": translation["slug"],
-        "title": translation["title"],
-        "subtitle": translation["subtitle"],
-        "summary": translation["summary"],
-        "article_type": article["article_type"],
+        "slug": translation.get("slug", ""),
+        "title": translation.get("title", ""),
+        "subtitle": translation.get("subtitle"),
+        "summary": translation.get("summary"),
+        "article_type": article.get("article_type", ""),
         "category": category,
-        "published_at": article["published_at"],
+        "published_at": article.get("published_at"),
     }
 
 
 def _fetch_articles(
     *,
-    language: str,
     author_picks: bool = False,
     category_id: str | None = None,
     limit: int = 10,
@@ -48,7 +48,7 @@ def _fetch_articles(
                 name,
                 slug
             ),
-            article_translations!inner (
+            article_translations (
                 slug,
                 title,
                 subtitle,
@@ -57,7 +57,6 @@ def _fetch_articles(
             """
         )
         .eq("status", "PUBLISHED")
-        .eq("article_translations.language_code", language)
     )
 
     if category_id is not None:
@@ -111,7 +110,6 @@ async def get_home_discovery(
     authors_picks_limit: int = Query(default=6, ge=1, le=50),
 ):
     trending = _fetch_articles(
-        language=language,
         author_picks=False,
         limit=trending_limit,
     )
@@ -122,7 +120,6 @@ async def get_home_discovery(
 
     for category in categories:
         articles = _fetch_articles(
-            language=language,
             category_id=category["id"],
             limit=category_limit,
         )
@@ -138,7 +135,6 @@ async def get_home_discovery(
         )
 
     authors_picks = _fetch_articles(
-        language=language,
         author_picks=True,
         limit=authors_picks_limit,
     )

@@ -1,25 +1,29 @@
 from uuid import UUID
-
 from postgrest.exceptions import APIError
 
 from app.core.db_utils import extract_single_record
 from app.db.supabase import supabase
 
 
-def _get_active_xp_rule(event_type: str):
-    response = (
-        supabase
-        .table("xp_rules")
-        .select("id, event_type, amount")
-        .eq("event_type", event_type)
-        .eq("is_active", True)
-        .order("created_at", desc=True)
-        .limit(1)
-        .maybe_single()
-        .execute()
-    )
-
-    return response.data
+def _get_active_xp_rule(event_type: str) -> dict | None:
+    """
+    Fetch active XP rule safely without throwing AttributeError if query fails.
+    """
+    try:
+        response = (
+            supabase
+            .table("xp_rules")
+            .select("id, event_type, amount")
+            .eq("event_type", event_type)
+            .eq("is_active", True)
+            .order("created_at", desc=True)
+            .limit(1)
+            .maybe_single()
+            .execute()
+        )
+        return getattr(response, "data", None)
+    except APIError:
+        return None
 
 
 def award_xp(
@@ -41,23 +45,29 @@ def award_xp(
     is used to make the award idempotent.
     """
 
-    existing_response = (
-        supabase
-        .table("xp_transactions")
-        .select(
-            "id, xp_rule_id, article_id, source_type, "
-            "source_id, amount, created_at"
+    # 1. Check for an existing transaction safely
+    try:
+        existing_response = (
+            supabase
+            .table("xp_transactions")
+            .select(
+                "id, xp_rule_id, article_id, source_type, "
+                "source_id, amount, created_at"
+            )
+            .eq("user_id", str(user_id))
+            .eq("source_type", source_type)
+            .eq("source_id", str(source_id))
+            .maybe_single()
+            .execute()
         )
-        .eq("user_id", str(user_id))
-        .eq("source_type", source_type)
-        .eq("source_id", str(source_id))
-        .maybe_single()
-        .execute()
-    )
+        existing_data = getattr(existing_response, "data", None)
+        if existing_data:
+            return existing_data
+    except APIError:
+        # Ignore read errors or proceed to lookup active rule
+        pass
 
-    if existing_response.data:
-        return existing_response.data
-
+    # 2. Get active XP rule
     rule = _get_active_xp_rule(event_type)
 
     if not rule:
@@ -72,6 +82,7 @@ def award_xp(
         "amount": rule["amount"],
     }
 
+    # 3. Insert transaction
     try:
         response = (
             supabase
@@ -84,32 +95,39 @@ def award_xp(
             .execute()
         )
 
-        return extract_single_record(response.data)
+        response_data = getattr(response, "data", None)
+        if response_data:
+            return extract_single_record(response_data)
+        return None
 
     except APIError:
-        # Protect against a concurrent request winning the unique
-        # constraint between our existence check and INSERT.
-        existing_response = (
-            supabase
-            .table("xp_transactions")
-            .select(
-                "id, xp_rule_id, article_id, source_type, "
-                "source_id, amount, created_at"
+        # 4. Handle race condition: a concurrent request inserted between check & insert
+        try:
+            existing_response = (
+                supabase
+                .table("xp_transactions")
+                .select(
+                    "id, xp_rule_id, article_id, source_type, "
+                    "source_id, amount, created_at"
+                )
+                .eq("user_id", str(user_id))
+                .eq("source_type", source_type)
+                .eq("source_id", str(source_id))
+                .maybe_single()
+                .execute()
             )
-            .eq("user_id", str(user_id))
-            .eq("source_type", source_type)
-            .eq("source_id", str(source_id))
-            .maybe_single()
-            .execute()
-        )
 
-        if existing_response.data:
-            return existing_response.data
+            existing_data = getattr(existing_response, "data", None)
+            if existing_data:
+                return existing_data
+        except APIError:
+            pass
 
         raise
 
 
 def get_gamification_status(user_id: UUID) -> dict:
+    # 1. Fetch XP Transactions
     transactions_response = (
         supabase
         .table("xp_transactions")
@@ -122,28 +140,26 @@ def get_gamification_status(user_id: UUID) -> dict:
         .execute()
     )
 
-    transactions = transactions_response.data or []
+    transactions = getattr(transactions_response, "data", None) or []
 
-    total_xp = sum(
-        transaction["amount"]
-        for transaction in transactions
-    )
+    # Calculate Total XP
+    total_xp = sum(transaction.get("amount", 0) for transaction in transactions)
 
+    # 2. Fetch User Level Safely
     level_response = (
         supabase
         .table("levels")
-        .select(
-            "id, name, minimum_xp, display_order"
-        )
+        .select("id, name, minimum_xp, display_order")
         .lte("minimum_xp", total_xp)
         .order("minimum_xp", desc=True)
         .limit(1)
-        .maybe_single()
         .execute()
     )
 
-    level = level_response.data
+    level_data = getattr(level_response, "data", None)
+    level = level_data[0] if (level_data and len(level_data) > 0) else None
 
+    # 3. Fetch Badges
     badges_response = (
         supabase
         .table("user_badges")
@@ -157,10 +173,8 @@ def get_gamification_status(user_id: UUID) -> dict:
     )
 
     badges = []
-
-    for item in badges_response.data or []:
+    for item in (getattr(badges_response, "data", None) or []):
         badge = item.get("badges")
-
         if not badge:
             continue
 
@@ -185,25 +199,20 @@ def get_gamification_status(user_id: UUID) -> dict:
 def _get_badge_by_name(name: str) -> dict | None:
     """
     Find an active badge by its configured name.
-
-    Badge definitions remain database-owned. We only use the
-    established badge names to determine which completion
-    achievements this V1 backend currently supports.
     """
-
-    response = (
-        supabase
-        .table("badges")
-        .select(
-            "id, name, description, image_asset_id"
+    try:
+        response = (
+            supabase
+            .table("badges")
+            .select("id, name, description, image_asset_id")
+            .eq("name", name)
+            .eq("is_active", True)
+            .maybe_single()
+            .execute()
         )
-        .eq("name", name)
-        .eq("is_active", True)
-        .maybe_single()
-        .execute()
-    )
-
-    return response.data
+        return getattr(response, "data", None)
+    except APIError:
+        return None
 
 
 def _has_user_badge(
@@ -211,17 +220,19 @@ def _has_user_badge(
     user_id: UUID,
     badge_id: UUID,
 ) -> bool:
-    response = (
-        supabase
-        .table("user_badges")
-        .select("user_id, badge_id")
-        .eq("user_id", str(user_id))
-        .eq("badge_id", str(badge_id))
-        .maybe_single()
-        .execute()
-    )
-
-    return response.data is not None
+    try:
+        response = (
+            supabase
+            .table("user_badges")
+            .select("user_id, badge_id")
+            .eq("user_id", str(user_id))
+            .eq("badge_id", str(badge_id))
+            .maybe_single()
+            .execute()
+        )
+        return getattr(response, "data", None) is not None
+    except APIError:
+        return False
 
 
 def _award_badge(
@@ -231,11 +242,7 @@ def _award_badge(
 ) -> dict | None:
     """
     Assign one badge to a user.
-
-    The database primary key (user_id, badge_id) provides the
-    final integrity guarantee against duplicate assignments.
     """
-
     if _has_user_badge(
         user_id=user_id,
         badge_id=UUID(str(badge["id"])),
@@ -252,17 +259,16 @@ def _award_badge(
                     "badge_id": str(badge["id"]),
                 }
             )
-            .select(
-                "user_id, badge_id, earned_at"
-            )
+            .select("user_id, badge_id, earned_at")
             .execute()
         )
 
-        return extract_single_record(response.data)
+        response_data = getattr(response, "data", None)
+        if response_data:
+            return extract_single_record(response_data)
+        return None
 
     except APIError:
-        # A concurrent request may have assigned the same badge
-        # after our existence check.
         if _has_user_badge(
             user_id=user_id,
             badge_id=UUID(str(badge["id"])),
@@ -276,28 +282,20 @@ def award_badges_for_user(user_id: UUID) -> list[dict]:
     """
     Evaluate completion-based V1 badge achievements and assign
     any newly earned badges.
-
-    Currently supported established criteria:
-
-    - First Article
-      -> at least 1 completed article
-
-    - 10 Articles Completed
-      -> at least 10 completed articles
-
-    Badge names remain database-owned; if a corresponding
-    active badge definition does not exist, nothing is awarded.
     """
+    try:
+        completion_response = (
+            supabase
+            .table("article_completions")
+            .select("article_id")
+            .eq("user_id", str(user_id))
+            .execute()
+        )
+        completions = getattr(completion_response, "data", None) or []
+    except APIError:
+        completions = []
 
-    completion_response = (
-        supabase
-        .table("article_completions")
-        .select("article_id")
-        .eq("user_id", str(user_id))
-        .execute()
-    )
-
-    completion_count = len(completion_response.data or [])
+    completion_count = len(completions)
 
     eligible_badges: list[str] = []
 

@@ -14,3 +14,5 @@ httpx>=0.28,<1.0
 pytest==9.1.1
 pytest-anyio>=0.0.0
 anyio==4.14.2
+
+apscheduler>=3.10.0,<4.0.0

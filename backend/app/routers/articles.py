@@ -9,7 +9,6 @@ from app.schemas.articles import (
 )
 from app.services.analytics import record_article_view
 
-
 router = APIRouter(
     prefix="/api/v1/articles",
     tags=["Articles"],
@@ -165,7 +164,6 @@ async def get_article(
         .execute()
     )
 
-    # Null-safe extraction for response object and data
     article_data = getattr(response, "data", None) if response else None
 
     if not article_data:
@@ -183,6 +181,8 @@ async def get_article(
                 block_type,
                 display_order,
                 media_id,
+                quiz_id,
+                opinion_id,
                 external_url,
                 text_content,
                 caption,
@@ -241,6 +241,96 @@ async def get_article(
                     "display_order": block["display_order"],
                     "description": block.get("text_content") or "",
                     "external_url": block.get("external_url") or "",
+                }
+            )
+
+        elif block_type == "QUIZ":
+            quiz_data = None
+            quiz_id = block.get("quiz_id")
+
+            if quiz_id:
+                try:
+                    q_res = (
+                        supabase
+                        .table("quiz_questions")
+                        .select(
+                            """
+                            id,
+                            question_text,
+                            explanation,
+                            quiz_options (
+                                id,
+                                option_text,
+                                display_order
+                            )
+                            """
+                        )
+                        .eq("id", str(quiz_id))
+                        .maybe_single()
+                        .execute()
+                    )
+                    raw_q = getattr(q_res, "data", None)
+                    if raw_q:
+                        quiz_data = {
+                            "id": raw_q["id"],
+                            "question": raw_q.get("question_text"),
+                            "options": raw_q.get("quiz_options", []),
+                        }
+                except APIError:
+                    pass
+
+            blocks.append(
+                {
+                    "id": block["id"],
+                    "type": "QUIZ",
+                    "display_order": block["display_order"],
+                    "quiz_id": quiz_id,
+                    "quiz": quiz_data,
+                }
+            )
+
+        elif block_type == "OPINION":
+            opinion_data = None
+            opinion_id = block.get("opinion_id")
+
+            if opinion_id:
+                try:
+                    o_res = (
+                        supabase
+                        .table("opinion_questions")
+                        .select(
+                            """
+                            id,
+                            question_text,
+                            allow_custom_response,
+                            opinion_options (
+                                id,
+                                option_text,
+                                display_order
+                            )
+                            """
+                        )
+                        .eq("id", str(opinion_id))
+                        .maybe_single()
+                        .execute()
+                    )
+                    raw_o = getattr(o_res, "data", None)
+                    if raw_o:
+                        opinion_data = {
+                            "id": raw_o["id"],
+                            "question": raw_o.get("question_text"),
+                            "options": raw_o.get("opinion_options", []),
+                        }
+                except APIError:
+                    pass
+
+            blocks.append(
+                {
+                    "id": block["id"],
+                    "type": "OPINION",
+                    "display_order": block["display_order"],
+                    "opinion_id": opinion_id,
+                    "opinion": opinion_data,
                 }
             )
 

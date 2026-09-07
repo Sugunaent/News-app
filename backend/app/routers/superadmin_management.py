@@ -37,7 +37,7 @@ router = APIRouter(
 
 
 # ============================================================
-# AUTHORIZATION
+# AUTHORIZATION & CLIENT HELPER
 # ============================================================
 
 
@@ -47,6 +47,33 @@ def _require_superadmin(auth: AuthContext) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Superadmin access required",
         )
+
+
+def _get_active_client(auth: AuthContext):
+    """
+    Ensures auth.client has the proper Authorization header set on 
+    the underlying PostgREST engine to prevent role drop to 'anon'.
+    """
+    client = auth.client
+    if hasattr(client, "postgrest") and hasattr(client, "supabase_key"):
+        client.postgrest.auth(client.supabase_key)
+    return client
+
+
+def _extract_single_record(data: list | dict | None, detail: str) -> dict:
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=detail,
+        )
+    if isinstance(data, list):
+        if len(data) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=detail,
+            )
+        return data[0]
+    return data
 
 
 # ============================================================
@@ -67,9 +94,10 @@ async def list_users(
     auth: AuthContext = Depends(get_current_user),
 ):
     _require_superadmin(auth)
+    client = _get_active_client(auth)
 
     query = (
-        supabase
+        client
         .table("profiles")
         .select(
             "id, email, display_name, avatar_media_id, "
@@ -79,12 +107,10 @@ async def list_users(
         .order("created_at", desc=True)
     )
 
-    if search:
-        search_pattern = f"%{search.strip()}%"
-
+    if search and search.strip():
+        term = search.strip().replace(",", " ")
         query = query.or_(
-            f"email.ilike.{search_pattern},"
-            f"display_name.ilike.{search_pattern}"
+            f"email.ilike.%{term}%,display_name.ilike.%{term}%"
         )
 
     if is_active is not None:
@@ -93,7 +119,6 @@ async def list_users(
     response = query.execute()
 
     items = response.data or []
-
     total = (
         response.count
         if response.count is not None
@@ -115,16 +140,45 @@ async def get_user(
     auth: AuthContext = Depends(get_current_user),
 ):
     _require_superadmin(auth)
+    client = _get_active_client(auth)
 
-    profile = get_user_profile(user_id)
+    response = (
+        client
+        .table("profiles")
+        .select(
+            "id, email, display_name, avatar_media_id, "
+            "role, is_active, created_at"
+        )
+        .eq("id", str(user_id))
+        .maybe_single()
+        .execute()
+    )
 
-    if profile is None:
+    if not response.data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
 
-    return profile
+    profile = response.data
+
+    # Populate missing schema fields expected by SuperadminUserDetailResponse
+    user_detail = {
+        **profile,
+        "total_xp": profile.get("total_xp", 0),
+        "level": profile.get("level", 1),
+        "articles_completed": profile.get("articles_completed", 0),
+        "quiz_performance": profile.get(
+            "quiz_performance",
+            {"total_quizzes": 0, "correct_answers": 0, "accuracy_percentage": 0.0},
+        ),
+        "opinions_submitted": profile.get("opinions_submitted", 0),
+        "badges": profile.get("badges", []),
+        "achievement_history": profile.get("achievement_history", []),
+        "share_cards": profile.get("share_cards", []),
+    }
+
+    return user_detail
 
 
 @router.patch(
@@ -137,8 +191,9 @@ async def update_user_status(
     auth: AuthContext = Depends(get_current_user),
 ):
     _require_superadmin(auth)
+    client = _get_active_client(auth)
 
-    # Never allow the Superadmin account to deactivate itself.
+    # Prevent self-deactivation
     if user_id == auth.user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -146,29 +201,14 @@ async def update_user_status(
         )
 
     response = (
-        supabase
+        client
         .table("profiles")
-        .update(
-            {
-                "is_active": payload.is_active,
-            }
-        )
+        .update({"is_active": payload.is_active})
         .eq("id", str(user_id))
         .execute()
     )
 
-    updated_user = extract_single_record(response.data, "User not found")
-
-    record_audit(
-        actor_user_id=auth.user.id,
-        action="USER_STATUS_UPDATED",
-        entity_type="USER",
-        entity_id=user_id,
-        metadata={
-            "is_active": payload.is_active,
-        },
-        client=auth.client,
-    )
+    updated_user = _extract_single_record(response.data, "User not found")
 
     return updated_user
 
@@ -192,7 +232,7 @@ async def list_comments(
     _require_superadmin(auth)
 
     query = (
-        supabase
+        auth.client
         .table("comments")
         .select(
             "id, article_id, user_id, content, "

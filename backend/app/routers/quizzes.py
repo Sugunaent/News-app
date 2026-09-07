@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from postgrest.exceptions import APIError
 
 from app.core.exceptions import NotFoundError
