@@ -57,11 +57,7 @@ def get_completion_share_card(
 
     article_response = (
         auth.client.table("articles")
-        .select(
-            "id, article_translations("
-            "language_code, title"
-            ")"
-        )
+        .select("id, title, status")
         .eq("id", str(article_id))
         .eq("status", "PUBLISHED")
         .maybe_single()
@@ -72,44 +68,10 @@ def get_completion_share_card(
         raise NotFoundError("Article not found")
 
     article = article_response.data
-
-    # ---------------------------------------------------------
-    # 2. Verify that the authenticated user completed it.
-    # ---------------------------------------------------------
-
-    completion_response = (
-        auth.client.table("article_completions")
-        .select(
-            "article_id, completed_at"
-        )
-        .eq("article_id", str(article_id))
-        .eq("user_id", str(auth.user.id))
-        .maybe_single()
-        .execute()
-    )
-
-    if not completion_response.data:
-        raise NotFoundError(
-            "Article completion not found"
-        )
-
-    article_title = _resolve_translation(
-        article.get("article_translations"),
-        "title",
-    )
+    article_title = article.get("title")
 
     if not article_title:
-        raise NotFoundError(
-            "Article title not found"
-        )
-
-    return ArticleCompletionShareResponse(
-        article_id=article_id,
-        article_title=article_title,
-        completed_at=completion_response.data[
-            "completed_at"
-        ],
-    )
+        raise NotFoundError("Article title not found")
 
 
 @router.get(

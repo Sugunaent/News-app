@@ -28,31 +28,6 @@ router = APIRouter(
 )
 
 
-def _extract_translation(
-    translations: list[dict],
-    fallback_lang: str = "en",
-) -> str | None:
-    if not translations:
-        return None
-
-    for item in translations:
-        if (
-            item.get("language_code", "").lower()
-            == fallback_lang.lower()
-        ):
-            return (
-                item.get("question_text")
-                or item.get("option_text")
-            )
-
-    first_item = translations[0]
-
-    return (
-        first_item.get("question_text")
-        or first_item.get("option_text")
-    )
-
-
 @router.get(
     "/article/{article_id}",
     response_model=QuizResponse,
@@ -82,11 +57,7 @@ async def get_article_quiz(
     try:
         questions_res = (
             client.table("quiz_questions")
-            .select(
-                "id, quiz_id, display_order, "
-                "quiz_question_translations("
-                "language_code, question_text)"
-            )
+            .select("id, quiz_id, display_order, question_text")
             .eq("quiz_id", str(quiz_id))
             .order("display_order")
             .execute()
@@ -97,6 +68,9 @@ async def get_article_quiz(
         ) from exc
 
     questions_data = questions_res.data or []
+
+    if not questions_data:
+        raise NotFoundError("Quiz questions not found")
 
     question_ids = [
         q["id"]
@@ -109,23 +83,18 @@ async def get_article_quiz(
         try:
             options_res = (
                 client.table("quiz_options")
-                .select(
-                    "id, question_id, display_order, "
-                    "quiz_option_translations("
-                    "language_code, option_text)"
-                )
+                .select("id, question_id, display_order, option_text")
+                .in_("question_id", question_ids)
                 .order("display_order")
                 .execute()
             )
 
             for opt in options_res.data or []:
                 q_id = opt["question_id"]
-
-                if q_id in question_ids:
-                    options_by_question.setdefault(
-                        q_id,
-                        [],
-                    ).append(opt)
+                options_by_question.setdefault(
+                    q_id,
+                    [],
+                ).append(opt)
 
         except APIError as exc:
             raise NotFoundError(
@@ -135,12 +104,7 @@ async def get_article_quiz(
     formatted_questions = []
 
     for question in questions_data:
-        question_text = _extract_translation(
-            question.get(
-                "quiz_question_translations",
-                [],
-            )
-        )
+        question_text = question.get("question_text")
 
         if not question_text:
             continue
@@ -153,12 +117,7 @@ async def get_article_quiz(
         formatted_options = []
 
         for opt in raw_options:
-            option_text = _extract_translation(
-                opt.get(
-                    "quiz_option_translations",
-                    [],
-                )
-            )
+            option_text = opt.get("option_text")
 
             if option_text:
                 formatted_options.append(
@@ -181,6 +140,9 @@ async def get_article_quiz(
                 options=formatted_options,
             )
         )
+
+    if not formatted_questions:
+        raise NotFoundError("Quiz questions not found")
 
     return QuizResponse(
         id=quiz_id,

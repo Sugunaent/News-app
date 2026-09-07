@@ -288,7 +288,7 @@ async def list_xp_rules(
     _require_superadmin(auth)
 
     response = (
-        supabase
+        auth.client
         .table("xp_rules")
         .select(
             "id, event_type, amount, description, "
@@ -315,7 +315,7 @@ async def create_xp_rule(
     _require_superadmin(auth)
 
     response = (
-        supabase
+        auth.client
         .table("xp_rules")
         .insert(
             payload.model_dump()
@@ -364,7 +364,7 @@ async def update_xp_rule(
         )
 
     response = (
-        supabase
+        auth.client
         .table("xp_rules")
         .update(updates)
         .eq("id", str(rule_id))
@@ -399,7 +399,7 @@ async def delete_xp_rule(
     _require_superadmin(auth)
 
     response = (
-        supabase
+        auth.client
         .table("xp_rules")
         .delete()
         .eq("id", str(rule_id))
@@ -437,7 +437,7 @@ async def list_levels(
     _require_superadmin(auth)
 
     response = (
-        supabase
+        auth.client
         .table("levels")
         .select(
             "id, name, minimum_xp, display_order, created_at"
@@ -463,7 +463,7 @@ async def create_level(
     _require_superadmin(auth)
 
     response = (
-        supabase
+        auth.client
         .table("levels")
         .insert(
             payload.model_dump()
@@ -511,7 +511,7 @@ async def update_level(
         )
 
     response = (
-        supabase
+        auth.client
         .table("levels")
         .update(updates)
         .eq("id", str(level_id))
@@ -546,7 +546,7 @@ async def delete_level(
     _require_superadmin(auth)
 
     response = (
-        supabase
+        auth.client
         .table("levels")
         .delete()
         .eq("id", str(level_id))
@@ -584,7 +584,7 @@ async def list_badges(
     _require_superadmin(auth)
 
     response = (
-        supabase
+        auth.client
         .table("badges")
         .select(
             "id, name, description, image_asset_id, "
@@ -612,7 +612,7 @@ async def create_badge(
     _require_superadmin(auth)
 
     response = (
-        supabase
+        auth.client
         .table("badges")
         .insert(
             payload.model_dump()
@@ -663,7 +663,7 @@ async def update_badge(
         )
 
     response = (
-        supabase
+        auth.client
         .table("badges")
         .update(updates)
         .eq("id", str(badge_id))
@@ -698,7 +698,7 @@ async def delete_badge(
     _require_superadmin(auth)
 
     response = (
-        supabase
+        auth.client
         .table("badges")
         .delete()
         .eq("id", str(badge_id))

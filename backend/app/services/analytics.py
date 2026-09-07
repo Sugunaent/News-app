@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 from uuid import UUID
 
 from app.core.db_utils import extract_single_record
-from app.db.supabase import supabase
+from app.db.supabase import supabase_admin
 
 
 # ============================================================
@@ -77,12 +77,16 @@ def record_advertisement_click(
     user_id: UUID | None = None,
     client=None,
 ) -> dict | None:
+    # Fall back to supabase_admin if no client was passed
+    # so anonymous public clicks bypass RLS safely
+    effective_client = client or supabase_admin
+
     return record_event(
         event_type=ADVERTISEMENT_CLICKED,
         user_id=user_id,
         source_type="ADVERTISEMENT",
         source_id=advertisement_id,
-        client=client,
+        client=effective_client,
     )
 
 

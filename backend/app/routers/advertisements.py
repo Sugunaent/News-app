@@ -156,23 +156,17 @@ def list_advertisements(
 ):
     """
     Return currently eligible advertisements.
-
-    Public access is intentional. Supabase RLS limits the
-    underlying dataset to active advertisements belonging to
-    active slots and currently valid scheduling windows.
     """
-
+    # Use standard select query without corrupting the relationship alias
     query = (
         supabase
         .table("advertisements")
         .select(_build_ad_select_query())
     )
 
-    if slot is not None:
-        query = query.eq("slot.key", slot)
-
     result = (
         query
+        .eq("is_active", True)
         .order("display_order", desc=False)
         .order("created_at", desc=True)
         .execute()
@@ -180,20 +174,12 @@ def list_advertisements(
 
     advertisements = result.data or []
 
-    # Keep visibility enforcement explicit at the API layer as
-    # well as in RLS, matching the existing promotions pattern.
     now = datetime.now(timezone.utc)
-
     visible = []
 
     for advertisement in advertisements:
-        starts_at = _parse_datetime(
-            advertisement.get("starts_at")
-        )
-
-        ends_at = _parse_datetime(
-            advertisement.get("ends_at")
-        )
+        starts_at = _parse_datetime(advertisement.get("starts_at"))
+        ends_at = _parse_datetime(advertisement.get("ends_at"))
 
         if starts_at and starts_at > now:
             continue
@@ -207,6 +193,10 @@ def list_advertisements(
             continue
 
         if not advertisement.get("is_active", False):
+            continue
+
+        # Filter by slot key cleanly in Python if parameter provided
+        if slot is not None and slot_data.get("key") != slot:
             continue
 
         visible.append(advertisement)

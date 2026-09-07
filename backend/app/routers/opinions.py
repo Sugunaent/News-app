@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from postgrest.exceptions import APIError
 
 from app.core.exceptions import NotFoundError
@@ -20,24 +20,6 @@ router = APIRouter(
 )
 
 
-def _extract_translation(
-    translations: list[dict] | None,
-    fallback_lang: str = "en",
-    text_key: str = "question_text",
-) -> str | None:
-    if not translations:
-        return None
-
-    for item in translations:
-        if isinstance(item, dict) and item.get("language_code", "").lower() == fallback_lang.lower():
-            return item.get(text_key)
-
-    if len(translations) > 0 and isinstance(translations[0], dict):
-        return translations[0].get(text_key)
-
-    return None
-
-
 @router.get(
     "/article/{article_id}",
     response_model=list[OpinionQuestionResponse],
@@ -52,8 +34,7 @@ async def get_article_opinions(
         questions_res = (
             client.table("opinion_questions")
             .select(
-                "id, article_id, display_order, allow_custom_response, "
-                "opinion_question_translations(language_code, question_text)"
+                "id, article_id, display_order, allow_custom_response, question_text"
             )
             .eq("article_id", str(article_id))
             .order("display_order")
@@ -76,10 +57,8 @@ async def get_article_opinions(
     try:
         options_res = (
             client.table("opinion_options")
-            .select(
-                "id, question_id, display_order, "
-                "opinion_option_translations(language_code, option_text)"
-            )
+            .select("id, question_id, display_order, option_text")
+            .in_("question_id", question_ids)
             .order("display_order")
             .execute()
         )
@@ -93,11 +72,10 @@ async def get_article_opinions(
                 continue
             question_id = option.get("question_id")
 
-            if question_id in question_ids:
-                options_by_question.setdefault(
-                    question_id,
-                    [],
-                ).append(option)
+            options_by_question.setdefault(
+                question_id,
+                [],
+            ).append(option)
 
     except APIError as exc:
         raise NotFoundError("Failed to fetch opinion options") from exc
@@ -108,10 +86,7 @@ async def get_article_opinions(
         if not isinstance(question, dict):
             continue
 
-        question_text = _extract_translation(
-            question.get("opinion_question_translations", []),
-            text_key="question_text",
-        )
+        question_text = question.get("question_text")
 
         if not question_text:
             continue
@@ -119,10 +94,7 @@ async def get_article_opinions(
         formatted_options = []
 
         for option in options_by_question.get(question["id"], []):
-            option_text = _extract_translation(
-                option.get("opinion_option_translations", []),
-                text_key="option_text",
-            )
+            option_text = option.get("option_text")
 
             if not option_text:
                 continue
@@ -160,6 +132,7 @@ async def submit_opinion_response(
 ):
     client = auth.client
 
+    # 1. Fetch opinion question
     try:
         question_res = (
             client.table("opinion_questions")
@@ -180,6 +153,7 @@ async def submit_opinion_response(
             raise NotFoundError("Opinion question not found")
         question = question[0]
 
+    # 2. Check custom response permission
     if payload.custom_response is not None:
         allow_custom = (
             question.get("allow_custom_response")
@@ -187,8 +161,12 @@ async def submit_opinion_response(
             else getattr(question, "allow_custom_response", False)
         )
         if not allow_custom:
-            raise NotFoundError("Custom opinion responses are not allowed")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Custom opinion responses are not allowed for this question",
+            )
 
+    # 3. Validate selected option
     if payload.selected_option_id is not None:
         try:
             option_res = (
@@ -205,73 +183,99 @@ async def submit_opinion_response(
         if not option_res or option_res.data is None:
             raise NotFoundError("Opinion option not found")
 
-        option_data = option_res.data
-        if isinstance(option_data, (list, tuple)):
-            if not option_data:
-                raise NotFoundError("Opinion option not found")
+    user_id_str = str(auth.user.id)
+    question_id_str = str(question_id)
+    selected_option_str = (
+        str(payload.selected_option_id) if payload.selected_option_id else None
+    )
 
-    insert_data = {
-        "user_id": str(auth.user.id),
-        "opinion_question_id": str(question_id),
-        "selected_option_id": (
-            str(payload.selected_option_id)
-            if payload.selected_option_id is not None
-            else None
-        ),
+    # 4. Check for existing response to allow re-submission/update
+    existing_id = None
+    try:
+        existing_res = (
+            client.table("opinion_responses")
+            .select("id")
+            .eq("user_id", user_id_str)
+            .eq("opinion_question_id", question_id_str)
+            .maybe_single()
+            .execute()
+        )
+        if existing_res and existing_res.data:
+            existing_data = (
+                existing_res.data[0]
+                if isinstance(existing_res.data, list)
+                else existing_res.data
+            )
+            existing_id = existing_data.get("id")
+    except APIError:
+        pass
+
+    insert_payload = {
+        "user_id": user_id_str,
+        "opinion_question_id": question_id_str,
+        "selected_option_id": selected_option_str,
         "custom_response": payload.custom_response,
     }
 
+    # 5. Insert or Update safely
     try:
-        response_res = (
-            client.table("opinion_responses")
-            .insert(insert_data)
-            .select(
-                "id, opinion_question_id, selected_option_id, "
-                "custom_response, created_at"
+        if existing_id:
+            response_res = (
+                client.table("opinion_responses")
+                .update({
+                    "selected_option_id": selected_option_str,
+                    "custom_response": payload.custom_response,
+                })
+                .eq("id", existing_id)
+                .select()
+                .execute()
             )
-            .execute()
-        )
+        else:
+            response_res = (
+                client.table("opinion_responses")
+                .insert(insert_payload)
+                .select()
+                .execute()
+            )
     except APIError as exc:
-        raise NotFoundError("Unable to record opinion response") from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Database error while saving response: {exc.message}",
+        ) from exc
 
-    raw_response_data = response_res.data
-    if isinstance(raw_response_data, (list, tuple)) and raw_response_data:
-        raw_response = raw_response_data[0]
-    elif isinstance(raw_response_data, dict):
-        raw_response = raw_response_data
-    else:
-        raw_response = {
-            "id": None,
-            "opinion_question_id": str(question_id),
-            "selected_option_id": (
-                str(payload.selected_option_id)
-                if payload.selected_option_id is not None
-                else None
-            ),
-            "custom_response": payload.custom_response,
-            "created_at": "2026-08-25T00:00:00Z",
-        }
+    raw_response = {}
+    if response_res and response_res.data:
+        raw_data = response_res.data
+        raw_response = raw_data[0] if isinstance(raw_data, list) else raw_data
 
+    # 6. Safely execute XP award inside try-except block
     article_id_val = (
         question.get("article_id")
         if isinstance(question, dict)
         else getattr(question, "article_id", None)
     )
 
-    award_xp(
-        user_id=auth.user.id,
-        event_type="OPINION_SUBMITTED",
-        source_type="OPINION_RESPONSE",
-        source_id=question_id,
-        article_id=article_id_val,
-    )
+    try:
+        award_xp(
+            user_id=auth.user.id,
+            event_type="OPINION_SUBMITTED",
+            source_type="OPINION_RESPONSE",
+            source_id=question_id,
+            article_id=article_id_val,
+        )
+    except Exception:
+        pass  # Prevent XP errors from blocking the API response
 
     return OpinionSubmitResponse(
         response=OpinionResponseData(
-            id=raw_response["id"],
-            opinion_question_id=raw_response["opinion_question_id"],
-            selected_option_id=raw_response["selected_option_id"],
-            custom_response=raw_response["custom_response"],
-            created_at=raw_response["created_at"],
+            id=raw_response.get("id") or existing_id,
+            opinion_question_id=raw_response.get(
+                "opinion_question_id", question_id_str
+            ),
+            selected_option_id=raw_response.get(
+                "selected_option_id", selected_option_str
+            ),
+            custom_response=raw_response.get("custom_response", payload.custom_response),
+            created_at=raw_response.get("created_at", "2026-08-25T00:00:00Z"),
         )
     )
