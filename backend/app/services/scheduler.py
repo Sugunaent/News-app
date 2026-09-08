@@ -1,12 +1,11 @@
 from datetime import datetime, timezone
 import logging
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 from supabase import Client
 
 logger = logging.getLogger("app.scheduler")
 
-# Module-level scheduler instance
-scheduler = AsyncIOScheduler()
+scheduler = BackgroundScheduler()
 
 
 def publish_due_scheduled_articles(client: Client) -> None:
@@ -14,10 +13,9 @@ def publish_due_scheduled_articles(client: Client) -> None:
     Finds all articles with status 'SCHEDULED' whose 'scheduled_at' timestamp 
     is in the past (or present) and updates their status to 'PUBLISHED'.
     """
-    print(f"--- [SCHEDULER RUNNING at {datetime.now(timezone.utc)}] ---")
+    print(f"--- [SCHEDULER CHECKING AT {datetime.now(timezone.utc)}] ---")
     try:
-        # In publish_due_scheduled_articles:
-        now_utc_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        now_utc_iso = datetime.now(timezone.utc).isoformat()
 
         # Query scheduled articles that are due
         response = (
@@ -32,7 +30,7 @@ def publish_due_scheduled_articles(client: Client) -> None:
         if not due_articles:
             return
 
-        logger.info(f"Found {len(due_articles)} article(s) due for publishing.")
+        print(f"INFO: Found {len(due_articles)} article(s) due for publishing.")
 
         for article in due_articles:
             article_id = article["id"]
@@ -65,8 +63,8 @@ def publish_due_scheduled_articles(client: Client) -> None:
                     f"Failed to record audit log for auto-published article {article_id}: {audit_err}"
                 )
 
-            logger.info(
-                f"Successfully auto-published article '{article.get('title')}' ({article_id})."
+            print(
+                f"INFO: Successfully auto-published article '{article.get('title')}' ({article_id})."
             )
 
     except Exception as e:
@@ -89,8 +87,8 @@ def start_article_scheduler(admin_client: Client, interval_minutes: int = 1) -> 
         replace_existing=True,
     )
     scheduler.start()
-    logger.info(
-        f"Article Auto-Publish Scheduler started (Interval: every {interval_minutes} minute(s))."
+    print(
+        f"INFO: Article Auto-Publish Scheduler started (Interval: every {interval_minutes} minute(s))."
     )
 
 
@@ -100,4 +98,4 @@ def shutdown_article_scheduler() -> None:
     """
     if scheduler.running:
         scheduler.shutdown(wait=False)
-        logger.info("Article Auto-Publish Scheduler shut down.")
+        print("INFO: Article Auto-Publish Scheduler shut down.")

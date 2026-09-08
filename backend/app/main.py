@@ -1,41 +1,42 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from postgrest.exceptions import APIError
-
 from supabase import create_client
-from contextlib import asynccontextmanager
 
+from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.handlers import api_error_handler, app_exception_handler
+from app.routers.advertisements import router as advertisements_router
+from app.routers.analytics import router as analytics_router
 from app.routers.articles import router as articles_router
+from app.routers.audit import router as audit_router
 from app.routers.categories import router as categories_router
-from app.routers.users import router as users_router
-from app.routers.progress import router as progress_router
-from app.routers.quizzes import router as quizzes_router
-from app.routers.opinions import router as opinions_router
+from app.routers.comments import router as comments_router
 from app.routers.completions import router as completions_router
 from app.routers.gamification import router as gamification_router
 from app.routers.home import router as home_router
+from app.routers.media import router as media_router
+from app.routers.opinions import router as opinions_router
+from app.routers.progress import router as progress_router
 from app.routers.promotions import router as promotions_router
+from app.routers.quizzes import router as quizzes_router
 from app.routers.sharing import router as sharing_router
-from app.routers.comments import router as comments_router
-from app.routers.advertisements import router as advertisements_router
-from app.routers.analytics import router as analytics_router
 from app.routers.superadmin_content import router as superadmin_content_router
 from app.routers.superadmin_interactive import router as superadmin_interactive_router
-from app.routers.media import router as media_router
 from app.routers.superadmin_management import router as superadmin_management_router
-from app.routers.audit import router as audit_router
+from app.routers.users import router as users_router
 from app.services.scheduler import (
     shutdown_article_scheduler,
     start_article_scheduler,
 )
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize administrative Supabase client using Service Role Key
     admin_client = create_client(
-        settings.SUPABASE_URL,
-        settings.SUPABASE_SERVICE_ROLE_KEY,
+        settings.supabase_url,
+        settings.supabase_service_role_key,
     )
 
     # Start the cron job to run every 1 minute
@@ -46,9 +47,12 @@ async def lifespan(app: FastAPI):
     # Shutdown scheduler when application stops
     shutdown_article_scheduler()
 
+
+# Registered lifespan here so FastAPI triggers startup and shutdown tasks
 app = FastAPI(
     title="Cognition News API",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_exception_handler(

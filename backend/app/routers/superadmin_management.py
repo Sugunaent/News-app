@@ -143,8 +143,7 @@ async def get_user(
     client = _get_active_client(auth)
 
     response = (
-        client
-        .table("profiles")
+        client.table("profiles")
         .select(
             "id, email, display_name, avatar_media_id, "
             "role, is_active, created_at"
@@ -162,24 +161,27 @@ async def get_user(
 
     profile = response.data
 
-    # Populate missing schema fields expected by SuperadminUserDetailResponse
-    user_detail = {
-        **profile,
-        "total_xp": profile.get("total_xp", 0),
-        "level": profile.get("level", 1),
-        "articles_completed": profile.get("articles_completed", 0),
-        "quiz_performance": profile.get(
-            "quiz_performance",
-            {"total_quizzes": 0, "correct_answers": 0, "accuracy_percentage": 0.0},
-        ),
-        "opinions_submitted": profile.get("opinions_submitted", 0),
-        "badges": profile.get("badges", []),
-        "achievement_history": profile.get("achievement_history", []),
-        "share_cards": profile.get("share_cards", []),
+    # Dictionary strictly structured to match SuperadminUserDetailResponse
+    return {
+        "id": profile["id"],
+        "email": profile.get("email"),
+        "display_name": profile.get("display_name"),
+        "avatar_media_id": profile.get("avatar_media_id"),
+        "role": profile.get("role", "USER"),
+        "is_active": profile.get("is_active", True),
+        "total_xp": 0,
+        "level": {"name": "Beginner", "minimum_xp": 0},  # Dict required by schema
+        "articles_completed": 0,
+        "quiz_performance": {
+            "total_quizzes": 0,
+            "correct_answers": 0,
+            "accuracy_percentage": 0.0,
+        },
+        "opinions_submitted": 0,
+        "badges": [],
+        "achievement_history": [],
+        "share_cards": [],
     }
-
-    return user_detail
-
 
 @router.patch(
     "/users/{user_id}/status",

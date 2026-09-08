@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, HTTPException
@@ -20,25 +21,20 @@ def _resolve_translation(
     translations,
     field_name: str,
 ):
+    """
+    Unified translation lookup that returns the requested field value 
+    from the first available record without language restriction.
+    """
     translations = translations or []
 
     if isinstance(translations, dict):
         translations = [translations]
 
-    # Prefer English.
     for translation in translations:
-        if translation.get("language_code") == "EN":
+        if isinstance(translation, dict):
             value = translation.get(field_name)
-
             if value:
                 return value
-
-    # Fall back to first available translation.
-    for translation in translations:
-        value = translation.get(field_name)
-
-        if value:
-            return value
 
     return None
 
@@ -54,25 +50,65 @@ def get_completion_share_card(
     # ---------------------------------------------------------
     # 1. Verify that the article exists and is published.
     # ---------------------------------------------------------
-
     article_response = (
         auth.client.table("articles")
-        .select("id, title, status")
+        .select(
+            "id, title, status, "
+            "article_translations("
+            "language_code, title"
+            ")"
+        )
         .eq("id", str(article_id))
         .eq("status", "PUBLISHED")
         .maybe_single()
         .execute()
     )
 
-    if not article_response.data:
+    article_data = getattr(article_response, "data", None)
+
+    if not article_data:
         raise NotFoundError("Article not found")
 
-    article = article_response.data
-    article_title = article.get("title")
+    # Resolve article title with fallback to root 'title' column
+    article_title = _resolve_translation(
+        article_data.get("article_translations"),
+        "title",
+    ) or article_data.get("title")
 
     if not article_title:
         raise NotFoundError("Article title not found")
 
+    # ---------------------------------------------------------
+    # 2. Fetch completion timestamp from reading_progress.
+    # ---------------------------------------------------------
+    completed_at = datetime.now(timezone.utc)
+
+    progress_response = (
+        auth.client.table("reading_progress")
+        .select("completed_at, last_read_at")
+        .eq("user_id", str(auth.user.id))
+        .eq("article_id", str(article_id))
+        .maybe_single()
+        .execute()
+    )
+
+    progress_data = getattr(progress_response, "data", None)
+
+    if progress_data:
+        completed_at = (
+            progress_data.get("completed_at")
+            or progress_data.get("last_read_at")
+            or completed_at
+        )
+
+    # ---------------------------------------------------------
+    # 3. Return completion share response.
+    # ---------------------------------------------------------
+    return ArticleCompletionShareResponse(
+        article_id=article_id,
+        article_title=article_title,
+        completed_at=completed_at,
+    )
 
 @router.get(
     "/{article_id}/opinion/share",
@@ -93,11 +129,11 @@ def get_opinion_share_card(
     # ---------------------------------------------------------
     # 1. Verify that the article exists and is published.
     # ---------------------------------------------------------
-
     article_response = (
         auth.client.table("articles")
         .select(
-            "id, article_translations("
+            "id, title, status, "
+            "article_translations("
             "language_code, title"
             ")"
         )
@@ -107,19 +143,18 @@ def get_opinion_share_card(
         .execute()
     )
 
-    if not article_response.data:
+    article_data = getattr(article_response, "data", None)
+
+    if not article_data:
         raise NotFoundError("Article not found")
 
-    article = article_response.data
-
     # ---------------------------------------------------------
-    # 2. Find the opinion question belonging to this article.
+    # 2. Find opinion questions belonging to this article.
     # ---------------------------------------------------------
-
     question_response = (
         auth.client.table("opinion_questions")
         .select(
-            "id, article_id, "
+            "id, article_id, question_text, "
             "opinion_question_translations("
             "language_code, question_text"
             ")"
@@ -129,30 +164,16 @@ def get_opinion_share_card(
         .execute()
     )
 
-    questions = question_response.data or []
+    questions = getattr(question_response, "data", None) or []
 
     if not questions:
-        raise NotFoundError(
-            "Opinion question not found"
-        )
+        raise NotFoundError("Opinion question not found")
 
-    question_ids = [
-        str(question["id"])
-        for question in questions
-    ]
+    question_ids = [str(question["id"]) for question in questions]
 
     # ---------------------------------------------------------
     # 3. Retrieve the user's opinion response.
-    #
-    # If response_id is supplied, it MUST belong to:
-    #
-    #   - the authenticated user
-    #   - this article's opinion question
-    #
-    # This prevents a user from requesting another user's
-    # response or a response belonging to another article.
     # ---------------------------------------------------------
-
     response_query = (
         auth.client.table("opinion_responses")
         .select(
@@ -160,17 +181,11 @@ def get_opinion_share_card(
             "selected_option_id, custom_response, created_at"
         )
         .eq("user_id", str(auth.user.id))
-        .in_(
-            "opinion_question_id",
-            question_ids,
-        )
+        .in_("opinion_question_id", question_ids)
     )
 
     if response_id is not None:
-        response_query = response_query.eq(
-            "id",
-            str(response_id),
-        )
+        response_query = response_query.eq("id", str(response_id))
 
     response_response = (
         response_query
@@ -180,142 +195,96 @@ def get_opinion_share_card(
         .execute()
     )
 
-    response_data = response_response.data
+    response_data = getattr(response_response, "data", None)
 
     if not response_data:
-        raise NotFoundError(
-            "Opinion response not found"
-        )
+        raise NotFoundError("Opinion response not found")
 
     # ---------------------------------------------------------
-    # 4. Resolve the exact question.
+    # 4. Resolve the matching question.
     # ---------------------------------------------------------
-
     question = next(
         (
             item
             for item in questions
-            if str(item["id"])
-            == str(
-                response_data["opinion_question_id"]
-            )
+            if str(item["id"]) == str(response_data["opinion_question_id"])
         ),
         None,
     )
 
     if question is None:
-        raise NotFoundError(
-            "Opinion question not found"
-        )
+        raise NotFoundError("Opinion question not found")
 
     # ---------------------------------------------------------
     # 5. Resolve question text.
     # ---------------------------------------------------------
-
     question_text = _resolve_translation(
-        question.get(
-            "opinion_question_translations"
-        ),
+        question.get("opinion_question_translations"),
         "question_text",
-    )
+    ) or question.get("question_text")
 
     if not question_text:
-        raise NotFoundError(
-            "Opinion question text not found"
-        )
+        raise NotFoundError("Opinion question text not found")
 
     # ---------------------------------------------------------
-    # 6. Resolve selected predefined option.
+    # 6. Resolve selected option text (if present).
     # ---------------------------------------------------------
-
     selected_option_text = None
 
-    if (
-        response_data.get("selected_option_id")
-        is not None
-    ):
+    if response_data.get("selected_option_id") is not None:
         option_response = (
             auth.client.table("opinion_options")
             .select(
-                "id, question_id, "
+                "id, question_id, option_text, "
                 "opinion_option_translations("
                 "language_code, option_text"
                 ")"
             )
-            .eq(
-                "id",
-                str(
-                    response_data[
-                        "selected_option_id"
-                    ]
-                ),
-            )
-            .eq(
-                "question_id",
-                str(
-                    response_data[
-                        "opinion_question_id"
-                    ]
-                ),
-            )
+            .eq("id", str(response_data["selected_option_id"]))
+            .eq("question_id", str(response_data["opinion_question_id"]))
             .maybe_single()
             .execute()
         )
 
-        if not option_response.data:
-            raise NotFoundError(
-                "Opinion option not found"
-            )
+        option_data = getattr(option_response, "data", None)
 
-        option = option_response.data
+        if not option_data:
+            raise NotFoundError("Opinion option not found")
 
         selected_option_text = _resolve_translation(
-            option.get(
-                "opinion_option_translations"
-            ),
+            option_data.get("opinion_option_translations"),
             "option_text",
-        )
+        ) or option_data.get("option_text")
 
         if not selected_option_text:
-            raise NotFoundError(
-                "Opinion option text not found"
-            )
+            raise NotFoundError("Opinion option text not found")
 
     # ---------------------------------------------------------
     # 7. Resolve article title.
     # ---------------------------------------------------------
-
     article_title = _resolve_translation(
-        article.get("article_translations"),
+        article_data.get("article_translations"),
         "title",
-    )
+    ) or article_data.get("title")
 
     if not article_title:
-        raise NotFoundError(
-            "Article title not found"
-        )
+        raise NotFoundError("Article title not found")
 
     # ---------------------------------------------------------
-    # 8. Return share payload.
+    # 8. Return share response.
     # ---------------------------------------------------------
-
     return OpinionShareResponse(
         response_id=response_data["id"],
         article_id=article_id,
         article_title=article_title,
-        opinion_question_id=response_data[
-            "opinion_question_id"
-        ],
+        opinion_question_id=response_data["opinion_question_id"],
         opinion_question=question_text,
-        selected_option_id=response_data[
-            "selected_option_id"
-        ],
+        selected_option_id=response_data["selected_option_id"],
         selected_option_text=selected_option_text,
-        custom_response=response_data[
-            "custom_response"
-        ],
+        custom_response=response_data["custom_response"],
         created_at=response_data["created_at"],
     )
+
 
 @router.post(
     "/share/event",
@@ -330,17 +299,7 @@ def record_share_event(
     """
     Record that an authenticated user successfully completed
     a share action.
-
-    The client must call this endpoint only after the native
-    share operation has succeeded.
-
-    Supported source types include:
-
-        ARTICLE_COMPLETION
-        OPINION
-        BADGE
     """
-
     allowed_source_types = {
         "ARTICLE_COMPLETION",
         "OPINION",

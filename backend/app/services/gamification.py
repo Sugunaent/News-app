@@ -7,22 +7,38 @@ from app.db.supabase import supabase
 
 def _get_active_xp_rule(event_type: str) -> dict | None:
     """
-    Fetch active XP rule safely without throwing AttributeError if query fails.
+    Fetch active XP rule safely.
+    Fetches all active rules and matches event_type in Python to avoid
+    PostgREST custom Enum type matching issues.
     """
+    print(f"\n--- [DEBUG _get_active_xp_rule] Looking up active rule for event_type: '{event_type}' ---")
     try:
         response = (
             supabase
             .table("xp_rules")
             .select("id, event_type, amount")
-            .eq("event_type", event_type)
             .eq("is_active", True)
-            .order("created_at", desc=True)
-            .limit(1)
-            .maybe_single()
             .execute()
         )
-        return getattr(response, "data", None)
-    except APIError:
+        rules = getattr(response, "data", None) or []
+        print(f"--- [DEBUG _get_active_xp_rule] Active rules retrieved: {rules} ---")
+        
+        for rule in rules:
+            # Cast both to string and strip potential whitespace
+            rule_event = str(rule.get("event_type", "")).strip()
+            target_event = str(event_type).strip()
+            
+            if rule_event == target_event:
+                print(f"--- [DEBUG _get_active_xp_rule] MATCH FOUND: {rule} ---")
+                return rule
+                
+        print(f"--- [DEBUG _get_active_xp_rule] NO MATCH FOUND for '{event_type}' ---")
+        return None
+    except APIError as e:
+        print(f"--- [DEBUG _get_active_xp_rule] APIError occurred: {e} ---")
+        return None
+    except Exception as e:
+        print(f"--- [DEBUG _get_active_xp_rule] Unexpected error: {type(e).__name__} - {e} ---")
         return None
 
 
@@ -44,9 +60,16 @@ def award_xp(
 
     is used to make the award idempotent.
     """
+    print("\n==================================================")
+    print("--- [DEBUG award_xp] STARTING XP AWARD ---")
+    print(f"Input Args -> user_id: {user_id} (type: {type(user_id)})")
+    print(f"Input Args -> event_type: '{event_type}'")
+    print(f"Input Args -> source_type: '{source_type}', source_id: {source_id}")
+    print(f"Input Args -> article_id: {article_id}")
 
     # 1. Check for an existing transaction safely
     try:
+        print("--- [DEBUG award_xp] Step 1: Checking for existing transaction... ---")
         existing_response = (
             supabase
             .table("xp_transactions")
@@ -62,15 +85,21 @@ def award_xp(
         )
         existing_data = getattr(existing_response, "data", None)
         if existing_data:
+            print(f"--- [DEBUG award_xp] Transaction ALREADY EXISTS: {existing_data} ---")
             return existing_data
-    except APIError:
-        # Ignore read errors or proceed to lookup active rule
-        pass
+        print("--- [DEBUG award_xp] No existing transaction found. Proceeding. ---")
+    except APIError as e:
+        print(f"--- [DEBUG award_xp] APIError during existence check (ignoring): {e} ---")
+    except Exception as e:
+        print(f"--- [DEBUG award_xp] Unexpected error during existence check: {type(e).__name__} - {e} ---")
 
     # 2. Get active XP rule
+    print("--- [DEBUG award_xp] Step 2: Querying active XP rule... ---")
     rule = _get_active_xp_rule(event_type)
 
     if not rule:
+        print(f"--- [DEBUG award_xp] ABORT: No active rule matching event_type='{event_type}' ---")
+        print("==================================================\n")
         return None
 
     transaction = {
@@ -81,6 +110,7 @@ def award_xp(
         "source_id": str(source_id),
         "amount": rule["amount"],
     }
+    print(f"--- [DEBUG award_xp] Step 3: Prepared insert payload: {transaction} ---")
 
     # 3. Insert transaction
     try:
@@ -96,12 +126,20 @@ def award_xp(
         )
 
         response_data = getattr(response, "data", None)
+        print(f"--- [DEBUG award_xp] Insert response raw data: {response_data} ---")
         if response_data:
-            return extract_single_record(response_data)
+            record = extract_single_record(response_data)
+            print(f"--- [DEBUG award_xp] SUCCESS! Awarded XP Record: {record} ---")
+            print("==================================================\n")
+            return record
+        
+        print("--- [DEBUG award_xp] WARNING: Insert succeeded but response.data was empty/None ---")
+        print("==================================================\n")
         return None
 
-    except APIError:
-        # 4. Handle race condition: a concurrent request inserted between check & insert
+    except APIError as e:
+        print(f"--- [DEBUG award_xp] APIError during Insert: {e} ---")
+        print("--- [DEBUG award_xp] Step 4: Attempting race-condition fallback query... ---")
         try:
             existing_response = (
                 supabase
@@ -119,14 +157,23 @@ def award_xp(
 
             existing_data = getattr(existing_response, "data", None)
             if existing_data:
+                print(f"--- [DEBUG award_xp] Race condition verified. Found existing transaction: {existing_data} ---")
+                print("==================================================\n")
                 return existing_data
-        except APIError:
-            pass
+        except APIError as fallback_err:
+            print(f"--- [DEBUG award_xp] Fallback query also failed with APIError: {fallback_err} ---")
 
+        print("--- [DEBUG award_xp] Raising original APIError... ---")
+        print("==================================================\n")
+        raise
+    except Exception as e:
+        print(f"--- [DEBUG award_xp] Unexpected error during Insert: {type(e).__name__} - {e} ---")
+        print("==================================================\n")
         raise
 
 
 def get_gamification_status(user_id: UUID) -> dict:
+    print(f"\n--- [DEBUG get_gamification_status] Fetching status for user_id: {user_id} ---")
     # 1. Fetch XP Transactions
     transactions_response = (
         supabase
@@ -141,9 +188,11 @@ def get_gamification_status(user_id: UUID) -> dict:
     )
 
     transactions = getattr(transactions_response, "data", None) or []
+    print(f"--- [DEBUG get_gamification_status] Found {len(transactions)} transaction(s) ---")
 
     # Calculate Total XP
     total_xp = sum(transaction.get("amount", 0) for transaction in transactions)
+    print(f"--- [DEBUG get_gamification_status] Calculated Total XP: {total_xp} ---")
 
     # 2. Fetch User Level Safely
     level_response = (

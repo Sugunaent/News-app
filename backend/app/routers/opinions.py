@@ -31,6 +31,7 @@ async def get_article_opinions(
     client = auth.client
 
     try:
+        # FIX 1: Pass article_id as string directly (PostgREST expects standard str representation)
         questions_res = (
             client.table("opinion_questions")
             .select(
@@ -50,7 +51,8 @@ async def get_article_opinions(
     if not questions_data:
         return []
 
-    question_ids = [q["id"] if isinstance(q, dict) else q[0] for q in questions_data]
+    # Ensure UUIDs from PostgREST are cast to string for exact key matching
+    question_ids = [str(q["id"]) if isinstance(q, dict) else str(q[0]) for q in questions_data]
 
     options_by_question: dict[str, list] = {}
 
@@ -70,7 +72,8 @@ async def get_article_opinions(
         for option in raw_options:
             if not isinstance(option, dict):
                 continue
-            question_id = option.get("question_id")
+            # FIX 2: Standardize dictionary key type for matching
+            question_id = str(option.get("question_id"))
 
             options_by_question.setdefault(
                 question_id,
@@ -93,7 +96,8 @@ async def get_article_opinions(
 
         formatted_options = []
 
-        for option in options_by_question.get(question["id"], []):
+        q_key = str(question["id"])
+        for option in options_by_question.get(q_key, []):
             option_text = option.get("option_text")
 
             if not option_text:
