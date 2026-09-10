@@ -35,43 +35,8 @@ def _safe_str(value: Any) -> str | None:
     return str(value)
 
 
-def _translation_value(
-    translations: Any,
-    field_name: str,
-) -> str | None:
-    if not translations:
-        return None
-
-    if isinstance(translations, dict):
-        translations = [translations]
-
-    # Prefer English, case-insensitively.
-    for translation in translations:
-        language_code = str(
-            translation.get("language_code", "")
-        ).upper()
-
-        if language_code == "EN":
-            value = translation.get(field_name)
-
-            if value:
-                return str(value)
-
-    # Fallback to first available translation.
-    for translation in translations:
-        value = translation.get(field_name)
-
-        if value:
-            return str(value)
-
-    return None
-
-
 def _article_title(article: dict) -> str | None:
-    return _translation_value(
-        article.get("article_translations"),
-        "title",
-    )
+    return _safe_str(article.get("title"))
 
 
 def _percentage(
@@ -184,10 +149,7 @@ def _load_articles(client) -> list[dict]:
             """
             id,
             category_id,
-            article_translations(
-                language_code,
-                title
-            ),
+            title,
             categories(
                 id,
                 name

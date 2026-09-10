@@ -1,5 +1,7 @@
 # News App — Database Schema Specification
 
+> Historical snapshot of the original multilingual schema. The live database is defined by `supabase/migrations/` in filename order. Translation tables were removed in `20261010120000_production_security_media_drop_translations.sql`. `articles.title/subtitle/summary/slug` and `*_text` columns on quiz/opinion rows are the source of truth. `media_type` is IMAGE, VIDEO, AUDIO.
+
 ## 1. Purpose
 
 This document defines the PostgreSQL data model for the News App.

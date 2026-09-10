@@ -8,7 +8,7 @@ from app.core.exceptions import (
     AuthorizationError,
     NotFoundError,
 )
-from app.db.supabase import supabase
+from app.db.supabase import supabase, supabase_admin
 from app.dependencies.auth import (
     AuthContext,
     get_current_user,
@@ -75,13 +75,11 @@ def list_comments(
     """
     List comments for a specific article.
 
-    Requires authentication. Works with JWTs, Superadmins, or the Service Role key.
-    Superadmins / Service Role bypass 'is_hidden' and 'is_deleted' filters.
+    Requires a user or Superadmin JWT. Superadmins see hidden and
+    deleted comments; regular users do not.
     """
-    # Use current_user.client (which will be admin_client for Service Role/Superadmin,
-    # or user_client for regular users)
     query = (
-        current_user.client
+        supabase_admin
         .table("comments")
         .select(
             """

@@ -16,15 +16,23 @@ class ArticleCategory(BaseModel):
     slug: str
 
 
+class ArticleMedia(BaseModel):
+    id: UUID
+    storage_path: str
+    media_type: str
+    mime_type: str
+    signed_url: str | None = None
+
+
 class ArticleListItem(BaseModel):
     id: UUID
     slug: str
     title: str
     subtitle: str | None = None
-    summary: str | None = None
     article_type: str
-    category: ArticleCategory
+    category: ArticleCategory | None = None
     published_at: datetime | None = None
+    cover: ArticleMedia | None = None
 
 
 class ArticleListResponse(BaseModel):
@@ -34,13 +42,6 @@ class ArticleListResponse(BaseModel):
 # ============================================================
 # MEDIA & NESTED BLOCK DATA SCHEMAS
 # ============================================================
-
-
-class ArticleMedia(BaseModel):
-    id: UUID
-    storage_path: str
-    media_type: str
-    mime_type: str
 
 
 class OpinionOption(BaseModel):
@@ -56,10 +57,22 @@ class ArticleOpinionData(BaseModel):
     options: list[OpinionOption] = []
 
 
-class ArticleQuizData(BaseModel):
+class ArticleQuizOption(BaseModel):
+    id: UUID
+    option_text: str
+    display_order: int
+
+
+class ArticleQuizQuestion(BaseModel):
     id: UUID
     question: str
-    options: list[dict] = []
+    display_order: int
+    options: list[ArticleQuizOption] = []
+
+
+class ArticleQuizData(BaseModel):
+    id: UUID
+    questions: list[ArticleQuizQuestion] = []
 
 
 # ============================================================

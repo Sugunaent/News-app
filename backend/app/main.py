@@ -69,7 +69,6 @@ app.add_exception_handler(
 async def health_check():
     return {
         "status": "ok",
-        "environment": "development",
     }
 
 

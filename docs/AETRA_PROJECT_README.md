@@ -86,7 +86,7 @@ The AETRA requirements themselves recommend one Super Admin for V1.
 
 ### Multilingual support removed
 
-Do not build new multilingual functionality, language selectors, translation APIs or language preferences. Historical translation tables/code may remain until the final cleanup safely removes genuinely obsolete pieces.
+The product is single-language. Translation tables have been dropped. Article, quiz, and opinion text live on the parent rows (`title`, `question_text`, `option_text`). Do not add language selectors or translation APIs.
 
 ### Campaigns removed
 

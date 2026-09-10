@@ -17,28 +17,6 @@ router = APIRouter(
 )
 
 
-def _resolve_translation(
-    translations,
-    field_name: str,
-):
-    """
-    Unified translation lookup that returns the requested field value 
-    from the first available record without language restriction.
-    """
-    translations = translations or []
-
-    if isinstance(translations, dict):
-        translations = [translations]
-
-    for translation in translations:
-        if isinstance(translation, dict):
-            value = translation.get(field_name)
-            if value:
-                return value
-
-    return None
-
-
 @router.get(
     "/{article_id}/completion/share",
     response_model=ArticleCompletionShareResponse,
@@ -52,12 +30,7 @@ def get_completion_share_card(
     # ---------------------------------------------------------
     article_response = (
         auth.client.table("articles")
-        .select(
-            "id, title, status, "
-            "article_translations("
-            "language_code, title"
-            ")"
-        )
+        .select("id, title, status")
         .eq("id", str(article_id))
         .eq("status", "PUBLISHED")
         .maybe_single()
@@ -69,11 +42,7 @@ def get_completion_share_card(
     if not article_data:
         raise NotFoundError("Article not found")
 
-    # Resolve article title with fallback to root 'title' column
-    article_title = _resolve_translation(
-        article_data.get("article_translations"),
-        "title",
-    ) or article_data.get("title")
+    article_title = article_data.get("title")
 
     if not article_title:
         raise NotFoundError("Article title not found")
@@ -131,12 +100,7 @@ def get_opinion_share_card(
     # ---------------------------------------------------------
     article_response = (
         auth.client.table("articles")
-        .select(
-            "id, title, status, "
-            "article_translations("
-            "language_code, title"
-            ")"
-        )
+        .select("id, title, status")
         .eq("id", str(article_id))
         .eq("status", "PUBLISHED")
         .maybe_single()
@@ -154,10 +118,7 @@ def get_opinion_share_card(
     question_response = (
         auth.client.table("opinion_questions")
         .select(
-            "id, article_id, question_text, "
-            "opinion_question_translations("
-            "language_code, question_text"
-            ")"
+            "id, article_id, question_text"
         )
         .eq("article_id", str(article_id))
         .order("display_order")
@@ -218,10 +179,7 @@ def get_opinion_share_card(
     # ---------------------------------------------------------
     # 5. Resolve question text.
     # ---------------------------------------------------------
-    question_text = _resolve_translation(
-        question.get("opinion_question_translations"),
-        "question_text",
-    ) or question.get("question_text")
+    question_text = question.get("question_text")
 
     if not question_text:
         raise NotFoundError("Opinion question text not found")
@@ -235,10 +193,7 @@ def get_opinion_share_card(
         option_response = (
             auth.client.table("opinion_options")
             .select(
-                "id, question_id, option_text, "
-                "opinion_option_translations("
-                "language_code, option_text"
-                ")"
+                "id, question_id, option_text"
             )
             .eq("id", str(response_data["selected_option_id"]))
             .eq("question_id", str(response_data["opinion_question_id"]))
@@ -251,10 +206,7 @@ def get_opinion_share_card(
         if not option_data:
             raise NotFoundError("Opinion option not found")
 
-        selected_option_text = _resolve_translation(
-            option_data.get("opinion_option_translations"),
-            "option_text",
-        ) or option_data.get("option_text")
+        selected_option_text = option_data.get("option_text")
 
         if not selected_option_text:
             raise NotFoundError("Opinion option text not found")
@@ -262,10 +214,7 @@ def get_opinion_share_card(
     # ---------------------------------------------------------
     # 7. Resolve article title.
     # ---------------------------------------------------------
-    article_title = _resolve_translation(
-        article_data.get("article_translations"),
-        "title",
-    ) or article_data.get("title")
+    article_title = article_data.get("title")
 
     if not article_title:
         raise NotFoundError("Article title not found")

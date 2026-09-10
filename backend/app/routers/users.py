@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.user import (
@@ -18,8 +18,6 @@ router = APIRouter(
     prefix="/api/v1/users",
     tags=["Users"],
 )
-
-
 
 
 def _resolve_opinion_text(
@@ -52,7 +50,7 @@ async def get_me(
         .execute()
     )
 
-    if not profile_response or not profile_response.data:
+    if not profile_response or profile_response.data is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User profile not found.",
@@ -62,11 +60,11 @@ async def get_me(
 
     return UserProfileResponse(
         id=profile["id"],
-        email=profile["email"],
+        email=profile.get("email", auth.user.email),
         display_name=profile.get("display_name"),
         avatar_media_id=profile.get("avatar_media_id"),
-        role=profile["role"],
-        is_active=profile["is_active"],
+        role=profile.get("role", "user"),
+        is_active=profile.get("is_active", True),
     )
 
 
@@ -92,7 +90,7 @@ async def get_my_profile(
         .execute()
     )
 
-    if not profile_response or not profile_response.data:
+    if not profile_response or profile_response.data is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User profile not found.",
@@ -102,13 +100,13 @@ async def get_my_profile(
 
     user_profile = UserProfileResponse(
         id=profile["id"],
-        email=profile["email"],
+        email=profile.get("email", auth.user.email),
         display_name=profile.get("display_name"),
         avatar_media_id=profile.get("avatar_media_id"),
-        role=profile["role"],
-        is_active=profile["is_active"],
+        role=profile.get("role", "user"),
+        is_active=profile.get("is_active", True),
     )
-    
+
     # ---------------------------------------------------------
     # 2. Gamification
     # ---------------------------------------------------------
@@ -203,13 +201,6 @@ async def get_my_profile(
 
     # ---------------------------------------------------------
     # 3. Article completions
-    #
-    # Every article completion is a historical share card.
-    #
-    # This covers:
-    #   - standard articles
-    #   - quiz articles
-    #   - opinion articles after completion
     # ---------------------------------------------------------
 
     completions_response = (
@@ -268,9 +259,7 @@ async def get_my_profile(
         if attempt.get("is_correct") is True
     )
 
-    incorrect_attempts = (
-        total_attempts - correct_attempts
-    )
+    incorrect_attempts = total_attempts - correct_attempts
 
     accuracy_percentage = (
         round(
@@ -290,10 +279,6 @@ async def get_my_profile(
 
     # ---------------------------------------------------------
     # 5. Opinion submissions
-    #
-    # Retrieve the article and question information because
-    # historical opinion cards need enough information for the
-    # frontend to display the card without losing context.
     # ---------------------------------------------------------
 
     opinions_response = (
@@ -332,9 +317,6 @@ async def get_my_profile(
 
     # ---------------------------------------------------------
     # 6. Resolve selected opinion option text
-    #
-    # We intentionally resolve each selected option using the
-    # question_id as an ownership boundary.
     # ---------------------------------------------------------
 
     opinion_option_text_by_id: dict[str, str] = {}
@@ -403,9 +385,7 @@ async def get_my_profile(
         reading_progress.append(
             UserProfileReadingProgressResponse(
                 article_id=item["article_id"],
-                progress_percentage=item[
-                    "progress_percentage"
-                ],
+                progress_percentage=item["progress_percentage"],
                 last_block_id=item.get("last_block_id"),
                 last_position=item.get("last_position"),
                 started_at=item["started_at"],
@@ -416,14 +396,9 @@ async def get_my_profile(
 
     # ---------------------------------------------------------
     # 8. Achievement history
-    #
-    # This remains the general activity/gamification history.
-    # Share cards are maintained separately below.
     # ---------------------------------------------------------
 
-    achievement_history: list[
-        UserProfileAchievementResponse
-    ] = []
+    achievement_history: list[UserProfileAchievementResponse] = []
 
     for completion in completions:
         achievement_history.append(
@@ -468,35 +443,14 @@ async def get_my_profile(
 
     # ---------------------------------------------------------
     # 9. Historical share cards
-    #
-    # These are the cards the frontend can expose under:
-    #
-    #       My Share Cards
-    #
-    # A card does NOT store a generated image.
-    #
-    # The durable database record is the source of truth.
-    # The frontend can request the corresponding share payload
-    # whenever the user opens/shares the card.
     # ---------------------------------------------------------
 
-    share_cards: list[
-        UserProfileShareCardResponse
-    ] = []
-
-    # ---------------------------------------------------------
-    # 9A. Article completion cards
-    # ---------------------------------------------------------
+    share_cards: list[UserProfileShareCardResponse] = []
 
     for completion in completions:
         article_id = completion["article_id"]
-
         article = completion.get("articles") or {}
-
-        article_title = article.get("title")
-
-        if not article_title:
-            article_title = "Article"
+        article_title = article.get("title") or "Article"
 
         share_cards.append(
             UserProfileShareCardResponse(
@@ -504,9 +458,7 @@ async def get_my_profile(
                 card_type="ARTICLE_COMPLETION",
                 created_at=completion["completed_at"],
                 title="Article completed",
-                description=(
-                    f"Completed {article_title}"
-                ),
+                description=f"Completed {article_title}",
                 article_id=article_id,
                 article_title=article_title,
                 badge_id=None,
@@ -514,47 +466,23 @@ async def get_my_profile(
                 opinion_question_id=None,
                 opinion_text=None,
                 share_path=(
-                    f"/api/v1/articles/"
-                    f"{article_id}/completion/share"
+                    f"/api/v1/articles/{article_id}/completion/share"
                 ),
             )
         )
 
-    # ---------------------------------------------------------
-    # 9B. Opinion cards
-    #
-    # IMPORTANT:
-    # The share path includes the historical opinion response
-    # ID. Therefore opening an older card retrieves THAT opinion,
-    # rather than whichever response happens to be latest.
-    # ---------------------------------------------------------
-
     for opinion in opinions:
-        question = (
-            opinion.get("opinion_questions")
-            or {}
-        )
-
+        question = opinion.get("opinion_questions") or {}
         article_id = question.get("article_id")
-
         article = question.get("articles") or {}
+        article_title = article.get("title") or "Article"
 
-        article_title = article.get("title")
-
-        if not article_title:
-            article_title = "Article"
-
-        selected_option_id = opinion.get(
-            "selected_option_id"
-        )
-
+        selected_option_id = opinion.get("selected_option_id")
         selected_option_text = None
 
         if selected_option_id is not None:
-            selected_option_text = (
-                opinion_option_text_by_id.get(
-                    str(selected_option_id)
-                )
+            selected_option_text = opinion_option_text_by_id.get(
+                str(selected_option_id)
             )
 
         opinion_text = _resolve_opinion_text(
@@ -568,35 +496,19 @@ async def get_my_profile(
                 card_type="OPINION",
                 created_at=opinion["created_at"],
                 title="Opinion shared",
-                description=(
-                    f"Shared an opinion on "
-                    f"{article_title}"
-                ),
+                description=f"Shared an opinion on {article_title}",
                 article_id=article_id,
                 article_title=article_title,
                 badge_id=None,
                 badge_name=None,
-                opinion_question_id=opinion.get(
-                    "opinion_question_id"
-                ),
+                opinion_question_id=opinion.get("opinion_question_id"),
                 opinion_text=opinion_text,
                 share_path=(
-                    f"/api/v1/articles/"
-                    f"{article_id}/opinion/share"
+                    f"/api/v1/articles/{article_id}/opinion/share"
                     f"?response_id={opinion['id']}"
                 ),
             )
         )
-
-    # ---------------------------------------------------------
-    # 9C. Badge cards
-    #
-    # Badges are retained in achievement history and exposed
-    # through the profile's badge collection.
-    #
-    # They are not included here because the currently
-    # implemented sharing API has no badge-share endpoint.
-    # ---------------------------------------------------------
 
     share_cards.sort(
         key=lambda item: item.created_at,

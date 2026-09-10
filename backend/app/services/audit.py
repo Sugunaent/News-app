@@ -4,7 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from app.core.db_utils import extract_single_record
-from app.db.supabase import supabase
+from app.db.supabase import supabase_admin
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +21,10 @@ def record_audit(
     """
     Record a trusted administrative audit event.
 
-    Audit records are written using the provided authenticated user client
-    or the default backend Supabase client.
+    Audit records are written with the service-role client unless a
+    specific client is provided by the caller.
     """
-    db = client or supabase
+    db = client or supabase_admin
 
     payload = {
         "actor_user_id": str(actor_user_id),
@@ -66,10 +66,10 @@ def list_audit_logs(
     """
     Retrieve audit records for Superadmin inspection.
 
-    The authenticated user's client is used here so the existing
-    audit_logs RLS policy remains part of the security boundary.
+    Superadmin listing uses the service-role client after FastAPI
+    has already authorized the caller.
     """
-    db = client or supabase
+    db = client or supabase_admin
 
     query = (
         db

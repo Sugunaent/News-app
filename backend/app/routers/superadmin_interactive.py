@@ -85,27 +85,6 @@ def _audit(
 # ============================================================
 
 
-def _normalise_translation(data):
-    if isinstance(data, list):
-        return data[0] if data else None
-
-    return data
-
-
-def _extract_text(
-    translations,
-    key: str,
-) -> str | None:
-    translation = _normalise_translation(
-        translations
-    )
-
-    if not translation:
-        return None
-
-    return translation.get(key)
-
-
 def _article_exists(
     client,
     article_id: UUID,
@@ -275,64 +254,6 @@ def _reorder_rows(
         )
 
 
-def _upsert_translation(
-    client,
-    table_name: str,
-    parent_column: str,
-    parent_id: UUID,
-    text_column: str,
-    text_value: str,
-) -> None:
-    existing = (
-        client.table(table_name)
-        .select("id")
-        .eq(parent_column, str(parent_id))
-        .eq("language_code", "en")
-        .maybe_single()
-        .execute()
-    )
-
-    if existing and existing.data:
-        (
-            client.table(table_name)
-            .update(
-                {
-                    text_column: text_value,
-                }
-            )
-            .eq("id", str(existing.data["id"]))
-            .execute()
-        )
-
-        return
-
-    (
-        client.table(table_name)
-        .insert(
-            {
-                parent_column: str(parent_id),
-                "language_code": "en",
-                text_column: text_value,
-            }
-        )
-        .execute()
-    )
-
-
-def _delete_translation(
-    client,
-    table_name: str,
-    parent_column: str,
-    parent_id: UUID,
-) -> None:
-    (
-        client.table(table_name)
-        .delete()
-        .eq(parent_column, str(parent_id))
-        .execute()
-    )
-
-
 # ============================================================
 # QUIZ MANAGEMENT
 # ============================================================
@@ -381,10 +302,7 @@ async def get_quiz(
         client.table("quiz_questions")
         .select(
             "id, quiz_id, display_order, "
-            "created_at, updated_at, "
-            "quiz_question_translations("
-            "language_code, question_text"
-            ")"
+            "question_text, created_at, updated_at"
         )
         .eq("quiz_id", str(quiz_id))
         .order("display_order")
@@ -398,10 +316,7 @@ async def get_quiz(
             client.table("quiz_options")
             .select(
                 "id, question_id, display_order, "
-                "is_correct, created_at, updated_at, "
-                "quiz_option_translations("
-                "language_code, option_text"
-                ")"
+                "is_correct, option_text, created_at, updated_at"
             )
             .eq(
                 "question_id",
@@ -658,10 +573,7 @@ async def list_quiz_questions(
         client.table("quiz_questions")
         .select(
             "id, quiz_id, display_order, "
-            "created_at, updated_at, "
-            "quiz_question_translations("
-            "language_code, question_text"
-            ")"
+            "question_text, created_at, updated_at"
         )
         .eq("quiz_id", str(quiz_id))
         .order("display_order")
@@ -675,10 +587,7 @@ async def list_quiz_questions(
             client.table("quiz_options")
             .select(
                 "id, question_id, display_order, "
-                "is_correct, created_at, updated_at, "
-                "quiz_option_translations("
-                "language_code, option_text"
-                ")"
+                "is_correct, option_text, created_at, updated_at"
             )
             .eq(
                 "question_id",
@@ -1060,10 +969,7 @@ async def list_quiz_options(
         client.table("quiz_options")
         .select(
             "id, question_id, display_order, "
-            "is_correct, created_at, updated_at, "
-            "quiz_option_translations("
-            "language_code, option_text"
-            ")"
+            "is_correct, option_text, created_at, updated_at"
         )
         .eq("question_id", str(question_id))
         .order("display_order")
@@ -1358,10 +1264,7 @@ async def update_quiz_option(
             )
             .select(
                 "id, question_id, display_order, "
-                "is_correct, created_at, updated_at, "
-                "quiz_option_translations("
-                "language_code, option_text"
-                ")"
+                "is_correct, option_text, created_at, updated_at"
             )
             .execute()
         )
@@ -1509,10 +1412,7 @@ async def set_quiz_correct_answer(
         )
         .select(
             "id, question_id, display_order, "
-            "is_correct, created_at, updated_at, "
-            "quiz_option_translations("
-            "language_code, option_text"
-            ")"
+            "is_correct, option_text, created_at, updated_at"
         )
         .execute()
     )
@@ -1561,10 +1461,7 @@ async def list_opinions(
         client.table("opinion_questions")
         .select(
             "id, article_id, display_order, "
-            "allow_custom_response, created_at, updated_at, "
-            "opinion_question_translations("
-            "language_code, question_text"
-            ")"
+            "allow_custom_response, question_text, created_at, updated_at"
         )
         .order("article_id")
         .order("display_order")
@@ -1578,9 +1475,7 @@ async def list_opinions(
             client.table("opinion_options")
             .select(
                 "id, question_id, display_order, "
-                "created_at, updated_at, "
-                "opinion_option_translations("
-                "language_code, option_text)"
+                "option_text, created_at, updated_at"
             )
             .eq(
                 "question_id",
@@ -1598,12 +1493,7 @@ async def list_opinions(
                 allow_custom_response=opinion[
                     "allow_custom_response"
                 ],
-                question_text=_extract_text(
-                    opinion.get(
-                        "opinion_question_translations"
-                    ),
-                    "question_text",
-                ),
+                question_text=opinion.get("question_text"),
                 created_at=opinion["created_at"],
                 updated_at=opinion["updated_at"],
                 options=[
@@ -1731,27 +1621,11 @@ async def get_opinion(
         opinion_id,
     )
 
-    translation = (
-        client.table("opinion_question_translations")
-        .select(
-            "language_code, question_text"
-        )
-        .eq(
-            "question_id",
-            str(opinion_id),
-        )
-        .eq("language_code", "en")
-        .maybe_single()
-        .execute()
-    )
-
     options = (
         client.table("opinion_options")
         .select(
             "id, question_id, display_order, "
-            "created_at, updated_at, "
-            "opinion_option_translations("
-            "language_code, option_text)"
+            "option_text, created_at, updated_at"
         )
         .eq(
             "question_id",
@@ -1768,11 +1642,7 @@ async def get_opinion(
         allow_custom_response=opinion[
             "allow_custom_response"
         ],
-        question_text=(
-            translation.data["question_text"]
-            if translation and translation.data
-            else None
-        ),
+        question_text=opinion.get("question_text"),
         created_at=opinion["created_at"],
         updated_at=opinion["updated_at"],
         options=[
@@ -1929,20 +1799,6 @@ async def update_opinion(
         },
     )
 
-    translation = (
-        client.table("opinion_question_translations")
-        .select(
-            "language_code, question_text"
-        )
-        .eq(
-            "question_id",
-            str(opinion_id),
-        )
-        .eq("language_code", "en")
-        .maybe_single()
-        .execute()
-    )
-
     return SuperadminOpinionResponse(
         id=opinion["id"],
         article_id=opinion["article_id"],
@@ -1950,11 +1806,7 @@ async def update_opinion(
         allow_custom_response=opinion[
             "allow_custom_response"
         ],
-        question_text=(
-            translation.data["question_text"]
-            if translation and translation.data
-            else None
-        ),
+        question_text=opinion.get("question_text"),
         created_at=opinion["created_at"],
         updated_at=opinion["updated_at"],
         options=[],
@@ -2025,9 +1877,7 @@ async def list_opinion_options(
         client.table("opinion_options")
         .select(
             "id, question_id, display_order, "
-            "created_at, updated_at, "
-            "opinion_option_translations("
-            "language_code, option_text)"
+            "option_text, created_at, updated_at"
         )
         .eq(
             "question_id",
@@ -2224,9 +2074,7 @@ async def update_opinion_option(
             )
             .select(
                 "id, question_id, display_order, "
-                "created_at, updated_at, "
-                "opinion_option_translations("
-                "language_code, option_text)"
+                "option_text, created_at, updated_at"
             )
             .execute()
         )

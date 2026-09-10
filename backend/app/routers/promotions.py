@@ -13,6 +13,7 @@ from app.schemas.promotions import (
 )
 from app.schemas.auth import CurrentUser
 from app.services.audit import record_audit
+from app.services.media_urls import attach_signed_url
 
 
 router = APIRouter(
@@ -114,6 +115,9 @@ def list_promotions():
 
             if ends_at_dt <= now:
                 continue
+
+        if item.get("image"):
+            item["image"] = attach_signed_url(item["image"])
 
         visible_items.append(item)
 

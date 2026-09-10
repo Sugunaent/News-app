@@ -1,43 +1,28 @@
 from uuid import UUID
+
 from postgrest.exceptions import APIError
 
 from app.core.db_utils import extract_single_record
-from app.db.supabase import supabase, supabase_admin
+from app.db.supabase import supabase_admin
 
 
 def _get_active_xp_rule(event_type: str) -> dict | None:
-    """
-    Fetch active XP rule safely.
-    Fetches all active rules and matches event_type in Python to avoid
-    PostgREST custom Enum type matching issues.
-    """
-    print(f"\n--- [DEBUG _get_active_xp_rule] Looking up active rule for event_type: '{event_type}' ---")
     try:
         response = (
-            supabase
+            supabase_admin
             .table("xp_rules")
             .select("id, event_type, amount")
             .eq("is_active", True)
             .execute()
         )
         rules = getattr(response, "data", None) or []
-        print(f"--- [DEBUG _get_active_xp_rule] Active rules retrieved: {rules} ---")
-        
+
         for rule in rules:
-            rule_event = str(rule.get("event_type", "")).strip()
-            target_event = str(event_type).strip()
-            
-            if rule_event == target_event:
-                print(f"--- [DEBUG _get_active_xp_rule] MATCH FOUND: {rule} ---")
+            if str(rule.get("event_type", "")).strip() == str(event_type).strip():
                 return rule
-                
-        print(f"--- [DEBUG _get_active_xp_rule] NO MATCH FOUND for '{event_type}' ---")
+
         return None
-    except APIError as e:
-        print(f"--- [DEBUG _get_active_xp_rule] APIError occurred: {e} ---")
-        return None
-    except Exception as e:
-        print(f"--- [DEBUG _get_active_xp_rule] Unexpected error: {type(e).__name__} - {e} ---")
+    except APIError:
         return None
 
 
@@ -49,17 +34,9 @@ def award_xp(
     source_id: UUID,
     article_id: UUID | None = None,
 ) -> dict | None:
-    """
-    Award XP according to the active server-side XP rule.
-    Also triggers badge evaluation automatically upon successful XP award.
-    """
-    print("\n==================================================")
-    print("--- [DEBUG award_xp] STARTING XP AWARD ---")
-
-    # 1. Check for an existing transaction safely
     try:
         existing_response = (
-            supabase
+            supabase_admin
             .table("xp_transactions")
             .select(
                 "id, xp_rule_id, article_id, source_type, "
@@ -73,18 +50,13 @@ def award_xp(
         )
         existing_data = getattr(existing_response, "data", None)
         if existing_data:
-            print(f"--- [DEBUG award_xp] Transaction ALREADY EXISTS: {existing_data} ---")
             return existing_data
-    except APIError as e:
-        print(f"--- [DEBUG award_xp] APIError during existence check: {e} ---")
-    except Exception as e:
-        print(f"--- [DEBUG award_xp] Unexpected error during existence check: {e} ---")
+    except APIError:
+        pass
 
-    # 2. Get active XP rule
     rule = _get_active_xp_rule(event_type)
 
     if not rule:
-        print(f"--- [DEBUG award_xp] ABORT: No active rule matching event_type='{event_type}' ---")
         return None
 
     transaction = {
@@ -96,54 +68,39 @@ def award_xp(
         "amount": rule["amount"],
     }
 
-    # 3. Insert transaction
-    try:
-        response = (
-            supabase
-            .table("xp_transactions")
-            .insert(transaction)
-            .select(
-                "id, xp_rule_id, article_id, source_type, "
-                "source_id, amount, created_at"
-            )
-            .execute()
+    response = (
+        supabase_admin
+        .table("xp_transactions")
+        .insert(transaction)
+        .select(
+            "id, xp_rule_id, article_id, source_type, "
+            "source_id, amount, created_at"
         )
+        .execute()
+    )
 
-        response_data = getattr(response, "data", None)
-        if response_data:
-            record = extract_single_record(response_data)
-            print(f"--- [DEBUG award_xp] SUCCESS! Awarded XP Record: {record} ---")
-            
-            # Automatically evaluate badges whenever XP is granted
-            try:
-                award_badges_for_user(user_id)
-            except Exception as badge_err:
-                print(f"--- [DEBUG award_xp] Badge evaluation trigger failed: {badge_err} ---")
-
-            return record
-
+    response_data = getattr(response, "data", None)
+    if not response_data:
         return None
 
-    except APIError as e:
-        print(f"--- [DEBUG award_xp] APIError during Insert: {e} ---")
-        raise
-    except Exception as e:
-        print(f"--- [DEBUG award_xp] Unexpected error during Insert: {e} ---")
-        raise
+    record = extract_single_record(response_data)
+
+    try:
+        award_badges_for_user(user_id)
+    except Exception:
+        pass
+
+    return record
 
 
 def get_gamification_status(user_id: UUID) -> dict:
-    print(f"\n--- [DEBUG get_gamification_status] Fetching status for user_id: {user_id} ---")
-    
-    # 1. Automatically evaluate and assign any newly eligible badges prior to returning status
     try:
         award_badges_for_user(user_id)
-    except Exception as badge_eval_err:
-        print(f"--- [DEBUG get_gamification_status] Auto badge assignment failed: {badge_eval_err} ---")
+    except Exception:
+        pass
 
-    # 2. Fetch XP Transactions
     transactions_response = (
-        supabase
+        supabase_admin
         .table("xp_transactions")
         .select(
             "id, xp_rule_id, article_id, source_type, "
@@ -157,7 +114,6 @@ def get_gamification_status(user_id: UUID) -> dict:
     transactions = getattr(transactions_response, "data", None) or []
     total_xp = sum(transaction.get("amount", 0) for transaction in transactions)
 
-    # 3. Fetch User Level Safely via admin client
     level = None
     try:
         level_response = (
@@ -167,22 +123,20 @@ def get_gamification_status(user_id: UUID) -> dict:
             .execute()
         )
         all_levels = getattr(level_response, "data", None) or []
-        
+
         sorted_levels = sorted(
             all_levels,
             key=lambda x: int(x.get("minimum_xp", 0)),
-            reverse=True
+            reverse=True,
         )
 
         for lvl in sorted_levels:
             if int(lvl.get("minimum_xp", 0)) <= total_xp:
                 level = lvl
                 break
+    except Exception:
+        pass
 
-    except Exception as e:
-        print(f"--- LEVEL DEBUG --- Error fetching levels: {e}")
-
-    # 4. Fetch Badges
     badges_response = (
         supabase_admin
         .table("user_badges")
@@ -258,20 +212,11 @@ def _award_badge(*, user_id: UUID, badge: dict) -> dict | None:
         if response_data:
             return extract_single_record(response_data)
         return None
-
-    except APIError as e:
-        print(f"--- BADGE DEBUG --- APIError assigning badge {badge.get('name')}: {e}")
+    except APIError:
         return None
 
 
 def award_badges_for_user(user_id: UUID) -> list[dict]:
-    """
-    Evaluates dynamic badge criteria (ARTICLE_COUNT, TOTAL_XP, QUIZ_CORRECT_ANSWERS)
-    and awards missing badges to the user.
-    """
-    print(f"\n--- [DEBUG award_badges_for_user] Evaluating badges for user: {user_id} ---")
-
-    # 1. Fetch active badges from DB using admin client
     try:
         active_badges_res = (
             supabase_admin
@@ -281,29 +226,24 @@ def award_badges_for_user(user_id: UUID) -> list[dict]:
             .execute()
         )
         active_badges = getattr(active_badges_res, "data", None) or []
-    except Exception as e:
-        print(f"--- BADGE DEBUG --- Error loading active badges: {e}")
+    except Exception:
         return []
 
     if not active_badges:
         return []
 
-    # 2. Gather metrics required for badge evaluation
-    # A. Completed Articles
     try:
         completion_res = (
             supabase_admin
-            .table("reading_progress")
+            .table("article_completions")
             .select("article_id")
             .eq("user_id", str(user_id))
-            .not_.is_("completed_at", "null")
             .execute()
         )
         completed_articles_count = len(getattr(completion_res, "data", None) or [])
     except Exception:
         completed_articles_count = 0
 
-    # B. Total XP
     try:
         xp_res = (
             supabase_admin
@@ -316,11 +256,10 @@ def award_badges_for_user(user_id: UUID) -> list[dict]:
     except Exception:
         total_xp = 0
 
-    # C. Quiz Correct Answers
     try:
         quiz_res = (
             supabase_admin
-            .table("user_quiz_attempts")  # Adjust table name if different in your schema
+            .table("quiz_attempts")
             .select("id")
             .eq("user_id", str(user_id))
             .eq("is_correct", True)
@@ -330,9 +269,6 @@ def award_badges_for_user(user_id: UUID) -> list[dict]:
     except Exception:
         quiz_correct_count = 0
 
-    print(f"--- BADGE METRICS --- User Articles: {completed_articles_count}, Total XP: {total_xp}, Correct Quizzes: {quiz_correct_count}")
-
-    # 3. Evaluate each active badge against rule_type and rule_config
     newly_awarded = []
 
     for badge in active_badges:
@@ -358,7 +294,6 @@ def award_badges_for_user(user_id: UUID) -> list[dict]:
         if is_eligible:
             assignment = _award_badge(user_id=user_id, badge=badge)
             if assignment:
-                print(f"--- BADGE UNLOCKED --- Badge '{badge['name']}' awarded to user {user_id}")
                 newly_awarded.append(
                     {
                         "id": badge["id"],

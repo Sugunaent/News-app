@@ -1,15 +1,15 @@
 # News App
 
-Gamified multilingual news and knowledge platform.
+Gamified news and knowledge platform (Cognition / AETRA).
 
 ## Applications
 
-- `frontend/` — Web application
-- `mobile/` — React Native mobile application
-- `backend/` — FastAPI backend
-- `supabase/` — Database migrations and Supabase configuration
-- `docs/` — Architecture and API documentation
+- `backend/` — FastAPI API (authoritative business rules)
+- `supabase/` — PostgreSQL migrations, RLS, Storage policies
+- `docs/` — Project handoff notes
 
-## Current Development Stage
+Authentication is **Supabase Auth JWT only** (email/password and Google). The service-role key is never accepted as a user Bearer token.
 
-Backend and database foundation.
+Article copy lives on `articles` (`title`, `subtitle`, `summary`, `slug`). There is no translation layer.
+
+Published article media is readable by anonymous visitors. Superadmin may upload IMAGE, VIDEO, and AUDIO.

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.db_utils import extract_single_record
 from app.core.exceptions import NotFoundError
+from app.db.supabase import supabase_admin
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.completions import ArticleCompletionResponse
 from app.services.gamification import (
@@ -26,11 +27,8 @@ async def get_article_completion(
     article_id: UUID,
     auth: AuthContext = Depends(get_current_user),
 ):
-    # Use admin_client if available, falling back to auth.client for reads
-    db = getattr(auth, "admin_client", auth.client)
-
     article_response = (
-        db
+        supabase_admin
         .table("articles")
         .select("id")
         .eq("id", str(article_id))
@@ -43,7 +41,7 @@ async def get_article_completion(
         raise NotFoundError("Article not found")
 
     completion_response = (
-        db
+        supabase_admin
         .table("article_completions")
         .select("article_id, completed_at")
         .eq("article_id", str(article_id))
@@ -71,11 +69,8 @@ async def complete_article(
     article_id: UUID,
     auth: AuthContext = Depends(get_current_user),
 ):
-    # Use service-role client (admin_client) to bypass user-level RLS policies on writes
-    db = getattr(auth, "admin_client", auth.client)
-
     article_response = (
-        db
+        supabase_admin
         .table("articles")
         .select("id")
         .eq("id", str(article_id))
@@ -88,7 +83,7 @@ async def complete_article(
         raise NotFoundError("Article not found")
 
     existing_response = (
-        db
+        supabase_admin
         .table("article_completions")
         .select("article_id, completed_at")
         .eq("article_id", str(article_id))
@@ -97,7 +92,6 @@ async def complete_article(
         .execute()
     )
 
-    # Completion, XP, and badges are all idempotent.
     if existing_response and getattr(existing_response, "data", None):
         data = existing_response.data
 
@@ -115,7 +109,7 @@ async def complete_article(
     }
 
     completion_response = (
-        db
+        supabase_admin
         .table("article_completions")
         .upsert(
             completion_payload,
@@ -130,7 +124,6 @@ async def complete_article(
 
     data = extract_single_record(completion_response.data, "Article completion insert failed")
 
-    # Award completion XP using the server-side XP rule.
     award_xp(
         user_id=auth.user.id,
         event_type="ARTICLE_COMPLETED",
@@ -139,7 +132,6 @@ async def complete_article(
         article_id=article_id,
     )
 
-    # Evaluate all badge criteria after the newly completed article.
     award_badges_for_user(
         user_id=auth.user.id,
     )

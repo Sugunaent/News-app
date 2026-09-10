@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from postgrest.exceptions import APIError
 
 from app.core.exceptions import NotFoundError
-from app.db.supabase import supabase
+from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.articles import (
     ArticleDetailResponse,
     ArticleListResponse,
 )
 from app.services.analytics import record_article_view
+from app.services.article_teasers import fetch_published_teasers
+from app.services.media_urls import attach_signed_url
 
 router = APIRouter(
     prefix="/api/v1/articles",
@@ -20,50 +22,7 @@ router = APIRouter(
     response_model=ArticleListResponse,
 )
 async def list_articles():
-    response = (
-        supabase
-        .table("articles")
-        .select(
-            """
-            id,
-            slug,
-            title,
-            subtitle,
-            summary,
-            article_type,
-            published_at,
-            categories (
-                id,
-                name,
-                slug
-            )
-            """
-        )
-        .eq("status", "PUBLISHED")
-        .order("published_at", desc=True)
-        .execute()
-    )
-
-    items = []
-    data = response.data if response and response.data else []
-
-    for article in data:
-        category = article.get("categories")
-
-        items.append(
-            {
-                "id": article["id"],
-                "slug": article.get("slug"),
-                "title": article.get("title"),
-                "subtitle": article.get("subtitle"),
-                "summary": article.get("summary"),
-                "article_type": article["article_type"],
-                "category": category,
-                "published_at": article["published_at"],
-            }
-        )
-
-    return {"items": items}
+    return {"items": fetch_published_teasers()}
 
 
 @router.get(
@@ -78,58 +37,9 @@ async def search_articles(
     if not search_term:
         return {"items": []}
 
-    response = (
-        supabase
-        .table("articles")
-        .select(
-            """
-            id,
-            slug,
-            title,
-            subtitle,
-            summary,
-            article_type,
-            published_at,
-            categories (
-                id,
-                name,
-                slug
-            )
-            """
-        )
-        .eq("status", "PUBLISHED")
-        .or_(
-            (
-                f"title.ilike.%{search_term}%,"
-                f"subtitle.ilike.%{search_term}%,"
-                f"summary.ilike.%{search_term}%,"
-                f"slug.ilike.%{search_term}%"
-            )
-        )
-        .order("published_at", desc=True)
-        .execute()
-    )
-
-    items = []
-    data = response.data if response and response.data else []
-
-    for article in data:
-        category = article.get("categories")
-
-        items.append(
-            {
-                "id": article["id"],
-                "slug": article.get("slug"),
-                "title": article.get("title"),
-                "subtitle": article.get("subtitle"),
-                "summary": article.get("summary"),
-                "article_type": article["article_type"],
-                "category": category,
-                "published_at": article["published_at"],
-            }
-        )
-
-    return {"items": items}
+    return {
+        "items": fetch_published_teasers(search_term=search_term),
+    }
 
 
 @router.get(
@@ -138,9 +48,12 @@ async def search_articles(
 )
 async def get_article(
     slug: str,
+    auth: AuthContext = Depends(get_current_user),
 ):
+    client = auth.client
+
     response = (
-        supabase
+        client
         .table("articles")
         .select(
             """
@@ -173,7 +86,7 @@ async def get_article(
 
     try:
         blocks_response = (
-            supabase
+            client
             .table("article_blocks")
             .select(
                 """
@@ -229,7 +142,7 @@ async def get_article(
                     "type": "IMAGE",
                     "display_order": block["display_order"],
                     "caption": block.get("caption"),
-                    "media": media,
+                    "media": attach_signed_url(media),
                 }
             )
 
@@ -250,14 +163,14 @@ async def get_article(
 
             if quiz_id:
                 try:
-                    q_res = (
-                        supabase
+                    questions_res = (
+                        client
                         .table("quiz_questions")
                         .select(
                             """
                             id,
+                            display_order,
                             question_text,
-                            explanation,
                             quiz_options (
                                 id,
                                 option_text,
@@ -265,16 +178,30 @@ async def get_article(
                             )
                             """
                         )
-                        .eq("id", str(quiz_id))
-                        .maybe_single()
+                        .eq("quiz_id", str(quiz_id))
+                        .order("display_order")
                         .execute()
                     )
-                    raw_q = getattr(q_res, "data", None)
-                    if raw_q:
+                    questions = []
+                    for raw_q in getattr(questions_res, "data", None) or []:
+                        options = raw_q.get("quiz_options") or []
+                        if isinstance(options, dict):
+                            options = [options]
+                        questions.append(
+                            {
+                                "id": raw_q["id"],
+                                "question": raw_q.get("question_text"),
+                                "display_order": raw_q.get("display_order", 0),
+                                "options": sorted(
+                                    options,
+                                    key=lambda item: item.get("display_order", 0),
+                                ),
+                            }
+                        )
+                    if questions:
                         quiz_data = {
-                            "id": raw_q["id"],
-                            "question": raw_q.get("question_text"),
-                            "options": raw_q.get("quiz_options", []),
+                            "id": quiz_id,
+                            "questions": questions,
                         }
                 except APIError:
                     pass
@@ -296,7 +223,7 @@ async def get_article(
             if opinion_id:
                 try:
                     o_res = (
-                        supabase
+                        client
                         .table("opinion_questions")
                         .select(
                             """

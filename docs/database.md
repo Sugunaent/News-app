@@ -1,3 +1,6 @@
+-- Historical copy of 20260821150918. Live schema is supabase/migrations/.
+-- Translation tables were dropped in 20261010120000.
+
 -- ============================================================
 -- News App
 -- Initial Database Schema

@@ -2,82 +2,13 @@ from fastapi import APIRouter, Query
 
 from app.db.supabase import supabase
 from app.schemas.home import HomeDiscoveryResponse
+from app.services.article_teasers import fetch_published_teasers
 
 
 router = APIRouter(
     prefix="/api/v1/home",
     tags=["Home"],
 )
-
-
-def _map_article(article: dict) -> dict:
-    translations = article.get("article_translations") or []
-    translation = translations[0] if translations else {}
-    category = article.get("categories") or {}
-
-    return {
-        "id": article["id"],
-        "slug": translation.get("slug", ""),
-        "title": translation.get("title", ""),
-        "subtitle": translation.get("subtitle"),
-        "summary": translation.get("summary"),
-        "article_type": article.get("article_type", ""),
-        "category": category,
-        "published_at": article.get("published_at"),
-    }
-
-
-def _fetch_articles(
-    *,
-    author_picks: bool = False,
-    category_id: str | None = None,
-    limit: int = 10,
-) -> list[dict]:
-    query = (
-        supabase
-        .table("articles")
-        .select(
-            """
-            id,
-            article_type,
-            published_at,
-            author_pick_order,
-            is_author_pick,
-            categories (
-                id,
-                name,
-                slug
-            ),
-            article_translations (
-                slug,
-                title,
-                subtitle,
-                summary
-            )
-            """
-        )
-        .eq("status", "PUBLISHED")
-    )
-
-    if category_id is not None:
-        query = query.eq("category_id", category_id)
-
-    if author_picks:
-        query = (
-            query
-            .eq("is_author_pick", True)
-            .order("author_pick_order")
-            .order("published_at", desc=True)
-        )
-    else:
-        query = query.order("published_at", desc=True)
-
-    response = query.limit(limit).execute()
-
-    return [
-        _map_article(article)
-        for article in (response.data or [])
-    ]
 
 
 def _fetch_active_categories() -> list[dict]:
@@ -104,12 +35,11 @@ def _fetch_active_categories() -> list[dict]:
     response_model=HomeDiscoveryResponse,
 )
 async def get_home_discovery(
-    language: str = Query(default="en"),
     trending_limit: int = Query(default=10, ge=1, le=50),
     category_limit: int = Query(default=6, ge=1, le=50),
     authors_picks_limit: int = Query(default=6, ge=1, le=50),
 ):
-    trending = _fetch_articles(
+    trending = fetch_published_teasers(
         author_picks=False,
         limit=trending_limit,
     )
@@ -119,7 +49,7 @@ async def get_home_discovery(
     category_sections = []
 
     for category in categories:
-        articles = _fetch_articles(
+        articles = fetch_published_teasers(
             category_id=category["id"],
             limit=category_limit,
         )
@@ -134,7 +64,7 @@ async def get_home_discovery(
             }
         )
 
-    authors_picks = _fetch_articles(
+    authors_picks = fetch_published_teasers(
         author_picks=True,
         limit=authors_picks_limit,
     )

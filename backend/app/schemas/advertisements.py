@@ -17,6 +17,7 @@ class AdvertisementSlotResponse(BaseModel):
 class AdvertisementMediaResponse(BaseModel):
     id: UUID
     storage_path: str
+    signed_url: str | None = None
 
 
 class AdvertisementResponse(BaseModel):

@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from app.core.db_utils import extract_single_record
 from app.core.exceptions import AuthorizationError, NotFoundError
+from app.db.supabase import supabase_admin
 from app.dependencies.auth import AuthContext, get_current_user
+from app.services.media_urls import create_signed_url as mint_signed_url
 from app.schemas.media import (
     MediaAssetDetailResponse,
     MediaAssetResponse,
@@ -148,31 +150,7 @@ def _create_signed_url(
     client,
     storage_path: str,
 ) -> str | None:
-    try:
-        result = (
-            client
-            .storage
-            .from_(BUCKET_NAME)
-            .create_signed_url(
-                storage_path,
-                3600,
-            )
-        )
-
-        if isinstance(result, dict):
-            return (
-                result.get("signedURL")
-                or result.get("signedUrl")
-                or result.get("signed_url")
-            )
-
-        return None
-
-    except Exception:
-        # A signed URL is a convenience for the dashboard.
-        # Failure to generate one should not make the metadata
-        # operation itself fail.
-        return None
+    return mint_signed_url(storage_path)
 
 
 def _find_media_references(
@@ -324,7 +302,7 @@ def list_media_assets(
 
     _require_superadmin(current_user)
 
-    db = getattr(current_user, "admin_client", current_user.client)
+    db = supabase_admin
 
     result = (
         db
@@ -383,7 +361,7 @@ def get_media_asset(
 
     _require_superadmin(current_user)
 
-    db = getattr(current_user, "admin_client", current_user.client)
+    db = supabase_admin
 
     result = (
         db
@@ -446,14 +424,14 @@ def upload_media_asset(
 ):
     """
     Upload a media file and create its media_assets metadata.
-    Uses admin_client to bypass Storage RLS policies safely after
-    verifying superadmin status in FastAPI.
+    Uses the service-role client for Storage after FastAPI
+    verifies superadmin status.
     """
 
     _require_superadmin(current_user)
 
     user_id = _get_user_id(current_user)
-    db = getattr(current_user, "admin_client", current_user.client)
+    db = supabase_admin
 
     mime_type = _validate_mime_type(
         file.content_type
@@ -521,7 +499,7 @@ def upload_media_asset(
     media_id = UUID(str(media_data["id"]))
 
     # ---------------------------------------------------------
-    # 2. Upload the actual object using admin_client.
+    # 2. Upload the actual object using the service-role client.
     # ---------------------------------------------------------
 
     try:
@@ -603,7 +581,7 @@ def delete_media_asset(
     _require_superadmin(current_user)
 
     user_id = _get_user_id(current_user)
-    db = getattr(current_user, "admin_client", current_user.client)
+    db = supabase_admin
 
     result = (
         db
@@ -641,7 +619,7 @@ def delete_media_asset(
         )
 
     # ---------------------------------------------------------
-    # 1. Delete Storage object using admin_client.
+    # 1. Delete Storage object using the service-role client.
     # ---------------------------------------------------------
 
     try:

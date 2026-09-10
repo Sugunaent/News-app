@@ -1,18 +1,17 @@
-import os
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from supabase import Client, create_client  # <--- Import create_client
+from supabase import Client
 
-from app.core.config import settings
 from app.core.exceptions import (
     AuthenticationError,
     AuthorizationError,
     NotFoundError,
 )
-from app.db.supabase import create_user_client, supabase
+from app.db.supabase import create_user_client, supabase, supabase_admin
 from app.schemas.auth import CurrentUser
 
 bearer_scheme = HTTPBearer()
+
 
 class AuthContext:
     def __init__(
@@ -23,41 +22,108 @@ class AuthContext:
         self.user = user
         self.client = client
 
+
+def _display_name_from_auth_user(auth_user) -> str | None:
+    metadata = getattr(auth_user, "user_metadata", None) or {}
+    if not isinstance(metadata, dict):
+        return None
+
+    for key in ("full_name", "name", "display_name"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    email = getattr(auth_user, "email", None)
+    if email and "@" in email:
+        return email.split("@", 1)[0]
+
+    return None
+
+
+def _ensure_profile(auth_user) -> dict:
+    user_id = str(auth_user.id)
+    email = getattr(auth_user, "email", None)
+    display_name = _display_name_from_auth_user(auth_user)
+
+    # Replaced .maybe_single().execute() with .execute()
+    existing = (
+        supabase_admin
+        .table("profiles")
+        .select("id, email, display_name, role, is_active")
+        .eq("id", user_id)
+        .execute()
+    )
+
+    existing_rows = existing.data if existing and existing.data else []
+
+    if existing_rows:
+        data = dict(existing_rows[0])
+        data["role"] = data.get("role") or "USER"
+        data["is_active"] = (
+            data.get("is_active") if data.get("is_active") is not None else True
+        )
+
+        updates = {}
+        if email and data.get("email") != email:
+            updates["email"] = email
+        if display_name and not data.get("display_name"):
+            updates["display_name"] = display_name
+
+        if updates:
+            updated = (
+                supabase_admin
+                .table("profiles")
+                .update(updates)
+                .eq("id", user_id)
+                .select("id, email, display_name, role, is_active")
+                .execute()
+            )
+            if updated and updated.data:
+                updated_data = dict(updated.data[0])
+                updated_data["role"] = updated_data.get("role") or "USER"
+                updated_data["is_active"] = (
+                    updated_data.get("is_active")
+                    if updated_data.get("is_active") is not None
+                    else True
+                )
+                return updated_data
+
+        return data
+
+    # Create profile if not found
+    created = (
+        supabase_admin
+        .table("profiles")
+        .insert(
+            {
+                "id": user_id,
+                "email": email,
+                "display_name": display_name,
+                "role": "USER",
+                "is_active": True,
+            }
+        )
+        .select("id, email, display_name, role, is_active")
+        .execute()
+    )
+
+    rows = created.data or []
+    if not rows:
+        raise NotFoundError("User profile could not be created")
+
+    res_data = dict(rows[0])
+    res_data["role"] = res_data.get("role") or "USER"
+    res_data["is_active"] = (
+        res_data.get("is_active") if res_data.get("is_active") is not None else True
+    )
+    return res_data
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> AuthContext:
     access_token = credentials.credentials
 
-    # Resolve service role key from settings or environment
-    service_role_key = (
-        getattr(settings, "supabase_service_role_key", None)
-        or getattr(settings, "SUPABASE_SERVICE_ROLE_KEY", None)
-        or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        or os.getenv("supabase_service_role_key")
-    )
-
-    # 1. Allow Service Role Key for local testing / admin scripts
-    if service_role_key and access_token.strip() == service_role_key.strip():
-        service_user = CurrentUser(
-            id="49c8cc3b-19ba-47e1-b6ac-5a479100147c",
-            email="indu.28@gmail.com",
-            display_name="Super Admin (Service Role)",
-            role="SUPERADMIN",
-            is_active=True,
-        )
-
-        # Create full admin client using Service Role Key
-        admin_client = create_client(
-            settings.supabase_url, 
-            service_role_key.strip()
-        )
-        
-        return AuthContext(
-            user=service_user,
-            client=admin_client,  # <--- Return admin_client here
-        )
-
-    # 2. Standard User JWT validation
     try:
         response = supabase.auth.get_user(access_token)
     except Exception as exc:
@@ -68,29 +134,21 @@ async def get_current_user(
     if auth_user is None:
         raise AuthenticationError()
 
-    user_client = create_user_client(access_token)
-
     try:
-        response = (
-            user_client
-            .table("profiles")
-            .select("id, email, display_name, role, is_active")
-            .eq("id", str(auth_user.id))
-            .maybe_single()
-            .execute()
-        )
+        profile_data = _ensure_profile(auth_user)
+        profile = CurrentUser(**profile_data)
+    except NotFoundError:
+        raise
     except Exception as exc:
-        raise NotFoundError("User profile not found") from exc
-
-    if not response.data:
-        raise NotFoundError("User profile not found")
-
-    profile = CurrentUser(**response.data)
+        print(f"[AUTH ERROR] {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Profile processing error: {str(exc)}"
+        ) from exc
 
     if not profile.is_active:
         raise AuthorizationError("User account is inactive")
 
     return AuthContext(
         user=profile,
-        client=user_client,
+        client=create_user_client(access_token),
     )

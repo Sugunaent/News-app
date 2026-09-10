@@ -18,6 +18,7 @@ from app.schemas.advertisements import (
 )
 from app.services.analytics import record_advertisement_click
 from app.services.audit import record_audit
+from app.services.media_urls import attach_signed_url
 
 
 router = APIRouter(
@@ -198,6 +199,11 @@ def list_advertisements(
         # Filter by slot key cleanly in Python if parameter provided
         if slot is not None and slot_data.get("key") != slot:
             continue
+
+        if advertisement.get("image"):
+            advertisement["image"] = attach_signed_url(
+                advertisement["image"]
+            )
 
         visible.append(advertisement)
 

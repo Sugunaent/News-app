@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from app.db.supabase import supabase
+from app.db.supabase import supabase_admin
 from app.services.gamification import get_gamification_status
 
 
@@ -8,34 +8,14 @@ def _resolve_article_title(article: dict | None) -> str | None:
     if not article:
         return None
 
-    translations = article.get("article_translations") or []
-
-    if isinstance(translations, dict):
-        translations = [translations]
-
-    for translation in translations:
-        if translation.get("language_code") == "EN":
-            title = translation.get("title")
-            if title:
-                return title
-
-    for translation in translations:
-        title = translation.get("title")
-        if title:
-            return title
-
-    return None
+    return article.get("title")
 
 
 def get_user_profile(user_id: UUID) -> dict | None:
     user_id_str = str(user_id)
 
-    # ---------------------------------------------------------
-    # 1. Profile
-    # ---------------------------------------------------------
-
     profile_response = (
-        supabase
+        supabase_admin_admin
         .table("profiles")
         .select(
             "id, email, display_name, avatar_media_id, "
@@ -51,26 +31,16 @@ def get_user_profile(user_id: UUID) -> dict | None:
 
     profile = profile_response.data
 
-    # ---------------------------------------------------------
-    # 2. Gamification
-    # ---------------------------------------------------------
-
     gamification = get_gamification_status(user_id)
 
-    # ---------------------------------------------------------
-    # 3. Article completions
-    # ---------------------------------------------------------
-
     completions_response = (
-        supabase
+        supabase_admin_admin
         .table("article_completions")
         .select(
             "article_id, completed_at, "
             "articles("
             "id, "
-            "article_translations("
-            "language_code, title"
-            ")"
+            "title"
             ")"
         )
         .eq("user_id", user_id_str)
@@ -87,7 +57,7 @@ def get_user_profile(user_id: UUID) -> dict | None:
     # ---------------------------------------------------------
 
     quiz_response = (
-        supabase
+        supabase_admin
         .table("quiz_attempts")
         .select("is_correct")
         .eq("user_id", user_id_str)
@@ -122,7 +92,7 @@ def get_user_profile(user_id: UUID) -> dict | None:
     # ---------------------------------------------------------
 
     opinion_response = (
-        supabase
+        supabase_admin
         .table("opinion_responses")
         .select(
             "id, "
@@ -135,9 +105,7 @@ def get_user_profile(user_id: UUID) -> dict | None:
             "article_id, "
             "articles("
             "id, "
-            "article_translations("
-            "language_code, title"
-            ")"
+            "title"
             ")"
             ")"
         )
@@ -164,13 +132,10 @@ def get_user_profile(user_id: UUID) -> dict | None:
 
     if selected_option_ids:
         options_response = (
-            supabase
+            supabase_admin
             .table("opinion_options")
             .select(
-                "id, question_id, "
-                "opinion_option_translations("
-                "language_code, option_text"
-                ")"
+                "id, question_id, option_text"
             )
             .in_("id", selected_option_ids)
             .execute()
@@ -179,31 +144,7 @@ def get_user_profile(user_id: UUID) -> dict | None:
         options = options_response.data or []
 
         for option in options:
-            translations = (
-                option.get(
-                    "opinion_option_translations"
-                )
-                or []
-            )
-
-            if isinstance(translations, dict):
-                translations = [translations]
-
-            option_text = None
-
-            for translation in translations:
-                if translation.get(
-                    "language_code"
-                ) == "EN":
-                    option_text = translation.get(
-                        "option_text"
-                    )
-                    break
-
-            if option_text is None and translations:
-                option_text = translations[0].get(
-                    "option_text"
-                )
+            option_text = option.get("option_text")
 
             if option_text:
                 opinion_option_text_by_id[

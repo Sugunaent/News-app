@@ -1,5 +1,4 @@
 from supabase import Client, create_client
-from supabase.lib.client_options import ClientOptions
 from app.core.config import settings
 
 # Anonymous public client
@@ -11,23 +10,26 @@ supabase: Client = create_client(
 # Admin service-role client (bypasses RLS)
 supabase_admin: Client = create_client(
     settings.supabase_url,
-    settings.supabase_service_role_key,  # Ensure this is defined in app.core.config
+    settings.supabase_service_role_key,
 )
 
+
 def create_user_client(access_token: str) -> Client:
-    options = ClientOptions(
-        headers={"Authorization": f"Bearer {access_token}"}
-    )
-    
+    """
+    Creates a user-scoped Supabase client that forwards the user's JWT
+    to PostgREST and Storage so Row Level Security (RLS) is applied correctly.
+    """
+    # Instantiate user client
     client = create_client(
         settings.supabase_url,
         settings.supabase_anon_key,
-        options=options,
     )
 
-    # Attach token to sub-clients to ensure Storage and PostgREST receive it
+    # Attach bearer token to PostgREST
     client.postgrest.auth(access_token)
-    if hasattr(client.storage, "auth"):
+
+    # Attach bearer token to Storage if initialized
+    if hasattr(client, "storage") and hasattr(client.storage, "auth"):
         client.storage.auth(access_token)
 
     return client

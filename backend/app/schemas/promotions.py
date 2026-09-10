@@ -7,6 +7,7 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 class PromotionalMediaResponse(BaseModel):
     id: UUID
     storage_path: str
+    signed_url: str | None = None
 
 
 class PromotionalItemResponse(BaseModel):
