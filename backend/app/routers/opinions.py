@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from postgrest.exceptions import APIError
 
 from app.core.exceptions import NotFoundError
+from app.db.supabase import supabase_admin
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.opinions import (
     OpinionOptionResponse,
@@ -20,11 +21,37 @@ router = APIRouter(
 )
 
 
+def _pick_translation(payload, text_key: str):
+    if payload is None:
+        return None
+
+    items = payload if isinstance(payload, list) else [payload]
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        value = item.get(text_key)
+        if isinstance(value, str) and value.strip():
+            if item.get("language_code") == "en":
+                return value
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        value = item.get(text_key)
+        if isinstance(value, str) and value.strip():
+            return value
+
+    return None
+
+
 @router.get(
     "/article/{article_id}",
     response_model=list[OpinionQuestionResponse],
 )
-async def get_article_opinions(
+def get_article_opinions(
     article_id: UUID,
     auth: AuthContext = Depends(get_current_user),
 ):
@@ -60,8 +87,6 @@ async def get_article_opinions(
         options_res = (
             client.table("opinion_options")
             .select("id, question_id, display_order, option_text")
-            .in_("question_id", question_ids)
-            .order("display_order")
             .execute()
         )
 
@@ -72,8 +97,9 @@ async def get_article_opinions(
         for option in raw_options:
             if not isinstance(option, dict):
                 continue
-            # FIX 2: Standardize dictionary key type for matching
             question_id = str(option.get("question_id"))
+            if question_id not in question_ids:
+                continue
 
             options_by_question.setdefault(
                 question_id,
@@ -89,7 +115,13 @@ async def get_article_opinions(
         if not isinstance(question, dict):
             continue
 
-        question_text = question.get("question_text")
+        question_text = (
+            question.get("question_text")
+            or _pick_translation(
+                question.get("opinion_question_translations"),
+                "question_text",
+            )
+        )
 
         if not question_text:
             continue
@@ -98,7 +130,13 @@ async def get_article_opinions(
 
         q_key = str(question["id"])
         for option in options_by_question.get(q_key, []):
-            option_text = option.get("option_text")
+            option_text = (
+                option.get("option_text")
+                or _pick_translation(
+                    option.get("opinion_option_translations"),
+                    "option_text",
+                )
+            )
 
             if not option_text:
                 continue
@@ -125,11 +163,71 @@ async def get_article_opinions(
     return formatted_questions
 
 
+@router.get("/{question_id}")
+def get_opinion_question(
+    question_id: UUID,
+    auth: AuthContext = Depends(get_current_user),
+):
+    client = auth.client
+    question_res = (
+        client.table("opinion_questions")
+        .select(
+            "id, article_id, display_order, allow_custom_response, question_text"
+        )
+        .eq("id", str(question_id))
+        .maybe_single()
+        .execute()
+    )
+    if not question_res or not question_res.data:
+        raise NotFoundError("Opinion question not found")
+    question = question_res.data
+    options_res = (
+        client.table("opinion_options")
+        .select("id, question_id, display_order, option_text")
+        .eq("question_id", str(question_id))
+        .order("display_order")
+        .execute()
+    )
+    formatted_options = [
+        OpinionOptionResponse(
+            id=option["id"],
+            display_order=option["display_order"],
+            option_text=option["option_text"],
+        )
+        for option in (options_res.data or [])
+        if option.get("option_text")
+    ]
+    return OpinionQuestionResponse(
+        id=question["id"],
+        article_id=question["article_id"],
+        display_order=question["display_order"],
+        allow_custom_response=question["allow_custom_response"],
+        question_text=question["question_text"],
+        options=formatted_options,
+    )
+
+
+@router.get("/{question_id}/submitted")
+def has_submitted_opinion(
+    question_id: UUID,
+    auth: AuthContext = Depends(get_current_user),
+):
+    response = (
+        auth.client.table("opinion_responses")
+        .select("id")
+        .eq("user_id", str(auth.user.id))
+        .eq("opinion_question_id", str(question_id))
+        .maybe_single()
+        .execute()
+    )
+    return {"submitted": bool(response and response.data)}
+
+
 @router.post(
     "/{question_id}/responses",
     response_model=OpinionSubmitResponse,
 )
-async def submit_opinion_response(
+def submit_opinion_response(
     question_id: UUID,
     payload: OpinionResponseCreate,
     auth: AuthContext = Depends(get_current_user),
@@ -167,7 +265,7 @@ async def submit_opinion_response(
         if not allow_custom:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Custom opinion responses are not allowed for this question",
+                detail="Custom opinion responses are not allowed",
             )
 
     # 3. Validate selected option
@@ -225,7 +323,7 @@ async def submit_opinion_response(
     try:
         if existing_id:
             response_res = (
-                client.table("opinion_responses")
+                supabase_admin.table("opinion_responses")
                 .update({
                     "selected_option_id": selected_option_str,
                     "custom_response": payload.custom_response,
@@ -236,7 +334,7 @@ async def submit_opinion_response(
             )
         else:
             response_res = (
-                client.table("opinion_responses")
+                supabase_admin.table("opinion_responses")
                 .insert(insert_payload)
                 .select()
                 .execute()
@@ -248,9 +346,11 @@ async def submit_opinion_response(
         ) from exc
 
     raw_response = {}
-    if response_res and response_res.data:
+    if response_res and isinstance(response_res.data, (dict, list)):
         raw_data = response_res.data
-        raw_response = raw_data[0] if isinstance(raw_data, list) else raw_data
+        candidate = raw_data[0] if isinstance(raw_data, list) and raw_data else raw_data
+        if isinstance(candidate, dict):
+            raw_response = candidate
 
     # 6. Safely execute XP award inside try-except block
     article_id_val = (
@@ -259,8 +359,9 @@ async def submit_opinion_response(
         else getattr(question, "article_id", None)
     )
 
+    xp_result = None
     try:
-        award_xp(
+        xp_result = award_xp(
             user_id=auth.user.id,
             event_type="OPINION_SUBMITTED",
             source_type="OPINION_RESPONSE",
@@ -281,5 +382,6 @@ async def submit_opinion_response(
             ),
             custom_response=raw_response.get("custom_response", payload.custom_response),
             created_at=raw_response.get("created_at", "2026-08-25T00:00:00Z"),
-        )
+        ),
+        xp_earned=int((xp_result or {}).get("amount", 0)),
     )

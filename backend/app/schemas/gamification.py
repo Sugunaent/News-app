@@ -11,6 +11,19 @@ class GamificationLevelResponse(BaseModel):
     display_order: int
 
 
+class GamificationBadgeCatalogItem(BaseModel):
+    id: UUID
+    name: str
+    description: str
+    image_asset_id: UUID | None = None
+    image_url: str | None = None
+
+
+class XPRulePublicResponse(BaseModel):
+    event_type: str
+    amount: int
+
+
 class GamificationBadgeResponse(BaseModel):
     id: UUID
     name: str

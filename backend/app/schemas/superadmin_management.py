@@ -48,6 +48,10 @@ class SuperadminUserStatusUpdate(BaseModel):
     is_active: bool
 
 
+class SuperadminUserRoleUpdate(BaseModel):
+    role: str
+
+
 # ============================================================
 # COMMENTS
 # ============================================================

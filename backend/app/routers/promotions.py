@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.db_utils import extract_single_record
 from app.core.exceptions import AuthorizationError, NotFoundError
-from app.db.supabase import supabase
+from app.db.supabase import supabase, supabase_admin
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.promotions import (
     PromotionalItemCreate,
@@ -145,7 +145,11 @@ def list_promotions_admin(
         .execute()
     )
 
-    return getattr(result, "data", None) or []
+    items = getattr(result, "data", None) or []
+    for item in items:
+        if item.get("image"):
+            item["image"] = attach_signed_url(item["image"])
+    return items
 
 
 @router.post(
@@ -169,21 +173,26 @@ def create_promotion(
                 detail="ends_at must be later than starts_at",
             )
 
-    if payload.image_media_id is not None:
-        media_result = (
-            current_user.client
-            .table("media_assets")
-            .select("id, storage_path")
-            .eq("id", str(payload.image_media_id))
-            .maybe_single()
-            .execute()
-        )
+    try:
+        media_id = UUID(str(payload.image_media_id))
+        media_filter = ("id", str(media_id))
+    except ValueError:
+        media_filter = ("storage_path", str(payload.image_media_id).strip())
 
-        media_data = getattr(media_result, "data", None) if media_result else None
-        if not media_data:
-            raise NotFoundError("Promotional image media not found")
+    media_result = (
+        current_user.client.table("media_assets")
+        .select("id, storage_path")
+        .eq(*media_filter)
+        .maybe_single()
+        .execute()
+    )
+
+    media_data = getattr(media_result, "data", None) if media_result else None
+    if not media_data:
+        raise NotFoundError("Promotional image media not found")
 
     data = payload.model_dump(mode="json")
+    data["image_media_id"] = str(media_data["id"])
     if payload.external_url is not None:
         data["external_url"] = str(payload.external_url)
 
@@ -279,11 +288,15 @@ def update_promotion(
 
     if "image_media_id" in payload.model_fields_set:
         if payload.image_media_id is not None:
+            try:
+                media_id = UUID(str(payload.image_media_id))
+                media_filter = ("id", str(media_id))
+            except ValueError:
+                media_filter = ("storage_path", str(payload.image_media_id).strip())
             media_result = (
-                current_user.client
-                .table("media_assets")
+                current_user.client.table("media_assets")
                 .select("id")
-                .eq("id", str(payload.image_media_id))
+                .eq(*media_filter)
                 .maybe_single()
                 .execute()
             )
@@ -299,11 +312,14 @@ def update_promotion(
         exclude_unset=True,
     )
 
+    if data.get("image_media_id") is not None:
+        data["image_media_id"] = str(media_data["id"])
+
     if "external_url" in data and data["external_url"] is not None:
         data["external_url"] = str(payload.external_url)
 
     result = (
-        current_user.client
+        supabase_admin
         .table("promotional_items")
         .update(data)
         .eq("id", str(promotion_id))

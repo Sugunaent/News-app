@@ -353,6 +353,20 @@ def test_create_podcast_block_requires_url():
     assert response.status_code == 422
 
 
+def test_create_podcast_block_accepts_relative_media_path():
+    from app.schemas.superadmin_content import SuperadminArticleBlockCreate
+
+    payload = SuperadminArticleBlockCreate(
+        block_type="PODCAST",
+        display_order=0,
+        title="My song!",
+        text_content="My AI song",
+        external_url="media/audio/d37d159c-6cc8-4e95-82c8-ecaa0eba9427a.mp3",
+    )
+
+    assert payload.external_url == "media/audio/d37d159c-6cc8-4e95-82c8-ecaa0eba9427a.mp3"
+
+
 def test_reorder_rejects_duplicate_orders():
     auth = make_auth_context(
         role="SUPERADMIN"
@@ -415,8 +429,12 @@ def test_create_category_duplicate_returns_409():
     auth = make_auth_context(role="SUPERADMIN")
 
     query = MagicMock()
-    api_error = APIError({"code": "23505", "message": "duplicate key value violates unique constraint", "details": "Key (slug)=(pcos) already exists."})
-    query.insert.return_value.select.return_value.single.return_value.execute.side_effect = api_error
+    api_error = APIError({
+        "code": "23505",
+        "message": "duplicate key value violates unique constraint",
+        "details": "Key (slug)=(pcos) already exists.",
+    })
+    query.insert.return_value.select.return_value.execute.side_effect = api_error
 
     auth.client.table.return_value = query
 
@@ -436,4 +454,4 @@ def test_create_category_duplicate_returns_409():
     )
 
     assert response.status_code == 409
-    assert "already exists" in response.json()["detail"]
+    assert "already exists" in response.json()["detail"]

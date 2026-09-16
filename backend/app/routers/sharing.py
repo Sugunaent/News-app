@@ -48,11 +48,11 @@ def get_completion_share_card(
         raise NotFoundError("Article title not found")
 
     # ---------------------------------------------------------
-    # 2. Fetch completion timestamp from reading_progress.
+    # 2. Fetch the persisted completion timestamp.
     # ---------------------------------------------------------
     completed_at = datetime.now(timezone.utc)
 
-    progress_response = (
+    completion_response = (
         auth.client.table("reading_progress")
         .select("completed_at, last_read_at")
         .eq("user_id", str(auth.user.id))
@@ -61,7 +61,18 @@ def get_completion_share_card(
         .execute()
     )
 
-    progress_data = getattr(progress_response, "data", None)
+    progress_data = getattr(completion_response, "data", None)
+
+    if not progress_data:
+        completion_response = (
+            auth.client.table("article_completions")
+            .select("completed_at")
+            .eq("user_id", str(auth.user.id))
+            .eq("article_id", str(article_id))
+            .maybe_single()
+            .execute()
+        )
+        progress_data = getattr(completion_response, "data", None)
 
     if progress_data:
         completed_at = (

@@ -11,6 +11,7 @@ from app.db.supabase import create_user_client, supabase, supabase_admin
 from app.schemas.auth import CurrentUser
 
 bearer_scheme = HTTPBearer()
+optional_bearer_scheme = HTTPBearer(auto_error=False)
 
 
 class AuthContext:
@@ -119,7 +120,7 @@ def _ensure_profile(auth_user) -> dict:
     return res_data
 
 
-async def get_current_user(
+def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> AuthContext:
     access_token = credentials.credentials
@@ -152,3 +153,14 @@ async def get_current_user(
         user=profile,
         client=create_user_client(access_token),
     )
+
+
+def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(optional_bearer_scheme),
+) -> AuthContext | None:
+    if credentials is None:
+        return None
+    try:
+        return get_current_user(credentials)
+    except Exception:
+        return None

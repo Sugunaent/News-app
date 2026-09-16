@@ -1,7 +1,9 @@
-from uuid import UUID
+from uuid import UUID, uuid4
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
+from app.db.supabase import supabase_admin
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.user import (
     UserProfileAchievementResponse,
@@ -12,7 +14,9 @@ from app.schemas.user import (
     UserProfileReadingProgressResponse,
     UserProfileResponse,
     UserProfileShareCardResponse,
+    UserProfileUpdate,
 )
+from app.services.media_urls import create_signed_url
 
 router = APIRouter(
     prefix="/api/v1/users",
@@ -32,47 +36,88 @@ def _resolve_opinion_text(
     return option_text
 
 
+PROFILE_SELECT = (
+    "id, email, display_name, avatar_media_id, role, is_active, bio"
+)
+
+
+def _profile_payload(profile: dict | None) -> dict | None:
+    if isinstance(profile, dict):
+        return profile
+    if profile is None:
+        return None
+    if hasattr(profile, "data"):
+        data = getattr(profile, "data")
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list) and data:
+            return data[0]
+    return None
+
+
+def _avatar_url_for(avatar_media_id) -> str | None:
+    if not avatar_media_id:
+        return None
+    media = (
+        supabase_admin.table("media_assets")
+        .select("storage_path")
+        .eq("id", str(avatar_media_id))
+        .maybe_single()
+        .execute()
+    )
+    if not media or not media.data:
+        return None
+    return create_signed_url(media.data.get("storage_path"))
+
+
+def _to_user_profile(profile: dict, fallback_email: str | None) -> UserProfileResponse:
+    return UserProfileResponse(
+        id=profile["id"],
+        email=profile.get("email", fallback_email),
+        display_name=profile.get("display_name"),
+        avatar_media_id=profile.get("avatar_media_id"),
+        avatar_url=_avatar_url_for(profile.get("avatar_media_id")),
+        bio=profile.get("bio"),
+        role=profile.get("role", "USER"),
+        is_active=profile.get("is_active", True),
+    )
+
+
 @router.get(
     "/me",
     response_model=UserProfileResponse,
 )
-async def get_me(
+def get_me(
     auth: AuthContext = Depends(get_current_user),
 ):
     client = auth.client
     user_id = str(auth.user.id)
 
-    profile_response = (
-        client.table("profiles")
-        .select("id, email, display_name, avatar_media_id, role, is_active")
-        .eq("id", user_id)
-        .maybe_single()
-        .execute()
-    )
+    profile = getattr(auth, "profile", None)
+    if profile is None:
+        profile_response = (
+            client.table("profiles")
+            .select(PROFILE_SELECT)
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        profile = _profile_payload(profile_response)
 
-    if not profile_response or profile_response.data is None:
+    if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User profile not found.",
         )
 
-    profile = profile_response.data
-
-    return UserProfileResponse(
-        id=profile["id"],
-        email=profile.get("email", auth.user.email),
-        display_name=profile.get("display_name"),
-        avatar_media_id=profile.get("avatar_media_id"),
-        role=profile.get("role", "user"),
-        is_active=profile.get("is_active", True),
-    )
+    return _to_user_profile(profile, auth.user.email)
 
 
 @router.get(
     "/me/profile",
     response_model=UserProfileAggregateResponse,
 )
-async def get_my_profile(
+def get_my_profile(
     auth: AuthContext = Depends(get_current_user),
 ):
     client = auth.client
@@ -84,7 +129,7 @@ async def get_my_profile(
 
     profile_response = (
         client.table("profiles")
-        .select("id, email, display_name, avatar_media_id, role, is_active")
+        .select(PROFILE_SELECT)
         .eq("id", user_id)
         .maybe_single()
         .execute()
@@ -98,14 +143,7 @@ async def get_my_profile(
 
     profile = profile_response.data
 
-    user_profile = UserProfileResponse(
-        id=profile["id"],
-        email=profile.get("email", auth.user.email),
-        display_name=profile.get("display_name"),
-        avatar_media_id=profile.get("avatar_media_id"),
-        role=profile.get("role", "user"),
-        is_active=profile.get("is_active", True),
-    )
+    user_profile = _to_user_profile(profile, auth.user.email)
 
     # ---------------------------------------------------------
     # 2. Gamification
@@ -531,3 +569,121 @@ async def get_my_profile(
         share_cards=share_cards,
         reading_history=reading_progress,
     )
+
+
+@router.patch(
+    "/me",
+    response_model=UserProfileResponse,
+)
+async def update_me(
+    payload: UserProfileUpdate,
+    auth: AuthContext = Depends(get_current_user),
+):
+    updates = {}
+    if payload.display_name is not None:
+        name = payload.display_name.strip()
+        if not name:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="display_name cannot be blank",
+            )
+        updates["display_name"] = name
+    if payload.bio is not None:
+        updates["bio"] = payload.bio.strip() or None
+
+    if updates:
+        (
+            supabase_admin.table("profiles")
+            .update(updates)
+            .eq("id", str(auth.user.id))
+            .execute()
+        )
+
+    profile_response = (
+        supabase_admin.table("profiles")
+        .select(PROFILE_SELECT)
+        .eq("id", str(auth.user.id))
+        .maybe_single()
+        .execute()
+    )
+    if not profile_response or not profile_response.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found.",
+        )
+    return _to_user_profile(profile_response.data, auth.user.email)
+
+
+@router.post(
+    "/me/avatar",
+    response_model=UserProfileResponse,
+)
+async def upload_my_avatar(
+    file: UploadFile = File(...),
+    auth: AuthContext = Depends(get_current_user),
+):
+    mime = (file.content_type or "").strip().lower()
+    if not mime.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Avatar must be an image",
+        )
+    suffix = Path(file.filename or "avatar.jpg").suffix.lower() or ".jpg"
+    storage_path = f"media/image/avatars/{auth.user.id}/{uuid4()}{suffix}"
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Uploaded file is empty",
+        )
+    if len(file_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Avatar exceeds the 10 MB upload limit",
+        )
+
+    try:
+        supabase_admin.storage.from_("article-media").upload(
+            storage_path,
+            file_bytes,
+            {"content-type": mime, "upsert": "true"},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Avatar storage upload failed") from exc
+
+    media = (
+        supabase_admin.table("media_assets")
+        .insert(
+            {
+                "storage_path": storage_path,
+                "media_type": "IMAGE",
+                "mime_type": mime,
+                "file_size": len(file_bytes),
+                "uploaded_by": str(auth.user.id),
+            }
+        )
+        .select("id")
+        .execute()
+    )
+    if not media or not media.data:
+        raise HTTPException(status_code=502, detail="Avatar metadata could not be persisted")
+    media_id = media.data[0]["id"]
+    (
+        supabase_admin.table("profiles")
+        .update({"avatar_media_id": media_id})
+        .eq("id", str(auth.user.id))
+        .execute()
+    )
+    profile_response = (
+        supabase_admin.table("profiles")
+        .select(PROFILE_SELECT)
+        .eq("id", str(auth.user.id))
+        .maybe_single()
+        .execute()
+    )
+    if not profile_response or not profile_response.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found.",
+        )
+    return _to_user_profile(profile_response.data, auth.user.email)

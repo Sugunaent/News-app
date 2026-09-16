@@ -24,7 +24,10 @@ def record_audit(
     Audit records are written with the service-role client unless a
     specific client is provided by the caller.
     """
-    db = client or supabase_admin
+    # Audit writes are trusted backend operations. A user-scoped client is
+    # subject to the caller's INSERT RLS policy and can silently lose audit
+    # events during otherwise successful CMS mutations.
+    db = supabase_admin
 
     payload = {
         "actor_user_id": str(actor_user_id),

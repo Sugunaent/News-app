@@ -58,3 +58,4 @@ class OpinionResponseData(BaseModel):
 
 class OpinionSubmitResponse(BaseModel):
     response: OpinionResponseData
+    xp_earned: int = 0

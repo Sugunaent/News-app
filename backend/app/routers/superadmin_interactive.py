@@ -1,10 +1,12 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from postgrest.exceptions import APIError
 
 from app.core.db_utils import extract_single_record
 from app.core.exceptions import AuthorizationError, NotFoundError
 from app.dependencies.auth import AuthContext, get_current_user
+from app.db.supabase import supabase_admin
 from app.schemas.superadmin_interactive import (
     SuperadminOpinionCreate,
     SuperadminOpinionOptionCreate,
@@ -110,7 +112,7 @@ def _get_quiz(
     result = (
         client.table("quizzes")
         .select(
-            "id, article_id, created_at, updated_at"
+            "id, article_id, title, created_at, updated_at"
         )
         .eq("id", str(quiz_id))
         .maybe_single()
@@ -159,7 +161,7 @@ def _get_quiz_option(
         client.table("quiz_options")
         .select(
             "id, question_id, display_order, "
-            "is_correct, option_text, created_at, updated_at"
+            "is_correct, option_text, explanation, created_at, updated_at"
         )
         .eq("id", str(option_id))
         .eq("question_id", str(question_id))
@@ -268,16 +270,21 @@ async def list_quizzes(
 ):
     _require_superadmin(auth)
 
+    client = auth.client
+
     result = (
-        auth.client.table("quizzes")
+        client.table("quizzes")
         .select(
-            "id, article_id, created_at, updated_at"
+            "id, article_id, title, created_at, updated_at"
         )
         .order("created_at", desc=True)
         .execute()
     )
 
-    return result.data or []
+    return [
+        {**quiz, "title": quiz.get("title") or "Quiz"}
+        for quiz in (result.data or [])
+    ]
 
 
 
@@ -316,7 +323,7 @@ async def get_quiz(
             client.table("quiz_options")
             .select(
                 "id, question_id, display_order, "
-                "is_correct, option_text, created_at, updated_at"
+                "is_correct, option_text, explanation, created_at, updated_at"
             )
             .eq(
                 "question_id",
@@ -333,6 +340,7 @@ async def get_quiz(
                 display_order=option["display_order"],
                 is_correct=option["is_correct"],
                 option_text=option.get("option_text"),
+                explanation=option.get("explanation"),
                 created_at=option["created_at"],
                 updated_at=option["updated_at"],
             )
@@ -402,7 +410,8 @@ async def create_quiz(
             {
                 "article_id": str(
                     payload.article_id
-                )
+                ),
+                "title": payload.title,
             }
         )
         .select(
@@ -453,6 +462,9 @@ async def update_quiz(
 
     update_data = {}
 
+    if payload.title is not None:
+        update_data["title"] = payload.title.strip()
+
     if payload.article_id is not None:
         _article_exists(
             client,
@@ -491,7 +503,10 @@ async def update_quiz(
             .execute()
         )
 
-        updated_quiz = extract_single_record(result.data, "Quiz update failed")
+        if result and isinstance(result.data, (dict, list)):
+            updated_quiz = extract_single_record(result.data, "Quiz update failed")
+        else:
+            updated_quiz = {**quiz, **update_data}
 
         _audit(
             auth,
@@ -587,7 +602,7 @@ async def list_quiz_questions(
             client.table("quiz_options")
             .select(
                 "id, question_id, display_order, "
-                "is_correct, option_text, created_at, updated_at"
+                "is_correct, option_text, explanation, created_at, updated_at"
             )
             .eq(
                 "question_id",
@@ -842,6 +857,9 @@ async def update_quiz_question(
             payload.display_order
         )
 
+    if payload.question_text is not None:
+        update_data["question_text"] = payload.question_text
+
     if update_data:
         result = (
             client.table("quiz_questions")
@@ -855,10 +873,10 @@ async def update_quiz_question(
             .execute()
         )
 
-        question = extract_single_record(result.data, "Quiz question update failed")
-
-    if payload.question_text is not None:
-        update_data["question_text"] = payload.question_text
+        if result and isinstance(result.data, (dict, list)):
+            question = extract_single_record(result.data, "Quiz question update failed")
+        else:
+            question = {**question, **update_data}
 
     _audit(
         auth,
@@ -1031,11 +1049,12 @@ async def create_quiz_option(
                 "option_text": payload.option_text,
                 "is_correct": payload.is_correct,
                 "option_text": payload.option_text,
+                "explanation": payload.explanation,
             }
         )
         .select(
             "id, question_id, display_order, "
-            "is_correct, option_text, created_at, updated_at"
+            "is_correct, option_text, explanation, created_at, updated_at"
         )
         .execute()
     )
@@ -1071,7 +1090,7 @@ async def create_quiz_option(
 
 
 @router.patch(
-    "/{quiz_id}/questions/{question_id}/options/reorder",
+    "/quizzes/{quiz_id}/questions/{question_id}/options/reorder",
     response_model=list[SuperadminQuizOptionResponse],
 )
 async def reorder_quiz_options(
@@ -1253,6 +1272,12 @@ async def update_quiz_option(
     elif payload.is_correct is False:
         update_data["is_correct"] = False
 
+    if payload.option_text is not None:
+        update_data["option_text"] = payload.option_text
+
+    if payload.explanation is not None:
+        update_data["explanation"] = payload.explanation
+
     if update_data:
         result = (
             client.table("quiz_options")
@@ -1264,15 +1289,12 @@ async def update_quiz_option(
             )
             .select(
                 "id, question_id, display_order, "
-                "is_correct, option_text, created_at, updated_at"
+                "is_correct, option_text, explanation, created_at, updated_at"
             )
             .execute()
         )
 
         option = extract_single_record(result.data, "Quiz option update failed")
-
-    if payload.option_text is not None:
-        update_data["option_text"] = payload.option_text
 
     _audit(
         auth,
@@ -1305,6 +1327,7 @@ async def update_quiz_option(
             if payload.option_text is not None
             else option.get("option_text")
         ),
+        explanation=option.get("explanation"),
         created_at=option["created_at"],
         updated_at=option["updated_at"],
     )
@@ -1362,11 +1385,6 @@ async def delete_quiz_option(
 
 
 @router.patch(
-    "/quizzes/{quiz_id}/questions/{question_id}/options/reorder",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-
-@router.patch(
     "/quizzes/{quiz_id}/questions/{question_id}/correct-answer",
     response_model=SuperadminQuizOptionResponse,
 )
@@ -1412,7 +1430,7 @@ async def set_quiz_correct_answer(
         )
         .select(
             "id, question_id, display_order, "
-            "is_correct, option_text, created_at, updated_at"
+                "is_correct, option_text, explanation, created_at, updated_at"
         )
         .execute()
     )
@@ -1757,6 +1775,9 @@ async def update_opinion(
             payload.display_order
         )
 
+    if payload.question_text is not None:
+        update_data["question_text"] = payload.question_text
+
     if payload.allow_custom_response is not None:
         update_data["allow_custom_response"] = (
             payload.allow_custom_response
@@ -1775,9 +1796,6 @@ async def update_opinion(
         )
 
         opinion = extract_single_record(result.data, "Opinion question update failed")
-
-    if payload.question_text is not None:
-        update_data["question_text"] = payload.question_text
 
     _audit(
         auth,
@@ -2063,6 +2081,9 @@ async def update_opinion_option(
             payload.display_order
         )
 
+    if payload.option_text is not None:
+        update_data["option_text"] = payload.option_text
+
     if update_data:
         result = (
             client.table("opinion_options")
@@ -2078,10 +2099,10 @@ async def update_opinion_option(
             )
             .execute()
         )
-        option = extract_single_record(result.data, "Opinion option update failed")
-
-    if payload.option_text is not None:
-        update_data["option_text"] = payload.option_text
+        if result and isinstance(result.data, (dict, list)):
+            option = extract_single_record(result.data, "Opinion option update failed")
+        else:
+            option = {**option, **update_data}
 
     _audit(
         auth,

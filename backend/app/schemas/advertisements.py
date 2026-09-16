@@ -9,6 +9,7 @@ class AdvertisementSlotResponse(BaseModel):
     key: str
     name: str
     description: str | None
+    placement: str
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -46,7 +47,7 @@ class AdvertisementResponse(BaseModel):
 
 class AdvertisementCreate(BaseModel):
     slot_id: UUID
-    image_media_id: UUID
+    image_media_id: str
 
     title: str = Field(
         min_length=1,
@@ -73,7 +74,7 @@ class AdvertisementCreate(BaseModel):
 
 class AdvertisementUpdate(BaseModel):
     slot_id: UUID | None = None
-    image_media_id: UUID | None = None
+    image_media_id: str | None = None
 
     title: str | None = Field(
         default=None,
@@ -115,6 +116,7 @@ class AdvertisementSlotCreate(BaseModel):
         default=None,
         max_length=1000,
     )
+    placement: str = Field(default="sidebar", min_length=1, max_length=100)
 
     is_active: bool = True
 
@@ -136,5 +138,6 @@ class AdvertisementSlotUpdate(BaseModel):
         default=None,
         max_length=1000,
     )
+    placement: str | None = Field(default=None, min_length=1, max_length=100)
 
     is_active: bool | None = None

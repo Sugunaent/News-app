@@ -24,7 +24,7 @@ class QuizResponse(BaseModel):
 
 
 class QuizAttemptCreate(BaseModel):
-    question_id: UUID
+    question_id: UUID | None = None
     selected_option_id: UUID
 
 
@@ -37,3 +37,4 @@ class QuizAttemptResponse(BaseModel):
 
 class QuizSubmitResponse(BaseModel):
     attempt: QuizAttemptResponse
+    xp_earned: int = 0

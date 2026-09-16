@@ -17,6 +17,8 @@ class SuperadminCategoryResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    image_url: str | None = None
+    article_count: int = 0
 
 
 class SuperadminCategoryCreate(BaseModel):
@@ -31,6 +33,7 @@ class SuperadminCategoryCreate(BaseModel):
         ge=0,
     )
     is_active: bool = True
+    image_url: str | None = None
 
 
 class SuperadminCategoryUpdate(BaseModel):
@@ -53,6 +56,7 @@ class SuperadminCategoryUpdate(BaseModel):
         ge=0,
     )
     is_active: bool | None = None
+    image_url: str | None = None
 
 
 # ============================================================
@@ -70,10 +74,15 @@ class SuperadminArticleCreate(BaseModel):
         default=None,
         max_length=5000,
     )
-    slug: str = Field(min_length=1, max_length=300)
+    slug: str | None = Field(default=None, min_length=1, max_length=300)
     article_type: str = "STANDARD"
     status: str = "DRAFT"
     cover_media_id: UUID | None = None
+    cover_image_url: str | None = None
+    is_featured: bool = False
+    is_author_pick: bool = False
+    author_name: str | None = None
+    reading_time_minutes: int | None = None
     published_at: datetime | None = None
     scheduled_at: datetime | None = None
 
@@ -86,6 +95,11 @@ class SuperadminArticleUpdate(BaseModel):
     slug: str | None = Field(default=None, min_length=1, max_length=300)
     article_type: str | None = None
     cover_media_id: UUID | None = None
+    cover_image_url: str | None = None
+    is_featured: bool | None = None
+    is_author_pick: bool | None = None
+    author_name: str | None = None
+    reading_time_minutes: int | None = None
     published_at: datetime | None = None
     scheduled_at: datetime | None = None
 
@@ -121,6 +135,10 @@ class SuperadminArticleListItem(BaseModel):
 
     is_author_pick: bool
     author_pick_order: int | None
+    cover_image_url: str | None = None
+    is_featured: bool = False
+    author_name: str | None = None
+    reading_time_minutes: int | None = None
 
     category: SuperadminCategoryResponse | None
 
@@ -155,26 +173,17 @@ class SuperadminArticleBlockResponse(BaseModel):
     external_url: str | None
     text_content: str | None
     caption: str | None
+    title: str | None = None
+    media_url: str | None = None
 
 
 class SuperadminArticleBlockCreate(BaseModel):
     block_type: str
-    display_order: int = Field(
+    display_order: int | None = Field(
+        default=None,
         ge=0,
     )
-
-    media_id: UUID | None = None
-    quiz_id: UUID | None = None
-    opinion_id: UUID | None = None
-
-    external_url: HttpUrl | None = None
-
-    text_content: str | None = None
-    caption: str | None = None
-
-
-class SuperadminArticleBlockUpdate(BaseModel):
-    display_order: int | None = Field(
+    order_index: int | None = Field(
         default=None,
         ge=0,
     )
@@ -183,10 +192,32 @@ class SuperadminArticleBlockUpdate(BaseModel):
     quiz_id: UUID | None = None
     opinion_id: UUID | None = None
 
-    external_url: HttpUrl | None = None
+    external_url: str | None = None
 
     text_content: str | None = None
     caption: str | None = None
+    title: str | None = None
+
+
+class SuperadminArticleBlockUpdate(BaseModel):
+    display_order: int | None = Field(
+        default=None,
+        ge=0,
+    )
+    order_index: int | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    media_id: UUID | None = None
+    quiz_id: UUID | None = None
+    opinion_id: UUID | None = None
+
+    external_url: str | None = None
+
+    text_content: str | None = None
+    caption: str | None = None
+    title: str | None = None
 
 
 class SuperadminArticleBlockReorderItem(BaseModel):

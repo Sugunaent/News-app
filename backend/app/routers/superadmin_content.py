@@ -1,4 +1,8 @@
-from uuid import UUID
+import logging
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+from re import sub
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, status
 from fastapi import HTTPException
@@ -24,12 +28,24 @@ from app.schemas.superadmin_content import (
     SuperadminHomeResponse,
 )
 from app.services.audit import record_audit
+from app.services.media_urls import create_signed_url
 
 
 router = APIRouter(
     prefix="/api/v1/superadmin",
     tags=["Superadmin Content"],
 )
+
+logger = logging.getLogger("app.superadmin_content")
+
+INDIA_TIMEZONE = ZoneInfo("Asia/Kolkata")
+
+
+def _schedule_as_utc(value: datetime) -> datetime:
+    """Interpret admin datetime-local values as IST and persist UTC."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=INDIA_TIMEZONE)
+    return value.astimezone(timezone.utc)
 
 
 # ============================================================
@@ -63,7 +79,8 @@ CATEGORY_SELECT = """
     display_order,
     is_active,
     created_at,
-    updated_at
+    updated_at,
+    image_url
 """
 
 
@@ -81,6 +98,10 @@ ARTICLE_SELECT = """
     scheduled_at,
     is_author_pick,
     author_pick_order,
+    cover_image_url,
+    is_featured,
+    author_name,
+    reading_time_minutes,
     categories (
         id,
         name,
@@ -109,10 +130,9 @@ ARTICLE_BLOCK_SELECT = """
     quiz_id,
     opinion_id,
     external_url,
-    created_at,
-    external_url,
     text_content,
     caption,
+    title,
     created_at,
     updated_at,
     media_assets (
@@ -138,6 +158,7 @@ def _map_article(data: dict) -> dict:
         "id": data["id"],
         "category_id": data["category_id"],
         "title": data.get("title"),
+        "media_url": create_signed_url((data.get("media_assets") or {}).get("storage_path")),
         "subtitle": data.get("subtitle"),
         "summary": data.get("summary"),
         "slug": data.get("slug"),
@@ -157,6 +178,10 @@ def _map_article(data: dict) -> dict:
         "author_pick_order": data.get(
             "author_pick_order"
         ),
+        "cover_image_url": data.get("cover_image_url"),
+        "is_featured": bool(data.get("is_featured")),
+        "author_name": data.get("author_name"),
+        "reading_time_minutes": data.get("reading_time_minutes"),
         "category": data.get("categories"),
     }
 
@@ -173,6 +198,7 @@ def _map_block(data: dict) -> dict:
         "external_url": data.get("external_url"),
         "text_content": data.get("text_content"),
         "caption": data.get("caption"),
+        "title": data.get("title"),
     }
 
 
@@ -203,6 +229,9 @@ def _validate_article_type(
         "STANDARD",
         "QUIZ",
         "OPINION",
+        "PODCAST",
+        "ARTICLE",
+        "FEATURED",
     }
 
     if value not in allowed:
@@ -210,6 +239,19 @@ def _validate_article_type(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid article type: {value}",
         )
+
+
+def _normalize_article_type(value: str) -> tuple[str, bool]:
+    if value == "ARTICLE":
+        return "STANDARD", False
+    if value == "FEATURED":
+        return "STANDARD", True
+    return value, value == "FEATURED"
+
+
+def _slugify_title(title: str) -> str:
+    slug = sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    return f"{slug or 'article'}-{uuid4().hex[:8]}"
 
 
 def _validate_block_type(
@@ -235,7 +277,7 @@ def _get_article(
         .execute()
     )
 
-    if not response.data:
+    if response is None or not response.data:
         raise NotFoundError(
             "Article not found"
         )
@@ -256,7 +298,7 @@ def _get_category(
         .execute()
     )
 
-    if not response.data:
+    if response is None or not response.data:
         raise NotFoundError(
             "Category not found"
         )
@@ -279,7 +321,7 @@ def _get_article_block(
         .execute()
     )
 
-    if not response.data:
+    if response is None or not response.data:
         raise NotFoundError(
             "Article block not found"
         )
@@ -348,6 +390,25 @@ def _validate_opinion_reference(
         )
 
 
+def _is_supported_media_reference(value: str | None) -> bool:
+    if value is None:
+        return False
+
+    normalized = str(value).strip()
+    if not normalized:
+        return False
+
+    if normalized.startswith("/") or normalized.startswith("media/"):
+        return True
+
+    parsed = urlparse(normalized)
+    if parsed.scheme in {"http", "https"}:
+        lower_path = parsed.path.lower()
+        return lower_path.endswith((".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".mp4", ".m4v", ".webm")) or "/audio/" in lower_path or "/media/" in lower_path
+
+    return False
+
+
 def _validate_block_payload(
     block_type: str,
     media_id: UUID | None,
@@ -355,6 +416,7 @@ def _validate_block_payload(
     opinion_id: UUID | None,
     external_url,
     text_content: str | None,
+    title: str | None,
 ) -> None:
     _validate_block_type(block_type)
 
@@ -380,44 +442,39 @@ def _validate_block_payload(
             )
 
     elif block_type == "IMAGE":
-        if media_id is None:
+        if media_id is None and external_url is None:
             raise HTTPException(
                 status_code=422,
-                detail="IMAGE blocks require media_id",
+                detail="IMAGE blocks require media_id or external_url",
             )
 
         if (
             quiz_id is not None
             or opinion_id is not None
-            or external_url is not None
             or text_content is not None
         ):
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "IMAGE blocks may only reference "
-                    "media_id and optional caption"
+                    "IMAGE blocks may only reference media_id or external_url "
+                    "and optional caption"
                 ),
             )
 
     elif block_type == "PODCAST":
-        if (
-            media_id is not None
-            or quiz_id is not None
-            or opinion_id is not None
-        ):
+        if quiz_id is not None or opinion_id is not None:
             raise HTTPException(
                 status_code=422,
                 detail=(
                     "PODCAST blocks cannot reference "
-                    "media, quiz, or opinion"
+                    "quiz or opinion"
                 ),
             )
 
-        if external_url is None:
+        if media_id is None and not _is_supported_media_reference(str(external_url) if external_url is not None else None):
             raise HTTPException(
                 status_code=422,
-                detail="PODCAST blocks require external_url",
+                detail="PODCAST blocks require a valid external_url or media_id",
             )
 
         if not text_content:
@@ -425,6 +482,8 @@ def _validate_block_payload(
                 status_code=422,
                 detail="PODCAST blocks require text_content",
             )
+        if not title or not title.strip():
+            raise HTTPException(status_code=422, detail="PODCAST blocks require title")
 
     elif block_type == "QUIZ":
         if quiz_id is None:
@@ -513,6 +572,7 @@ def list_articles(
         alias="status",
     ),
     category_id: UUID | None = None,
+    search: str | None = Query(default=None, max_length=200),
 ):
     _require_superadmin(current_user)
 
@@ -534,6 +594,12 @@ def list_articles(
         query = query.eq(
             "category_id",
             str(category_id),
+        )
+
+    if search and search.strip():
+        term = search.strip().replace(",", " ")
+        query = query.or_(
+            f"title.ilike.%{term}%,subtitle.ilike.%{term}%,author_name.ilike.%{term}%"
         )
 
     response = (
@@ -597,6 +663,9 @@ def create_article(
     _validate_article_type(
         payload.article_type
     )
+    stored_type, featured_from_type = _normalize_article_type(payload.article_type)
+    is_featured = payload.is_featured or featured_from_type
+    slug = payload.slug.strip() if payload.slug else _slugify_title(payload.title)
 
     _validate_article_status(
         payload.status
@@ -626,14 +695,19 @@ def create_article(
                     "title": payload.title,
                     "subtitle": payload.subtitle,
                     "summary": payload.summary,
-                    "slug": payload.slug,
-                    "article_type": payload.article_type,
+                    "slug": slug,
+                    "article_type": stored_type,
                     "status": payload.status,
                     "cover_media_id": (
                         str(payload.cover_media_id)
                         if payload.cover_media_id
                         else None
                     ),
+                    "cover_image_url": payload.cover_image_url,
+                    "is_featured": is_featured,
+                    "is_author_pick": payload.is_author_pick,
+                    "author_name": payload.author_name,
+                    "reading_time_minutes": payload.reading_time_minutes,
                     "created_by": str(
                         current_user.user.id
                     ),
@@ -646,7 +720,7 @@ def create_article(
                         else None
                     ),
                     "scheduled_at": (
-                        payload.scheduled_at.isoformat()
+                        _schedule_as_utc(payload.scheduled_at).isoformat()
                         if payload.scheduled_at
                         else None
                     ),
@@ -768,26 +842,45 @@ def reorder_article_blocks(
             detail=detail_msg,
         )
 
-    # Step 1: Assign high positive offset (e.g., 10000 + index) to avoid both 
-    # UNIQUE constraint collisions and non-negative check constraints
+    # Move every block above the current range first. A fixed temporary range
+    # can collide with values left behind by an interrupted reorder.
+    current_orders = [
+        int(block.get("display_order", 0))
+        for block in existing_blocks
+        if isinstance(block, dict)
+    ]
+    temporary_offset = max(current_orders, default=0) + len(payload.items) + 1
+
     for index, item in enumerate(payload.items):
-        (
-            client.table("article_blocks")
-            .update({"display_order": 10000 + index + 1})
-            .eq("id", str(item.block_id))
-            .eq("article_id", str(article_id))
-            .execute()
-        )
+        try:
+            (
+                client.table("article_blocks")
+                .update({"display_order": temporary_offset + index})
+                .eq("id", str(item.block_id))
+                .eq("article_id", str(article_id))
+                .execute()
+            )
+        except APIError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Unable to stage block reorder: {exc.message}",
+            ) from exc
 
     # Step 2: Assign actual target display_order (e.g., 1, 2, 3)
     for item in payload.items:
-        (
-            client.table("article_blocks")
-            .update({"display_order": item.display_order})
-            .eq("id", str(item.block_id))
-            .eq("article_id", str(article_id))
-            .execute()
-        )
+        try:
+            (
+                client.table("article_blocks")
+                .update({"display_order": item.display_order})
+                .eq("id", str(item.block_id))
+                .eq("article_id", str(article_id))
+                .execute()
+            )
+        except APIError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Unable to apply block reorder: {exc.message}",
+            ) from exc
 
     try:
         record_audit(
@@ -870,15 +963,32 @@ def update_article(
         _validate_article_type(
             payload.article_type
         )
-
-        updates["article_type"] = (
+        stored_type, featured_from_type = _normalize_article_type(
             payload.article_type
         )
+        updates["article_type"] = stored_type
+        if payload.is_featured is None and featured_from_type:
+            updates["is_featured"] = True
 
     if payload.cover_media_id is not None:
         updates["cover_media_id"] = str(
             payload.cover_media_id
         )
+
+    if payload.cover_image_url is not None:
+        updates["cover_image_url"] = payload.cover_image_url
+
+    if payload.is_featured is not None:
+        updates["is_featured"] = payload.is_featured
+
+    if payload.is_author_pick is not None:
+        updates["is_author_pick"] = payload.is_author_pick
+
+    if payload.author_name is not None:
+        updates["author_name"] = payload.author_name
+
+    if payload.reading_time_minutes is not None:
+        updates["reading_time_minutes"] = payload.reading_time_minutes
 
     if payload.published_at is not None:
         updates["published_at"] = (
@@ -887,7 +997,7 @@ def update_article(
 
     if payload.scheduled_at is not None:
         updates["scheduled_at"] = (
-            payload.scheduled_at.isoformat()
+            _schedule_as_utc(payload.scheduled_at).isoformat()
         )
 
     updates["updated_by"] = str(
@@ -943,10 +1053,14 @@ def delete_article(
 
     client = current_user.client
 
-    article = _get_article(
-        client,
-        article_id,
-    )
+    try:
+        article = _get_article(
+            client,
+            article_id,
+        )
+    except NotFoundError:
+        # DELETE is idempotent so stale CMS rows can be retried safely.
+        return None
 
     (
         client
@@ -1002,7 +1116,7 @@ def publish_article(
                 "status": "PUBLISHED",
                 "published_at": (
                     article.get("published_at")
-                    or "now()"
+                    or datetime.now(timezone.utc).isoformat()
                 ),
                 "scheduled_at": None,
                 "updated_by": str(
@@ -1128,7 +1242,7 @@ def schedule_article(
             {
                 "status": "SCHEDULED",
                 "scheduled_at": (
-                    payload.scheduled_at.isoformat()
+                    _schedule_as_utc(payload.scheduled_at).isoformat()
                 ),
                 "updated_by": str(
                     current_user.user.id
@@ -1147,7 +1261,7 @@ def schedule_article(
         metadata={
             "previous_status": article.get("status"),
             "scheduled_at": (
-                payload.scheduled_at.isoformat()
+                _schedule_as_utc(payload.scheduled_at).isoformat()
             ),
         },
         client=current_user.client,
@@ -1321,28 +1435,28 @@ def list_article_blocks(
         get_current_user
     ),
 ):
-    _require_superadmin(current_user)
+    logger.info("Loading blocks for article %s", article_id)
+    try:
+        _require_superadmin(current_user)
 
-    client = current_user.client
+        client = current_user.client
+        _get_article(client, article_id)
 
-    _get_article(
-        client,
-        article_id,
-    )
+        response = (
+            client
+            .table("article_blocks")
+            .select(ARTICLE_BLOCK_SELECT)
+            .eq("article_id", str(article_id))
+            .order("display_order")
+            .execute()
+        )
 
-    response = (
-        client
-        .table("article_blocks")
-        .select(ARTICLE_BLOCK_SELECT)
-        .eq("article_id", str(article_id))
-        .order("display_order")
-        .execute()
-    )
-
-    return [
-        _map_block(block)
-        for block in (response.data or [])
-    ]
+        blocks = [_map_block(block) for block in (response.data or [])]
+        logger.info("Loaded %d blocks for article %s", len(blocks), article_id)
+        return blocks
+    except Exception:
+        logger.exception("Failed loading blocks for article %s", article_id)
+        raise
 
 
 # ============================================================
@@ -1387,6 +1501,24 @@ def create_article_block(
         get_current_user
     ),
 ):
+    display_order = (
+        payload.display_order
+        if payload.display_order is not None
+        else payload.order_index
+    )
+    if display_order is None:
+        raise HTTPException(status_code=422, detail="display_order is required")
+    logger.info(
+        "Creating article block article=%s type=%s order=%s media=%s quiz=%s opinion=%s external=%s text_length=%s",
+        article_id,
+        payload.block_type,
+        display_order,
+        payload.media_id,
+        payload.quiz_id,
+        payload.opinion_id,
+        bool(payload.external_url),
+        len(payload.text_content or ""),
+    )
     _require_superadmin(current_user)
 
     client = current_user.client
@@ -1403,6 +1535,7 @@ def create_article_block(
         opinion_id=payload.opinion_id,
         external_url=payload.external_url,
         text_content=payload.text_content,
+        title=payload.title,
     )
 
     _validate_block_references(
@@ -1413,6 +1546,34 @@ def create_article_block(
         opinion_id=payload.opinion_id,
     )
 
+    # New blocks are normalized by the editor after they are created. If the
+    # requested temporary order is already occupied, append this block above
+    # the current range so the unique article/order constraint cannot reject
+    # the save before the reorder step runs.
+    occupied_response = (
+        client.table("article_blocks")
+        .select("id")
+        .eq("article_id", str(article_id))
+        .eq("display_order", display_order)
+        .limit(1)
+        .execute()
+    )
+    if occupied_response.data:
+        highest_response = (
+            client.table("article_blocks")
+            .select("display_order")
+            .eq("article_id", str(article_id))
+            .order("display_order", desc=True)
+            .limit(1)
+            .execute()
+        )
+        highest_order = (
+            int(highest_response.data[0].get("display_order", 0))
+            if highest_response.data
+            else 0
+        )
+        display_order = highest_order + 1
+
     block_response = (
         client
         .table("article_blocks")
@@ -1420,7 +1581,7 @@ def create_article_block(
             {
                 "article_id": str(article_id),
                 "block_type": payload.block_type,
-                "display_order": payload.display_order,
+                "display_order": display_order,
                 "media_id": (
                     str(payload.media_id)
                     if payload.media_id
@@ -1443,6 +1604,7 @@ def create_article_block(
                 ),
                 "text_content": payload.text_content,
                 "caption": payload.caption,
+                "title": payload.title,
             }
         )
         .select(ARTICLE_BLOCK_SELECT)
@@ -1460,7 +1622,7 @@ def create_article_block(
         metadata={
             "article_id": str(article_id),
             "block_type": payload.block_type,
-            "display_order": payload.display_order,
+            "display_order": display_order,
             "media_id": (
                 str(payload.media_id)
                 if payload.media_id
@@ -1565,6 +1727,7 @@ def update_article_block(
         opinion_id=opinion_id,
         external_url=external_url,
         text_content=text_content,
+        title=payload.title if payload.title is not None else existing.get("title"),
     )
 
     _validate_block_references(
@@ -1577,9 +1740,15 @@ def update_article_block(
 
     block_updates = {}
 
-    if payload.display_order is not None:
+    display_order = (
+        payload.display_order
+        if payload.display_order is not None
+        else payload.order_index
+    )
+
+    if display_order is not None:
         block_updates["display_order"] = (
-            payload.display_order
+            display_order
         )
 
     if payload.media_id is not None:
@@ -1607,6 +1776,9 @@ def update_article_block(
 
     if payload.caption is not None:
         block_updates["caption"] = payload.caption
+
+    if payload.title is not None:
+        block_updates["title"] = payload.title
 
     if block_updates:
         (
@@ -1714,7 +1886,16 @@ def list_categories(
         .execute()
     )
 
-    return response.data or []
+    categories = response.data or []
+    for category in categories:
+        article_count = (
+            current_user.client.table("articles")
+            .select("id", count="exact")
+            .eq("category_id", str(category["id"]))
+            .execute()
+        )
+        category["article_count"] = article_count.count or 0
+    return categories
 
 
 # ============================================================
@@ -1747,6 +1928,7 @@ def create_category(
                         payload.display_order
                     ),
                     "is_active": payload.is_active,
+                    "image_url": payload.image_url,
                 }
             )
             .select(CATEGORY_SELECT)
@@ -1825,6 +2007,9 @@ def update_category(
     if payload.is_active is not None:
         updates["is_active"] = payload.is_active
 
+    if payload.image_url is not None:
+        updates["image_url"] = payload.image_url
+
     if not updates:
         return existing
 
@@ -1889,17 +2074,20 @@ def delete_category(
         category_id,
     )
 
+    # Categories are referenced by articles with an ON DELETE RESTRICT
+    # constraint. Archive the category instead of orphaning or deleting its
+    # articles; this keeps the CMS delete action safe and reversible.
     (
         client
         .table("categories")
-        .delete()
+        .update({"is_active": False})
         .eq("id", str(category_id))
         .execute()
     )
 
     record_audit(
         actor_user_id=current_user.user.id,
-        action="CATEGORY_DELETED",
+        action="CATEGORY_ARCHIVED",
         entity_type="CATEGORY",
         entity_id=category_id,
         metadata={

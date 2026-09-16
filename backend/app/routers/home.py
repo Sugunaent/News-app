@@ -34,7 +34,7 @@ def _fetch_active_categories() -> list[dict]:
     "/discovery",
     response_model=HomeDiscoveryResponse,
 )
-async def get_home_discovery(
+def get_home_discovery(
     trending_limit: int = Query(default=10, ge=1, le=50),
     category_limit: int = Query(default=6, ge=1, le=50),
     authors_picks_limit: int = Query(default=6, ge=1, le=50),

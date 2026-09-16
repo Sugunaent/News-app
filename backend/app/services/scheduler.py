@@ -13,7 +13,6 @@ def publish_due_scheduled_articles(client: Client) -> None:
     Finds all articles with status 'SCHEDULED' whose 'scheduled_at' timestamp 
     is in the past (or present) and updates their status to 'PUBLISHED'.
     """
-    print(f"--- [SCHEDULER CHECKING AT {datetime.now(timezone.utc)}] ---")
     try:
         now_utc_iso = datetime.now(timezone.utc).isoformat()
 

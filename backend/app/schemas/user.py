@@ -9,8 +9,16 @@ class UserProfileResponse(BaseModel):
     email: str
     display_name: str | None
     avatar_media_id: UUID | None
+    avatar_url: str | None = None
+    bio: str | None = None
     role: str
     is_active: bool
+
+
+class UserProfileUpdate(BaseModel):
+    display_name: str | None = None
+    bio: str | None = None
+    avatar_url: str | None = None
 
 
 class UserProfileLevelResponse(BaseModel):

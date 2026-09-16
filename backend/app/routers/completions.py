@@ -11,6 +11,7 @@ from app.schemas.completions import ArticleCompletionResponse
 from app.services.gamification import (
     award_badges_for_user,
     award_xp,
+    get_gamification_status,
 )
 
 router = APIRouter(
@@ -94,10 +95,14 @@ async def complete_article(
 
     if existing_response and getattr(existing_response, "data", None):
         data = existing_response.data
+        gamification = get_gamification_status(auth.user.id)
 
         return ArticleCompletionResponse(
             article_id=data["article_id"],
             completed_at=data["completed_at"],
+            total_xp=gamification["total_xp"],
+            new_level=(gamification.get("level") or {}).get("display_order", 1),
+            already_completed=True,
         )
 
     now = datetime.now(timezone.utc)
@@ -108,13 +113,10 @@ async def complete_article(
         "completed_at": now.isoformat(),
     }
 
+    completion_query = supabase_admin.table("article_completions")
     completion_response = (
-        supabase_admin
-        .table("article_completions")
-        .upsert(
-            completion_payload,
-            on_conflict="user_id,article_id",
-        )
+        completion_query
+        .insert(completion_payload)
         .select("article_id, completed_at")
         .execute()
     )
@@ -124,7 +126,7 @@ async def complete_article(
 
     data = extract_single_record(completion_response.data, "Article completion insert failed")
 
-    award_xp(
+    xp_result = award_xp(
         user_id=auth.user.id,
         event_type="ARTICLE_COMPLETED",
         source_type="ARTICLE_COMPLETION",
@@ -135,8 +137,13 @@ async def complete_article(
     award_badges_for_user(
         user_id=auth.user.id,
     )
+    gamification = get_gamification_status(auth.user.id)
 
     return ArticleCompletionResponse(
         article_id=data["article_id"],
         completed_at=data["completed_at"],
+        xp_earned=int((xp_result or {}).get("amount", 0)),
+        total_xp=gamification["total_xp"],
+        new_level=(gamification.get("level") or {}).get("display_order", 1),
+        already_completed=False,
     )

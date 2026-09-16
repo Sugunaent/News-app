@@ -1,8 +1,11 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Query
 from postgrest.exceptions import APIError
 
 from app.core.exceptions import NotFoundError
-from app.dependencies.auth import AuthContext, get_current_user
+from app.db.supabase import supabase_admin
+from app.dependencies.auth import AuthContext, get_optional_user
 from app.schemas.articles import (
     ArticleDetailResponse,
     ArticleListResponse,
@@ -10,6 +13,7 @@ from app.schemas.articles import (
 from app.services.analytics import record_article_view
 from app.services.article_teasers import fetch_published_teasers
 from app.services.media_urls import attach_signed_url
+from app.services.gamification import get_active_xp_amount
 
 router = APIRouter(
     prefix="/api/v1/articles",
@@ -21,15 +25,27 @@ router = APIRouter(
     "",
     response_model=ArticleListResponse,
 )
-async def list_articles():
-    return {"items": fetch_published_teasers()}
+def list_articles(
+    category_id: str | None = Query(default=None),
+    featured: bool = Query(default=False),
+    author_picks: bool = Query(default=False),
+    limit: int | None = Query(default=None, ge=1, le=100),
+):
+    return {
+        "items": fetch_published_teasers(
+            category_id=category_id,
+            featured=featured,
+            author_picks=author_picks,
+            limit=limit,
+        )
+    }
 
 
 @router.get(
     "/search",
     response_model=ArticleListResponse,
 )
-async def search_articles(
+def search_articles(
     q: str = Query(..., min_length=1, max_length=100),
 ):
     search_term = q.strip()
@@ -42,17 +58,26 @@ async def search_articles(
     }
 
 
+def _looks_like_uuid(value: str) -> bool:
+    if len(value) != 36:
+        return False
+    try:
+        UUID(value)
+        return True
+    except ValueError:
+        return False
+
+
 @router.get(
     "/{slug}",
     response_model=ArticleDetailResponse,
 )
-async def get_article(
+def get_article(
     slug: str,
-    auth: AuthContext = Depends(get_current_user),
+    auth: AuthContext | None = Depends(get_optional_user),
 ):
-    client = auth.client
-
-    response = (
+    client = supabase_admin
+    query = (
         client
         .table("articles")
         .select(
@@ -64,18 +89,35 @@ async def get_article(
             summary,
             article_type,
             published_at,
+            category_id,
+            is_author_pick,
+            is_featured,
+            cover_image_url,
+            reading_time_minutes,
+            author_name,
             categories (
                 id,
                 name,
-                slug
+                slug,
+                description,
+                image_url
+            ),
+            cover:media_assets!articles_cover_media_fkey (
+                id,
+                storage_path,
+                media_type,
+                mime_type
             )
             """
         )
         .eq("status", "PUBLISHED")
-        .ilike("slug", slug)
-        .maybe_single()
-        .execute()
     )
+    if _looks_like_uuid(slug):
+        query = query.eq("id", slug)
+    else:
+        query = query.ilike("slug", slug)
+
+    response = query.maybe_single().execute()
 
     article_data = getattr(response, "data", None) if response else None
 
@@ -97,6 +139,7 @@ async def get_article(
                 quiz_id,
                 opinion_id,
                 external_url,
+                title,
                 text_content,
                 caption,
                 media_assets (
@@ -142,6 +185,7 @@ async def get_article(
                     "type": "IMAGE",
                     "display_order": block["display_order"],
                     "caption": block.get("caption"),
+                    "external_url": block.get("external_url"),
                     "media": attach_signed_url(media),
                 }
             )
@@ -154,6 +198,7 @@ async def get_article(
                     "display_order": block["display_order"],
                     "description": block.get("text_content") or "",
                     "external_url": block.get("external_url") or "",
+                    "title": block.get("title") or "Podcast",
                 }
             )
 
@@ -174,7 +219,9 @@ async def get_article(
                             quiz_options (
                                 id,
                                 option_text,
-                                display_order
+                                display_order,
+                                is_correct,
+                                explanation
                             )
                             """
                         )
@@ -202,6 +249,7 @@ async def get_article(
                         quiz_data = {
                             "id": quiz_id,
                             "questions": questions,
+                            "xp_reward": get_active_xp_amount("QUIZ_CORRECT"),
                         }
                 except APIError:
                     pass
@@ -246,7 +294,11 @@ async def get_article(
                         opinion_data = {
                             "id": raw_o["id"],
                             "question": raw_o.get("question_text"),
+                            "allow_custom_response": raw_o.get(
+                                "allow_custom_response", True
+                            ),
                             "options": raw_o.get("opinion_options", []),
+                            "xp_reward": get_active_xp_amount("OPINION_SUBMITTED"),
                         }
                 except APIError:
                     pass
@@ -268,14 +320,27 @@ async def get_article(
     except Exception:
         pass
 
+    cover = attach_signed_url(article.get("cover"))
+    cover_url = article.get("cover_image_url")
+    if not cover_url and isinstance(cover, dict):
+        cover_url = cover.get("signed_url")
+    category = article.get("categories")
+
     return {
         "id": article["id"],
-        "slug": article.get("slug"),
+        "slug": article.get("slug") or "",
         "title": article.get("title"),
         "subtitle": article.get("subtitle"),
         "summary": article.get("summary"),
         "article_type": article["article_type"],
-        "category": article.get("categories"),
+        "category": category,
+        "category_id": article.get("category_id") or (category or {}).get("id"),
         "published_at": article["published_at"],
+        "cover_image_url": cover_url,
+        "is_author_pick": bool(article.get("is_author_pick")),
+        "is_featured": bool(article.get("is_featured")),
+        "reading_time_minutes": article.get("reading_time_minutes"),
+        "author_name": article.get("author_name"),
+        "is_published": True,
         "blocks": blocks,
     }

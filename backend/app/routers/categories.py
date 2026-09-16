@@ -14,7 +14,7 @@ router = APIRouter(
     "",
     response_model=CategoryListResponse,
 )
-async def list_categories():
+def list_categories():
     response = (
         supabase
         .table("categories")
@@ -24,7 +24,8 @@ async def list_categories():
             name,
             slug,
             description,
-            display_order
+            display_order,
+            image_url
             """
         )
         .eq("is_active", True)
@@ -42,6 +43,7 @@ async def list_categories():
                 "slug": category["slug"],
                 "description": category["description"],
                 "display_order": category["display_order"],
+                "image_url": category.get("image_url"),
             }
         )
 

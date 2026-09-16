@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 
 from app.core.db_utils import extract_single_record
 from app.core.exceptions import AuthorizationError, NotFoundError
-from app.db.supabase import supabase
+from app.db.supabase import supabase, supabase_admin
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.advertisements import (
     AdvertisementCreate,
@@ -48,6 +48,19 @@ def _build_slot_select_query() -> str:
     """
 
 
+def _normalize_slot(item: dict) -> dict:
+    if not item.get("placement"):
+        key = str(item.get("key") or "").upper()
+        item["placement"] = (
+            "hero"
+            if "HERO" in key
+            else "article"
+            if "ARTICLE" in key
+            else "sidebar"
+        )
+    return item
+
+
 def _build_ad_select_query() -> str:
     return """
         id,
@@ -68,6 +81,7 @@ def _build_ad_select_query() -> str:
             key,
             name,
             description,
+            placement,
             is_active,
             created_at,
             updated_at
@@ -123,6 +137,25 @@ def _validate_media(
         raise NotFoundError(
             "Advertisement image media not found"
         )
+
+
+def _resolve_media_id(client, value: str) -> str:
+    try:
+        media_id = UUID(str(value))
+        media_filter = ("id", str(media_id))
+    except ValueError:
+        media_filter = ("storage_path", str(value).strip())
+
+    result = (
+        client.table("media_assets")
+        .select("id")
+        .eq(*media_filter)
+        .maybe_single()
+        .execute()
+    )
+    if not result.data:
+        raise NotFoundError("Advertisement image media not found")
+    return str(result.data["id"])
 
 
 def _validate_slot(
@@ -232,7 +265,12 @@ def list_advertisement_slots():
         .execute()
     )
 
-    return result.data or []
+    items = result.data or []
+    for item in items:
+        _normalize_slot(item)
+        if item.get("image"):
+            item["image"] = attach_signed_url(item["image"])
+    return items
 
 
 # ============================================================
@@ -255,7 +293,7 @@ def list_advertisements_admin(
     _require_superadmin(current_user)
 
     result = (
-        current_user.client
+        supabase_admin
         .table("advertisements")
         .select(_build_ad_select_query())
         .order("display_order", desc=False)
@@ -263,7 +301,14 @@ def list_advertisements_admin(
         .execute()
     )
 
-    return result.data or []
+    items = result.data or []
+    for item in items:
+        slot = item.get("slot")
+        if isinstance(slot, dict):
+            _normalize_slot(slot)
+        if item.get("image"):
+            item["image"] = attach_signed_url(item["image"])
+    return items
 
 
 # ============================================================
@@ -440,12 +485,11 @@ def create_advertisement(
         payload.slot_id,
     )
 
-    _validate_media(
+    data = payload.model_dump(mode="json")
+    data["image_media_id"] = _resolve_media_id(
         current_user.client,
         payload.image_media_id,
     )
-
-    data = payload.model_dump(mode="json")
 
     data["destination_url"] = str(
         payload.destination_url
@@ -542,17 +586,16 @@ def update_advertisement(
                 payload.slot_id,
             )
 
-    if "image_media_id" in payload.model_fields_set:
-        if payload.image_media_id is not None:
-            _validate_media(
-                current_user.client,
-                payload.image_media_id,
-            )
-
     data = payload.model_dump(
         mode="json",
         exclude_unset=True,
     )
+
+    if data.get("image_media_id") is not None:
+        data["image_media_id"] = _resolve_media_id(
+            current_user.client,
+            data["image_media_id"],
+        )
 
     if (
         "destination_url" in data
@@ -563,7 +606,7 @@ def update_advertisement(
         )
 
     result = (
-        current_user.client
+        supabase_admin
         .table("advertisements")
         .update(data)
         .eq("id", str(advertisement_id))
@@ -688,7 +731,10 @@ def list_advertisement_slots_admin(
         .execute()
     )
 
-    return result.data or []
+    items = result.data or []
+    for item in items:
+        _normalize_slot(item)
+    return items
 
 
 @router.post(

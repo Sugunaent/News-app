@@ -24,15 +24,18 @@ def _validate_non_blank(value: str) -> str:
 
 class SuperadminQuizCreate(BaseModel):
     article_id: UUID
+    title: str = Field(default="Quiz", min_length=1, max_length=200)
 
 
 class SuperadminQuizUpdate(BaseModel):
     article_id: UUID | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class SuperadminQuizListItem(BaseModel):
     id: UUID
     article_id: UUID
+    title: str = "Quiz"
     created_at: str
     updated_at: str
 
@@ -122,6 +125,7 @@ class SuperadminQuizQuestionReorder(BaseModel):
 
 class SuperadminQuizOptionCreate(BaseModel):
     option_text: str = Field(min_length=1)
+    explanation: str | None = None
     display_order: int = Field(default=0, ge=0)
     is_correct: bool = False
 
@@ -133,6 +137,7 @@ class SuperadminQuizOptionCreate(BaseModel):
 
 class SuperadminQuizOptionUpdate(BaseModel):
     option_text: str | None = None
+    explanation: str | None = None
     display_order: int | None = Field(default=None, ge=0)
     is_correct: bool | None = None
 
@@ -154,6 +159,7 @@ class SuperadminQuizOptionResponse(BaseModel):
     display_order: int
     is_correct: bool
     option_text: str | None
+    explanation: str | None = None
     created_at: str
     updated_at: str
 

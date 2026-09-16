@@ -8,10 +8,19 @@ TEASER_SELECT = """
     subtitle,
     article_type,
     published_at,
+    created_at,
+    is_author_pick,
+    is_featured,
+    cover_image_url,
+    reading_time_minutes,
+    author_name,
+    category_id,
     categories (
         id,
         name,
-        slug
+        slug,
+        description,
+        image_url
     ),
     cover:media_assets!articles_cover_media_fkey (
         id,
@@ -23,15 +32,29 @@ TEASER_SELECT = """
 
 
 def map_article_teaser(article: dict) -> dict:
+    category = article.get("categories")
+    cover = attach_signed_url(article.get("cover"))
+    cover_url = article.get("cover_image_url")
+    if not cover_url and isinstance(cover, dict):
+        cover_url = cover.get("signed_url")
+
     return {
         "id": article["id"],
         "slug": article.get("slug") or "",
         "title": article.get("title") or "",
         "subtitle": article.get("subtitle"),
         "article_type": article.get("article_type", ""),
-        "category": article.get("categories"),
+        "category": category,
+        "category_id": article.get("category_id") or (category or {}).get("id"),
         "published_at": article.get("published_at"),
-        "cover": attach_signed_url(article.get("cover")),
+        "created_at": article.get("created_at"),
+        "cover": cover,
+        "cover_image_url": cover_url,
+        "is_author_pick": bool(article.get("is_author_pick")),
+        "is_featured": bool(article.get("is_featured")),
+        "reading_time_minutes": article.get("reading_time_minutes"),
+        "author_name": article.get("author_name"),
+        "is_published": True,
     }
 
 
@@ -39,6 +62,7 @@ def fetch_published_teasers(
     *,
     search_term: str | None = None,
     author_picks: bool = False,
+    featured: bool = False,
     category_id: str | None = None,
     limit: int | None = None,
 ) -> list[dict]:
@@ -66,6 +90,12 @@ def fetch_published_teasers(
             query
             .eq("is_author_pick", True)
             .order("author_pick_order")
+            .order("published_at", desc=True)
+        )
+    elif featured:
+        query = (
+            query
+            .eq("is_featured", True)
             .order("published_at", desc=True)
         )
     else:

@@ -3,7 +3,11 @@ from uuid import UUID
 from postgrest.exceptions import APIError
 
 from app.core.db_utils import extract_single_record
-from app.db.supabase import supabase_admin
+from app.db.supabase import supabase, supabase_admin
+
+# Shared Supabase client alias for compatibility with the current test suite
+# and downstream service calls that expect a module-level `supabase` handle.
+supabase = supabase_admin
 
 
 def _get_active_xp_rule(event_type: str) -> dict | None:
@@ -24,6 +28,11 @@ def _get_active_xp_rule(event_type: str) -> dict | None:
         return None
     except APIError:
         return None
+
+
+def get_active_xp_amount(event_type: str, default: int = 0) -> int:
+    rule = _get_active_xp_rule(event_type)
+    return int(rule["amount"]) if rule else default
 
 
 def award_xp(

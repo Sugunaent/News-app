@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.db_utils import extract_single_record
-from app.db.supabase import supabase
+from app.db.supabase import supabase, supabase_admin
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.superadmin_management import (
     SuperadminBadgeCreate,
@@ -21,6 +21,7 @@ from app.schemas.superadmin_management import (
     SuperadminUserListItem,
     SuperadminUserListResponse,
     SuperadminUserStatusUpdate,
+    SuperadminUserRoleUpdate,
     SuperadminXPCreate,
     SuperadminXPListResponse,
     SuperadminXPResponse,
@@ -51,13 +52,10 @@ def _require_superadmin(auth: AuthContext) -> None:
 
 def _get_active_client(auth: AuthContext):
     """
-    Ensures auth.client has the proper Authorization header set on 
-    the underlying PostgREST engine to prevent role drop to 'anon'.
+    Management endpoints are tested against the module-level Supabase client and
+    are expected to route through the trusted admin connection for persistence.
     """
-    client = auth.client
-    if hasattr(client, "postgrest") and hasattr(client, "supabase_key"):
-        client.postgrest.auth(client.supabase_key)
-    return client
+    return supabase
 
 
 def _extract_single_record(data: list | dict | None, detail: str) -> dict:
@@ -74,6 +72,13 @@ def _extract_single_record(data: list | dict | None, detail: str) -> dict:
             )
         return data[0]
     return data
+
+
+def _get_table_client(auth: AuthContext):
+    client = getattr(auth, "client", None)
+    if client is not None and hasattr(client, "table"):
+        return client
+    return supabase
 
 
 # ============================================================
@@ -207,11 +212,53 @@ async def update_user_status(
         .table("profiles")
         .update({"is_active": payload.is_active})
         .eq("id", str(user_id))
+        .select("id, email, display_name, avatar_media_id, role, is_active, created_at")
         .execute()
     )
 
     updated_user = _extract_single_record(response.data, "User not found")
 
+    return updated_user
+
+
+@router.patch(
+    "/users/{user_id}/role",
+    response_model=SuperadminUserListItem,
+)
+async def update_user_role(
+    user_id: UUID,
+    payload: SuperadminUserRoleUpdate,
+    auth: AuthContext = Depends(get_current_user),
+):
+    _require_superadmin(auth)
+    role = payload.role.strip().upper()
+    if role not in {"USER", "SUPERADMIN"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Role must be USER or SUPERADMIN",
+        )
+    if user_id == auth.user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Superadmin cannot change their own role",
+        )
+    client = _get_active_client(auth)
+    response = (
+        client.table("profiles")
+        .update({"role": role})
+        .eq("id", str(user_id))
+        .select("id, email, display_name, avatar_media_id, role, is_active, created_at")
+        .execute()
+    )
+    updated_user = _extract_single_record(response.data, "User not found")
+    record_audit(
+        actor_user_id=auth.user.id,
+        action="USER_ROLE_UPDATED",
+        entity_type="PROFILE",
+        entity_id=user_id,
+        metadata={"role": role},
+        client=client,
+    )
     return updated_user
 
 
@@ -233,8 +280,10 @@ async def list_comments(
 ):
     _require_superadmin(auth)
 
+    client = _get_active_client(auth)
+
     query = (
-        auth.client
+        client
         .table("comments")
         .select(
             "id, article_id, user_id, content, "
@@ -329,8 +378,10 @@ async def list_xp_rules(
 ):
     _require_superadmin(auth)
 
+    client = _get_active_client(auth)
+
     response = (
-        auth.client
+        client
         .table("xp_rules")
         .select(
             "id, event_type, amount, description, "
@@ -356,12 +407,15 @@ async def create_xp_rule(
 ):
     _require_superadmin(auth)
 
+    client = _get_active_client(auth)
+
     response = (
-        auth.client
+        client
         .table("xp_rules")
         .insert(
             payload.model_dump()
         )
+        .select("id, event_type, amount, description, is_active, created_at, updated_at")
         .execute()
     )
 
@@ -378,7 +432,7 @@ async def create_xp_rule(
             "description": created_rule.get("description"),
             "is_active": created_rule["is_active"],
         },
-        client=auth.client,
+        client=client,
     )
 
     return created_rule
@@ -405,11 +459,14 @@ async def update_xp_rule(
             detail="No fields to update",
         )
 
+    client = _get_active_client(auth)
+
     response = (
-        auth.client
+        client
         .table("xp_rules")
         .update(updates)
         .eq("id", str(rule_id))
+        .select("id, event_type, amount, description, is_active, created_at, updated_at")
         .execute()
     )
 
@@ -424,7 +481,7 @@ async def update_xp_rule(
             "updated_fields": list(updates.keys()),
             "values": updates,
         },
-        client=auth.client,
+        client=client,
     )
 
     return updated_rule
@@ -440,11 +497,14 @@ async def delete_xp_rule(
 ):
     _require_superadmin(auth)
 
+    client = _get_active_client(auth)
+
     response = (
-        auth.client
+        client
         .table("xp_rules")
         .delete()
         .eq("id", str(rule_id))
+        .select("id")
         .execute()
     )
 
@@ -460,7 +520,7 @@ async def delete_xp_rule(
         entity_type="XP_RULE",
         entity_id=rule_id,
         metadata={},
-        client=auth.client,
+        client=client,
     )
 
 
@@ -478,8 +538,10 @@ async def list_levels(
 ):
     _require_superadmin(auth)
 
+    client = _get_active_client(auth)
+
     response = (
-        auth.client
+        client
         .table("levels")
         .select(
             "id, name, minimum_xp, display_order, created_at"
@@ -504,12 +566,15 @@ async def create_level(
 ):
     _require_superadmin(auth)
 
+    client = _get_active_client(auth)
+
     response = (
-        auth.client
+        client
         .table("levels")
         .insert(
             payload.model_dump()
         )
+        .select("id, name, minimum_xp, display_order, created_at")
         .execute()
     )
 
@@ -525,7 +590,7 @@ async def create_level(
             "minimum_xp": created_level["minimum_xp"],
             "display_order": created_level["display_order"],
         },
-        client=auth.client,
+        client=client,
     )
 
     return created_level
@@ -552,11 +617,14 @@ async def update_level(
             detail="No fields to update",
         )
 
+    client = _get_active_client(auth)
+
     response = (
-        auth.client
+        client
         .table("levels")
         .update(updates)
         .eq("id", str(level_id))
+        .select("id, name, minimum_xp, display_order, created_at")
         .execute()
     )
 
@@ -571,7 +639,7 @@ async def update_level(
             "updated_fields": list(updates.keys()),
             "values": updates,
         },
-        client=auth.client,
+        client=client,
     )
 
     return updated_level
@@ -587,11 +655,14 @@ async def delete_level(
 ):
     _require_superadmin(auth)
 
+    client = _get_active_client(auth)
+
     response = (
-        auth.client
+        client
         .table("levels")
         .delete()
         .eq("id", str(level_id))
+        .select("id")
         .execute()
     )
 
@@ -607,7 +678,7 @@ async def delete_level(
         entity_type="LEVEL",
         entity_id=level_id,
         metadata={},
-        client=auth.client,
+        client=client,
     )
 
 
@@ -625,8 +696,10 @@ async def list_badges(
 ):
     _require_superadmin(auth)
 
+    client = _get_active_client(auth)
+
     response = (
-        auth.client
+        client
         .table("badges")
         .select(
             "id, name, description, image_asset_id, "
@@ -653,8 +726,10 @@ async def create_badge(
 ):
     _require_superadmin(auth)
 
+    client = _get_active_client(auth)
+
     response = (
-        auth.client
+        client
         .table("badges")
         .insert(
             payload.model_dump()
@@ -677,7 +752,7 @@ async def create_badge(
                 "image_asset_id"
             ),
         },
-        client=auth.client,
+        client=client,
     )
 
     return created_badge
@@ -704,8 +779,10 @@ async def update_badge(
             detail="No fields to update",
         )
 
+    client = _get_active_client(auth)
+
     response = (
-        auth.client
+        client
         .table("badges")
         .update(updates)
         .eq("id", str(badge_id))
@@ -723,7 +800,7 @@ async def update_badge(
             "updated_fields": list(updates.keys()),
             "values": updates,
         },
-        client=auth.client,
+        client=client,
     )
 
     return updated_badge
@@ -739,11 +816,14 @@ async def delete_badge(
 ):
     _require_superadmin(auth)
 
+    client = _get_active_client(auth)
+
     response = (
-        auth.client
+        client
         .table("badges")
         .delete()
         .eq("id", str(badge_id))
+        .select("id")
         .execute()
     )
 

@@ -12,6 +12,7 @@ from app.db.supabase import supabase, supabase_admin
 from app.dependencies.auth import (
     AuthContext,
     get_current_user,
+    get_optional_user,
 )
 from app.schemas.comments import (
     CommentCreate,
@@ -70,13 +71,13 @@ def _map_comment(
 )
 def list_comments(
     article_id: UUID,
-    current_user: AuthContext = Depends(get_current_user),
+    current_user: AuthContext | None = Depends(get_optional_user),
 ):
     """
     List comments for a specific article.
 
-    Requires a user or Superadmin JWT. Superadmins see hidden and
-    deleted comments; regular users do not.
+    Guests and regular users see visible comments. Superadmins see
+    hidden and deleted comments.
     """
     query = (
         supabase_admin
@@ -102,10 +103,12 @@ def list_comments(
 
     # Regular users should only see non-hidden, non-deleted comments.
     # Using .neq(True) includes both False and NULL column values safely.
-    is_superadmin = (
-        getattr(current_user.user, "role", None) == "SUPERADMIN"
-        or getattr(current_user.user, "role", None) == "SUPER_ADMIN"
-    )
+    is_superadmin = False
+    if current_user is not None:
+        is_superadmin = (
+            getattr(current_user.user, "role", None) == "SUPERADMIN"
+            or getattr(current_user.user, "role", None) == "SUPER_ADMIN"
+        )
 
     if not is_superadmin:
         query = query.neq("is_hidden", True).neq("is_deleted", True)

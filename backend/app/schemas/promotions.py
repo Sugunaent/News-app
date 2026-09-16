@@ -29,7 +29,7 @@ class PromotionalItemResponse(BaseModel):
 
 
 class PromotionalItemCreate(BaseModel):
-    image_media_id: UUID
+    image_media_id: str
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1, max_length=1000)
     external_url: AnyHttpUrl
@@ -41,7 +41,7 @@ class PromotionalItemCreate(BaseModel):
 
 
 class PromotionalItemUpdate(BaseModel):
-    image_media_id: UUID | None = None
+    image_media_id: str | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, min_length=1, max_length=1000)
     external_url: AnyHttpUrl | None = None

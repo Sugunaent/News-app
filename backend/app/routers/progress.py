@@ -21,7 +21,7 @@ router = APIRouter(
     "/{article_id}/progress",
     response_model=ReadingProgressResponse | None,
 )
-async def get_reading_progress(
+def get_reading_progress(
     article_id: UUID,
     auth: AuthContext = Depends(get_current_user),
 ):
@@ -69,7 +69,7 @@ async def get_reading_progress(
     "/{article_id}/progress",
     response_model=ReadingProgressResponse,
 )
-async def update_reading_progress(
+def update_reading_progress(
     article_id: UUID,
     payload: ReadingProgressUpdate,
     auth: AuthContext = Depends(get_current_user),

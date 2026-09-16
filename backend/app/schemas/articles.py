@@ -14,6 +14,8 @@ class ArticleCategory(BaseModel):
     id: UUID
     name: str
     slug: str
+    description: str | None = None
+    image_url: str | None = None
 
 
 class ArticleMedia(BaseModel):
@@ -31,8 +33,16 @@ class ArticleListItem(BaseModel):
     subtitle: str | None = None
     article_type: str
     category: ArticleCategory | None = None
+    category_id: UUID | None = None
     published_at: datetime | None = None
+    created_at: datetime | None = None
     cover: ArticleMedia | None = None
+    cover_image_url: str | None = None
+    is_author_pick: bool = False
+    is_featured: bool = False
+    reading_time_minutes: int | None = None
+    author_name: str | None = None
+    is_published: bool = True
 
 
 class ArticleListResponse(BaseModel):
@@ -55,12 +65,16 @@ class ArticleOpinionData(BaseModel):
     id: UUID
     question: str
     options: list[OpinionOption] = []
+    allow_custom_response: bool = True
+    xp_reward: int = 0
 
 
 class ArticleQuizOption(BaseModel):
     id: UUID
     option_text: str
     display_order: int
+    is_correct: bool = False
+    explanation: str | None = None
 
 
 class ArticleQuizQuestion(BaseModel):
@@ -73,6 +87,7 @@ class ArticleQuizQuestion(BaseModel):
 class ArticleQuizData(BaseModel):
     id: UUID
     questions: list[ArticleQuizQuestion] = []
+    xp_reward: int = 0
 
 
 # ============================================================
@@ -92,6 +107,7 @@ class ArticleImageBlock(BaseModel):
     type: Literal["IMAGE"]
     display_order: int
     caption: str | None = None
+    external_url: str | None = None
     media: ArticleMedia | None = None
 
 
@@ -144,6 +160,13 @@ class ArticleDetailResponse(BaseModel):
     subtitle: str | None = None
     summary: str | None = None
     article_type: str
-    category: ArticleCategory
+    category: ArticleCategory | None = None
+    category_id: UUID | None = None
     published_at: datetime | None = None
+    cover_image_url: str | None = None
+    is_author_pick: bool = False
+    is_featured: bool = False
+    reading_time_minutes: int | None = None
+    author_name: str | None = None
+    is_published: bool = True
     blocks: list[ArticleBlock]
