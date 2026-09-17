@@ -36,29 +36,82 @@ async function refreshAccessToken(): Promise<string | null> {
   return refreshPromise;
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+function isPublicGetEndpoint(path: string, method = 'GET'): boolean {
+  if (method.toUpperCase() !== 'GET') return false;
+  const normalized = path.split('?')[0].toLowerCase();
+  return (
+    normalized.startsWith('/api/v1/categories') ||
+    normalized.startsWith('/api/v1/promotions') ||
+    normalized.startsWith('/api/v1/site') ||
+    normalized.startsWith('/api/v1/advertisements') ||
+    normalized.startsWith('/api/v1/gamification/levels') ||
+    normalized.startsWith('/api/v1/gamification/badges') ||
+    normalized.startsWith('/api/v1/gamification/xp-rules') ||
+    (normalized.startsWith('/api/v1/articles') &&
+      !normalized.includes('/progress') &&
+      !normalized.includes('/bookmark') &&
+      !normalized.includes('/comments') &&
+      !normalized.includes('/completion') &&
+      !normalized.includes('/share'))
+  );
+}
+
+export interface ApiFetchOptions extends RequestInit {
+  skipAuth?: boolean;
+}
+
+export async function apiFetch<T>(path: string, init: ApiFetchOptions = {}): Promise<T> {
+  const method = (init.method || 'GET').toUpperCase();
+  const isPublic = isPublicGetEndpoint(path, method);
   const headers = new Headers(init.headers || {});
+  
   if (!(init.body instanceof FormData) && !headers.has('Content-Type') && init.body != null) {
     headers.set('Content-Type', 'application/json');
   }
 
-  const token = await getAuthToken();
+  const token = init.skipAuth ? null : await getAuthToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
-  let response = await fetch(buildApiUrl(path), { ...init, headers });
+  let response: Response;
+  try {
+    response = await fetch(buildApiUrl(path), { ...init, headers });
+  } catch (networkError) {
+    // If authenticated request to public endpoint failed due to CORS preflight / network,
+    // fallback immediately to an unauthenticated simple GET request.
+    if (token && isPublic) {
+      console.warn(`[API] Authenticated request to ${path} failed, retrying without auth...`);
+      const retryHeaders = new Headers(init.headers || {});
+      retryHeaders.delete('Authorization');
+      try {
+        response = await fetch(buildApiUrl(path), { ...init, headers: retryHeaders });
+      } catch {
+        throw networkError;
+      }
+    } else {
+      throw networkError;
+    }
+  }
 
-  // A request can race the one-hour access-token expiry. Refresh once and
-  // replay the same request with the new Supabase access token.
-  if (response.status === 401 && supabase) {
-    const refreshedToken = await refreshAccessToken();
-    if (refreshedToken) {
-      headers.set('Authorization', `Bearer ${refreshedToken}`);
-      response = await fetch(buildApiUrl(path), { ...init, headers });
+  // A request can race the access-token expiry. Refresh once and replay.
+  if (response.status === 401) {
+    if (supabase) {
+      const refreshedToken = await refreshAccessToken();
+      if (refreshedToken) {
+        headers.set('Authorization', `Bearer ${refreshedToken}`);
+        response = await fetch(buildApiUrl(path), { ...init, headers });
+      }
+    }
+
+    // If still 401 on a public GET endpoint, retry without auth header so public content always loads
+    if (response.status === 401 && isPublic) {
+      const publicHeaders = new Headers(init.headers || {});
+      publicHeaders.delete('Authorization');
+      response = await fetch(buildApiUrl(path), { ...init, headers: publicHeaders });
     }
   }
 
   if (!response.ok) {
-    console.error(`[API] ${init.method || 'GET'} ${path} -> ${response.status}`);
+    console.error(`[API] ${method} ${path} -> ${response.status}`);
   }
 
   if (response.status === 204) {
@@ -75,7 +128,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       else if (typeof payload.message === 'string') message = payload.message;
     } catch {
     }
-    console.error(`[API] ${init.method || 'GET'} ${path} detail:`, message);
+    console.error(`[API] ${method} ${path} detail:`, message);
     throw new Error(message);
   }
 
@@ -90,6 +143,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   }
 }
 
-export async function apiFetchJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiFetchJson<T>(path: string, init: ApiFetchOptions = {}): Promise<T> {
   return apiFetch<T>(path, init);
 }
+

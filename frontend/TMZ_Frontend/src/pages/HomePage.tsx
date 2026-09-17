@@ -28,34 +28,67 @@ export function HomePage() {
   const [categoryArticles, setCategoryArticles] = useState<Record<string, Article[]>>({});
 
   useEffect(() => {
+    let mounted = true;
+
     const load = async () => {
       try {
         setLoading(true);
-        const [cats, promos, latestArts, picks] = await Promise.all([
+        const [catsRes, promosRes, latestRes, picksRes] = await Promise.allSettled([
           fetchCategories(),
           fetchPromotions(),
           fetchLatestArticles(10),
           fetchAuthorsPicks(10),
         ]);
+
+        if (!mounted) return;
+
+        const cats = catsRes.status === 'fulfilled' ? catsRes.value : [];
+        const promos = promosRes.status === 'fulfilled' ? promosRes.value : [];
+        const latestArts = latestRes.status === 'fulfilled' ? latestRes.value : [];
+        const picks = picksRes.status === 'fulfilled' ? picksRes.value : [];
+
+        // Only trigger error state if all main story sources failed
+        if (
+          catsRes.status === 'rejected' &&
+          latestRes.status === 'rejected' &&
+          picksRes.status === 'rejected'
+        ) {
+          setError(true);
+          return;
+        }
+
         setCategories(cats);
         setPromotions(promos);
         setLatest(latestArts);
         setAuthorsPicks(picks);
+        setError(false);
 
         const catArts: Record<string, Article[]> = {};
         if (cats.length > 0) {
           const firstCat = cats[0];
-          const arts = await fetchArticlesByCategory(firstCat.id);
-          catArts[firstCat.id] = arts;
+          try {
+            const arts = await fetchArticlesByCategory(firstCat.id);
+            if (mounted) {
+              catArts[firstCat.id] = arts;
+              setCategoryArticles(catArts);
+            }
+          } catch {
+            // Keep empty on error without breaking page
+          }
         }
-        setCategoryArticles(catArts);
-      } catch {
-        setError(true);
+      } catch (err) {
+        console.error('[HomePage] Load error:', err);
+        if (mounted) setError(true);
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
+
     load();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   if (loading) return <LoadingState message="Loading stories..." />;

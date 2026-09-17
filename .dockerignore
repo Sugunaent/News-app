@@ -1,0 +1,30 @@
+# Git & IDE
+.git
+.gitignore
+.vscode
+.idea
+*.swp
+*.swo
+
+# Python
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.venv
+**/venv
+**/.pytest_cache
+**/.mypy_cache
+**/.coverage
+**/htmlcov
+
+# Node & Frontend
+**/node_modules
+**/dist
+**/.npm
+**/.cache
+
+# Logs & temp
+**/*.log
+.DS_Store
+Thumbs.db

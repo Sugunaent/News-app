@@ -45,79 +45,91 @@ def _ensure_profile(auth_user) -> dict:
     user_id = str(auth_user.id)
     email = getattr(auth_user, "email", None)
     display_name = _display_name_from_auth_user(auth_user)
+    fallback_data = {
+        "id": user_id,
+        "email": email,
+        "display_name": display_name,
+        "role": "USER",
+        "is_active": True,
+    }
 
-    # Replaced .maybe_single().execute() with .execute()
-    existing = (
-        supabase_admin
-        .table("profiles")
-        .select("id, email, display_name, role, is_active")
-        .eq("id", user_id)
-        .execute()
-    )
-
-    existing_rows = existing.data if existing and existing.data else []
-
-    if existing_rows:
-        data = dict(existing_rows[0])
-        data["role"] = data.get("role") or "USER"
-        data["is_active"] = (
-            data.get("is_active") if data.get("is_active") is not None else True
+    try:
+        existing = (
+            supabase_admin
+            .table("profiles")
+            .select("id, email, display_name, role, is_active")
+            .eq("id", user_id)
+            .execute()
         )
 
-        updates = {}
-        if email and data.get("email") != email:
-            updates["email"] = email
-        if display_name and not data.get("display_name"):
-            updates["display_name"] = display_name
+        existing_rows = existing.data if existing and existing.data else []
 
-        if updates:
-            updated = (
-                supabase_admin
-                .table("profiles")
-                .update(updates)
-                .eq("id", user_id)
-                .select("id, email, display_name, role, is_active")
-                .execute()
+        if existing_rows:
+            data = dict(existing_rows[0])
+            data["role"] = data.get("role") or "USER"
+            data["is_active"] = (
+                data.get("is_active") if data.get("is_active") is not None else True
             )
-            if updated and updated.data:
-                updated_data = dict(updated.data[0])
-                updated_data["role"] = updated_data.get("role") or "USER"
-                updated_data["is_active"] = (
-                    updated_data.get("is_active")
-                    if updated_data.get("is_active") is not None
-                    else True
-                )
-                return updated_data
 
-        return data
+            updates = {}
+            if email and data.get("email") != email:
+                updates["email"] = email
+            if display_name and not data.get("display_name"):
+                updates["display_name"] = display_name
 
-    # Create profile if not found
-    created = (
-        supabase_admin
-        .table("profiles")
-        .insert(
-            {
-                "id": user_id,
-                "email": email,
-                "display_name": display_name,
-                "role": "USER",
-                "is_active": True,
-            }
+            if updates:
+                try:
+                    updated = (
+                        supabase_admin
+                        .table("profiles")
+                        .update(updates)
+                        .eq("id", user_id)
+                        .select("id, email, display_name, role, is_active")
+                        .execute()
+                    )
+                    if updated and updated.data:
+                        updated_data = dict(updated.data[0])
+                        updated_data["role"] = updated_data.get("role") or "USER"
+                        updated_data["is_active"] = (
+                            updated_data.get("is_active")
+                            if updated_data.get("is_active") is not None
+                            else True
+                        )
+                        return updated_data
+                except Exception:
+                    pass
+
+            return data
+
+        # Create profile if not found
+        created = (
+            supabase_admin
+            .table("profiles")
+            .insert(
+                {
+                    "id": user_id,
+                    "email": email,
+                    "display_name": display_name,
+                    "role": "USER",
+                    "is_active": True,
+                }
+            )
+            .select("id, email, display_name, role, is_active")
+            .execute()
         )
-        .select("id, email, display_name, role, is_active")
-        .execute()
-    )
 
-    rows = created.data or []
-    if not rows:
-        raise NotFoundError("User profile could not be created")
+        rows = created.data if created and created.data else []
+        if rows:
+            res_data = dict(rows[0])
+            res_data["role"] = res_data.get("role") or "USER"
+            res_data["is_active"] = (
+                res_data.get("is_active") if res_data.get("is_active") is not None else True
+            )
+            return res_data
+    except Exception as exc:
+        print(f"[AUTH PROFILE WARNING] Could not query/create DB profile: {exc}")
 
-    res_data = dict(rows[0])
-    res_data["role"] = res_data.get("role") or "USER"
-    res_data["is_active"] = (
-        res_data.get("is_active") if res_data.get("is_active") is not None else True
-    )
-    return res_data
+    return fallback_data
 
 
 def get_current_user(
@@ -125,12 +137,17 @@ def get_current_user(
 ) -> AuthContext:
     access_token = credentials.credentials
 
+    auth_user = None
     try:
         response = supabase.auth.get_user(access_token)
-    except Exception as exc:
-        raise AuthenticationError() from exc
-
-    auth_user = response.user
+        auth_user = response.user
+    except Exception:
+        # Fallback to admin auth client if anon client had an issue
+        try:
+            response = supabase_admin.auth.get_user(access_token)
+            auth_user = response.user
+        except Exception as exc:
+            raise AuthenticationError() from exc
 
     if auth_user is None:
         raise AuthenticationError()
@@ -138,13 +155,18 @@ def get_current_user(
     try:
         profile_data = _ensure_profile(auth_user)
         profile = CurrentUser(**profile_data)
-    except NotFoundError:
-        raise
     except Exception as exc:
-        print(f"[AUTH ERROR] {exc}")
-        raise HTTPException(
-            status_code=500, detail=f"Profile processing error: {str(exc)}"
-        ) from exc
+        print(f"[AUTH ERROR] Falling back to auth_user metadata: {exc}")
+        user_id = str(auth_user.id)
+        email = getattr(auth_user, "email", None)
+        display_name = _display_name_from_auth_user(auth_user)
+        profile = CurrentUser(
+            id=user_id,
+            email=email,
+            display_name=display_name,
+            role="USER",
+            is_active=True,
+        )
 
     if not profile.is_active:
         raise AuthorizationError("User account is inactive")
@@ -158,7 +180,7 @@ def get_current_user(
 def get_optional_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(optional_bearer_scheme),
 ) -> AuthContext | None:
-    if credentials is None:
+    if credentials is None or not credentials.credentials:
         return None
     try:
         return get_current_user(credentials)

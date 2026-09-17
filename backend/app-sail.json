@@ -1,0 +1,4 @@
+{
+    "stack": "python3.13",
+    "command": "sh start.sh"
+}

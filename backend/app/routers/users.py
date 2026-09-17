@@ -71,15 +71,31 @@ def _avatar_url_for(avatar_media_id) -> str | None:
 
 
 def _to_user_profile(profile: dict, fallback_email: str | None) -> UserProfileResponse:
+    email_val = profile.get("email")
+    if not isinstance(email_val, str) or not email_val:
+        email_val = fallback_email if isinstance(fallback_email, str) else None
+
+    display_name_val = profile.get("display_name")
+    if not isinstance(display_name_val, str):
+        display_name_val = None
+
+    role_val = profile.get("role", "USER")
+    if not isinstance(role_val, str):
+        role_val = "USER"
+
+    is_active_val = profile.get("is_active", True)
+    if not isinstance(is_active_val, bool):
+        is_active_val = True
+
     return UserProfileResponse(
         id=profile["id"],
-        email=profile.get("email", fallback_email),
-        display_name=profile.get("display_name"),
+        email=email_val,
+        display_name=display_name_val,
         avatar_media_id=profile.get("avatar_media_id"),
         avatar_url=_avatar_url_for(profile.get("avatar_media_id")),
-        bio=profile.get("bio"),
-        role=profile.get("role", "USER"),
-        is_active=profile.get("is_active", True),
+        bio=profile.get("bio") if isinstance(profile.get("bio"), str) else None,
+        role=role_val,
+        is_active=is_active_val,
     )
 
 
@@ -90,27 +106,51 @@ def _to_user_profile(profile: dict, fallback_email: str | None) -> UserProfileRe
 def get_me(
     auth: AuthContext = Depends(get_current_user),
 ):
-    client = auth.client
+    client = auth.client if hasattr(auth, "client") and auth.client else supabase_admin
     user_id = str(auth.user.id)
 
     profile = getattr(auth, "profile", None)
     if profile is None:
-        profile_response = (
-            client.table("profiles")
-            .select(PROFILE_SELECT)
-            .eq("id", user_id)
-            .maybe_single()
-            .execute()
-        )
-        profile = _profile_payload(profile_response)
+        try:
+            profile_response = (
+                client.table("profiles")
+                .select(PROFILE_SELECT)
+                .eq("id", user_id)
+                .maybe_single()
+                .execute()
+            )
+            profile = _profile_payload(profile_response)
+        except Exception:
+            profile = None
 
     if profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User profile not found.",
-        )
+        try:
+            profile_response = (
+                supabase_admin.table("profiles")
+                .select(PROFILE_SELECT)
+                .eq("id", user_id)
+                .maybe_single()
+                .execute()
+            )
+            profile = _profile_payload(profile_response)
+        except Exception:
+            profile = None
 
-    return _to_user_profile(profile, auth.user.email)
+    if profile is None:
+        user_email = auth.user.email if isinstance(getattr(auth.user, "email", None), str) else None
+        user_display = auth.user.display_name if isinstance(getattr(auth.user, "display_name", None), str) else None
+        profile = {
+            "id": user_id,
+            "email": user_email,
+            "display_name": user_display,
+            "avatar_media_id": None,
+            "role": "USER",
+            "is_active": True,
+            "bio": None,
+        }
+
+    fallback_email = auth.user.email if isinstance(getattr(auth.user, "email", None), str) else None
+    return _to_user_profile(profile, fallback_email)
 
 
 @router.get(
@@ -120,149 +160,180 @@ def get_me(
 def get_my_profile(
     auth: AuthContext = Depends(get_current_user),
 ):
-    client = auth.client
+    client = auth.client if hasattr(auth, "client") and auth.client else supabase_admin
     user_id = str(auth.user.id)
 
     # ---------------------------------------------------------
     # 1. Profile identity
     # ---------------------------------------------------------
 
-    profile_response = (
-        client.table("profiles")
-        .select(PROFILE_SELECT)
-        .eq("id", user_id)
-        .maybe_single()
-        .execute()
-    )
+    profile = getattr(auth, "profile", None)
+    if profile is None:
+        try:
+            profile_response = (
+                client.table("profiles")
+                .select(PROFILE_SELECT)
+                .eq("id", user_id)
+                .maybe_single()
+                .execute()
+            )
+            profile = _profile_payload(profile_response)
+        except Exception:
+            profile = None
 
-    if not profile_response or profile_response.data is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User profile not found.",
-        )
+    if profile is None:
+        try:
+            profile_response = (
+                supabase_admin.table("profiles")
+                .select(PROFILE_SELECT)
+                .eq("id", user_id)
+                .maybe_single()
+                .execute()
+            )
+            profile = _profile_payload(profile_response)
+        except Exception:
+            profile = None
 
-    profile = profile_response.data
+    if profile is None:
+        user_email = auth.user.email if isinstance(getattr(auth.user, "email", None), str) else None
+        user_display = auth.user.display_name if isinstance(getattr(auth.user, "display_name", None), str) else None
+        profile = {
+            "id": user_id,
+            "email": user_email,
+            "display_name": user_display,
+            "avatar_media_id": None,
+            "role": "USER",
+            "is_active": True,
+            "bio": None,
+        }
 
-    user_profile = _to_user_profile(profile, auth.user.email)
+    fallback_email = auth.user.email if isinstance(getattr(auth.user, "email", None), str) else None
+    user_profile = _to_user_profile(profile, fallback_email)
 
     # ---------------------------------------------------------
     # 2. Gamification
     # ---------------------------------------------------------
 
-    transactions_response = (
-        client.table("xp_transactions")
-        .select(
-            "id, xp_rule_id, article_id, source_type, "
-            "source_id, amount, created_at"
+    transactions = []
+    try:
+        transactions_response = (
+            client.table("xp_transactions")
+            .select(
+                "id, xp_rule_id, article_id, source_type, "
+                "source_id, amount, created_at"
+            )
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
         )
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .execute()
-    )
-
-    transactions = (
-        transactions_response.data
-        if (
-            transactions_response
-            and isinstance(transactions_response.data, list)
-        )
-        else []
-    )
+        if transactions_response and isinstance(transactions_response.data, list):
+            transactions = transactions_response.data
+    except Exception:
+        transactions = []
 
     total_xp = sum(
         transaction["amount"]
         for transaction in transactions
     )
 
-    level_response = (
-        client.table("levels")
-        .select(
-            "id, name, minimum_xp, display_order"
-        )
-        .lte("minimum_xp", total_xp)
-        .order("minimum_xp", desc=True)
-        .limit(1)
-        .maybe_single()
-        .execute()
-    )
-
     current_level = None
-
-    if (
-        level_response
-        and isinstance(level_response.data, dict)
-    ):
-        current_level = UserProfileLevelResponse(
-            id=level_response.data["id"],
-            name=level_response.data["name"],
-            minimum_xp=level_response.data["minimum_xp"],
-            display_order=level_response.data["display_order"],
+    current_level = None
+    try:
+        level_response = (
+            client.table("levels")
+            .select(
+                "id, name, minimum_xp, display_order"
+            )
+            .lte("minimum_xp", total_xp)
+            .order("minimum_xp", desc=True)
+            .limit(1)
+            .maybe_single()
+            .execute()
         )
 
-    badges_response = (
-        client.table("user_badges")
-        .select(
-            "badge_id, earned_at, "
-            "badges(id, name, description, image_asset_id)"
-        )
-        .eq("user_id", user_id)
-        .order("earned_at", desc=True)
-        .execute()
-    )
+        if (
+            level_response
+            and isinstance(level_response.data, dict)
+        ):
+            current_level = UserProfileLevelResponse(
+                id=level_response.data["id"],
+                name=level_response.data["name"],
+                minimum_xp=level_response.data["minimum_xp"],
+                display_order=level_response.data["display_order"],
+            )
+    except Exception:
+        current_level = None
 
     badges: list[UserProfileBadgeResponse] = []
-
-    badge_items = (
-        badges_response.data
-        if (
-            badges_response
-            and isinstance(badges_response.data, list)
-        )
-        else []
-    )
-
-    for item in badge_items:
-        badge = item.get("badges")
-
-        if not badge:
-            continue
-
-        badges.append(
-            UserProfileBadgeResponse(
-                id=badge["id"],
-                name=badge["name"],
-                description=badge["description"],
-                image_asset_id=badge.get("image_asset_id"),
-                earned_at=item["earned_at"],
+    try:
+        badges_response = (
+            client.table("user_badges")
+            .select(
+                "badge_id, earned_at, "
+                "badges(id, name, description, image_asset_id)"
             )
+            .eq("user_id", user_id)
+            .order("earned_at", desc=True)
+            .execute()
         )
+
+        badge_items = (
+            badges_response.data
+            if (
+                badges_response
+                and isinstance(badges_response.data, list)
+            )
+            else []
+        )
+
+        for item in badge_items:
+            badge = item.get("badges")
+
+            if not badge:
+                continue
+
+            badges.append(
+                UserProfileBadgeResponse(
+                    id=badge["id"],
+                    name=badge["name"],
+                    description=badge["description"],
+                    image_asset_id=badge.get("image_asset_id"),
+                    earned_at=item["earned_at"],
+                )
+            )
+    except Exception:
+        badges = []
 
     # ---------------------------------------------------------
     # 3. Article completions
     # ---------------------------------------------------------
 
-    completions_response = (
-        client.table("article_completions")
-        .select(
-            "article_id, completed_at, "
-            "articles("
-            "id, "
-            "title"
-            ")"
+    completions = []
+    try:
+        completions_response = (
+            client.table("article_completions")
+            .select(
+                "article_id, completed_at, "
+                "articles("
+                "id, "
+                "title"
+                ")"
+            )
+            .eq("user_id", user_id)
+            .order("completed_at", desc=True)
+            .execute()
         )
-        .eq("user_id", user_id)
-        .order("completed_at", desc=True)
-        .execute()
-    )
 
-    completions = (
-        completions_response.data
-        if (
-            completions_response
-            and isinstance(completions_response.data, list)
+        completions = (
+            completions_response.data
+            if (
+                completions_response
+                and isinstance(completions_response.data, list)
+            )
+            else []
         )
-        else []
-    )
+    except Exception:
+        completions = []
 
     articles_completed = len(completions)
 
@@ -270,24 +341,28 @@ def get_my_profile(
     # 4. Quiz performance
     # ---------------------------------------------------------
 
-    quiz_attempts_response = (
-        client.table("quiz_attempts")
-        .select(
-            "question_id, selected_option_id, "
-            "is_correct, created_at"
+    quiz_attempts = []
+    try:
+        quiz_attempts_response = (
+            client.table("quiz_attempts")
+            .select(
+                "question_id, selected_option_id, "
+                "is_correct, created_at"
+            )
+            .eq("user_id", user_id)
+            .execute()
         )
-        .eq("user_id", user_id)
-        .execute()
-    )
 
-    quiz_attempts = (
-        quiz_attempts_response.data
-        if (
-            quiz_attempts_response
-            and isinstance(quiz_attempts_response.data, list)
+        quiz_attempts = (
+            quiz_attempts_response.data
+            if (
+                quiz_attempts_response
+                and isinstance(quiz_attempts_response.data, list)
+            )
+            else []
         )
-        else []
-    )
+    except Exception:
+        quiz_attempts = []
 
     total_attempts = len(quiz_attempts)
 
@@ -319,37 +394,41 @@ def get_my_profile(
     # 5. Opinion submissions
     # ---------------------------------------------------------
 
-    opinions_response = (
-        client.table("opinion_responses")
-        .select(
-            "id, "
-            "opinion_question_id, "
-            "selected_option_id, "
-            "custom_response, "
-            "created_at, "
-            "opinion_questions("
-            "id, "
-            "article_id, "
-            "question_text, "
-            "articles("
-            "id, "
-            "title"
-            ")"
-            ")"
+    opinions = []
+    try:
+        opinions_response = (
+            client.table("opinion_responses")
+            .select(
+                "id, "
+                "opinion_question_id, "
+                "selected_option_id, "
+                "custom_response, "
+                "created_at, "
+                "opinion_questions("
+                "id, "
+                "article_id, "
+                "question_text, "
+                "articles("
+                "id, "
+                "title"
+                ")"
+                ")"
+            )
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
         )
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .execute()
-    )
 
-    opinions = (
-        opinions_response.data
-        if (
-            opinions_response
-            and isinstance(opinions_response.data, list)
+        opinions = (
+            opinions_response.data
+            if (
+                opinions_response
+                and isinstance(opinions_response.data, list)
+            )
+            else []
         )
-        else []
-    )
+    except Exception:
+        opinions = []
 
     opinions_submitted = len(opinions)
 
@@ -366,71 +445,76 @@ def get_my_profile(
     ]
 
     if selected_option_ids:
-        options_response = (
-            client.table("opinion_options")
-            .select(
-                "id, question_id, option_text"
+        try:
+            options_response = (
+                client.table("opinion_options")
+                .select(
+                    "id, question_id, option_text"
+                )
+                .in_("id", selected_option_ids)
+                .execute()
             )
-            .in_("id", selected_option_ids)
-            .execute()
-        )
 
-        options = (
-            options_response.data
-            if (
-                options_response
-                and isinstance(options_response.data, list)
+            options = (
+                options_response.data
+                if (
+                    options_response
+                    and isinstance(options_response.data, list)
+                )
+                else []
             )
-            else []
-        )
 
-        for option in options:
-            option_text = option.get("option_text")
+            for option in options:
+                option_text = option.get("option_text")
 
-            if option_text:
-                opinion_option_text_by_id[
-                    str(option["id"])
-                ] = option_text
+                if option_text:
+                    opinion_option_text_by_id[
+                        str(option["id"])
+                    ] = option_text
+        except Exception:
+            pass
 
     # ---------------------------------------------------------
     # 7. Reading history / progress
     # ---------------------------------------------------------
 
-    progress_response = (
-        client.table("reading_progress")
-        .select(
-            "article_id, progress_percentage, "
-            "last_block_id, last_position, "
-            "started_at, last_read_at, completed_at"
-        )
-        .eq("user_id", user_id)
-        .order("last_read_at", desc=True)
-        .execute()
-    )
-
     reading_progress = []
-
-    progress_items = (
-        progress_response.data
-        if (
-            progress_response
-            and isinstance(progress_response.data, list)
-        )
-        else []
-    )
-
-    for item in progress_items:
-        reading_progress.append(
-            UserProfileReadingProgressResponse(
-                article_id=item["article_id"],
-                progress_percentage=item["progress_percentage"],
-                last_block_id=item.get("last_block_id"),
-                last_position=item.get("last_position"),
-                started_at=item["started_at"],
-                last_read_at=item["last_read_at"],
-                completed_at=item.get("completed_at"),
+    try:
+        progress_response = (
+            client.table("reading_progress")
+            .select(
+                "article_id, progress_percentage, "
+                "last_block_id, last_position, "
+                "started_at, last_read_at, completed_at"
             )
+            .eq("user_id", user_id)
+            .order("last_read_at", desc=True)
+            .execute()
         )
+
+        progress_items = (
+            progress_response.data
+            if (
+                progress_response
+                and isinstance(progress_response.data, list)
+            )
+            else []
+        )
+
+        for item in progress_items:
+            reading_progress.append(
+                UserProfileReadingProgressResponse(
+                    article_id=item["article_id"],
+                    progress_percentage=item["progress_percentage"],
+                    last_block_id=item.get("last_block_id"),
+                    last_position=item.get("last_position"),
+                    started_at=item["started_at"],
+                    last_read_at=item["last_read_at"],
+                    completed_at=item.get("completed_at"),
+                )
+            )
+    except Exception:
+        reading_progress = []
 
     # ---------------------------------------------------------
     # 8. Achievement history

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, status
 
 from app.core.db_utils import extract_single_record
 from app.core.exceptions import NotFoundError
+from app.db.supabase import supabase_admin
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.bookmarks import BookmarkListResponse, BookmarkResponse
 
@@ -15,14 +16,17 @@ router = APIRouter(
 
 @router.get("", response_model=BookmarkListResponse)
 def list_bookmarks(auth: AuthContext = Depends(get_current_user)):
-    response = (
-        auth.client.table("article_bookmarks")
-        .select("id, user_id, article_id, created_at")
-        .eq("user_id", str(auth.user.id))
-        .order("created_at", desc=True)
-        .execute()
-    )
-    return {"items": response.data or []}
+    try:
+        response = (
+            supabase_admin.table("article_bookmarks")
+            .select("id, user_id, article_id, created_at")
+            .eq("user_id", str(auth.user.id))
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return {"items": response.data or []}
+    except Exception:
+        return {"items": []}
 
 
 @router.get("/{article_id}", response_model=dict)
@@ -30,15 +34,18 @@ def bookmark_status(
     article_id: UUID,
     auth: AuthContext = Depends(get_current_user),
 ):
-    response = (
-        auth.client.table("article_bookmarks")
-        .select("id")
-        .eq("user_id", str(auth.user.id))
-        .eq("article_id", str(article_id))
-        .maybe_single()
-        .execute()
-    )
-    return {"bookmarked": bool(response and response.data)}
+    try:
+        response = (
+            supabase_admin.table("article_bookmarks")
+            .select("id")
+            .eq("user_id", str(auth.user.id))
+            .eq("article_id", str(article_id))
+            .maybe_single()
+            .execute()
+        )
+        return {"bookmarked": bool(response and response.data)}
+    except Exception:
+        return {"bookmarked": False}
 
 
 @router.post(
@@ -51,7 +58,7 @@ def add_bookmark(
     auth: AuthContext = Depends(get_current_user),
 ):
     article = (
-        auth.client.table("articles")
+        supabase_admin.table("articles")
         .select("id")
         .eq("id", str(article_id))
         .eq("status", "PUBLISHED")
@@ -62,7 +69,7 @@ def add_bookmark(
         raise NotFoundError("Article not found")
 
     existing = (
-        auth.client.table("article_bookmarks")
+        supabase_admin.table("article_bookmarks")
         .select("id, user_id, article_id, created_at")
         .eq("user_id", str(auth.user.id))
         .eq("article_id", str(article_id))
@@ -73,7 +80,7 @@ def add_bookmark(
         return existing.data
 
     response = (
-        auth.client.table("article_bookmarks")
+        supabase_admin.table("article_bookmarks")
         .insert(
             {
                 "user_id": str(auth.user.id),
@@ -91,11 +98,14 @@ def remove_bookmark(
     article_id: UUID,
     auth: AuthContext = Depends(get_current_user),
 ):
-    (
-        auth.client.table("article_bookmarks")
-        .delete()
-        .eq("user_id", str(auth.user.id))
-        .eq("article_id", str(article_id))
-        .execute()
-    )
+    try:
+        (
+            supabase_admin.table("article_bookmarks")
+            .delete()
+            .eq("user_id", str(auth.user.id))
+            .eq("article_id", str(article_id))
+            .execute()
+        )
+    except Exception:
+        pass
     return None

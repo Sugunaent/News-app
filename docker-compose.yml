@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: news-app-backend
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=8001
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:80,http://127.0.0.1:3000,http://127.0.0.1:80
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: ./frontend/TMZ_Frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-https://ylovbonsskqatgvypdms.supabase.co}
+        - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlsb3Zib25zc2txYXRndnlwZG1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyODk2NjksImV4cCI6MjEwMjg2NTY2OX0.HFABdMUJ4anF1ktDc5QhHAebPYoN7-GLkEpaIx2dLzQ}
+        - VITE_SITE_URL=${VITE_SITE_URL:-http://localhost:3000}
+        - VITE_API_BASE_URL=${VITE_API_BASE_URL:-}
+    container_name: news-app-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

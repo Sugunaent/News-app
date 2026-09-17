@@ -7,10 +7,11 @@ supabase: Client = create_client(
     settings.supabase_anon_key,
 )
 
-# Admin service-role client (bypasses RLS)
+# Admin service-role client (bypasses RLS). Falls back to anon key if service role key is not configured.
+admin_key = settings.supabase_service_role_key if settings.supabase_service_role_key else settings.supabase_anon_key
 supabase_admin: Client = create_client(
     settings.supabase_url,
-    settings.supabase_service_role_key,
+    admin_key,
 )
 
 

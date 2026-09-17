@@ -39,25 +39,31 @@ from app.services.scheduler import (
     start_article_scheduler,
 )
 
-
 logger = logging.getLogger("app.http")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize administrative Supabase client using Service Role Key
-    admin_client = create_client(
-        settings.supabase_url,
-        settings.supabase_service_role_key,
-    )
-
-    # Start the cron job to run every 1 minute
-    start_article_scheduler(admin_client=admin_client, interval_minutes=1)
+    # Safely initialize Supabase & Cron scheduler without failing whole server
+    try:
+        if settings.supabase_url and settings.supabase_service_role_key:
+            admin_client = create_client(
+                settings.supabase_url,
+                settings.supabase_service_role_key,
+            )
+            start_article_scheduler(admin_client=admin_client, interval_minutes=1)
+            logger.info("Supabase client and article scheduler initialized successfully.")
+        else:
+            logger.warning("Supabase credentials missing during startup.")
+    except Exception as e:
+        logger.error(f"Failed to start article scheduler on startup: {e}")
 
     yield
 
-    # Shutdown scheduler when application stops
-    shutdown_article_scheduler()
+    try:
+        shutdown_article_scheduler()
+    except Exception as e:
+        logger.error(f"Error during article scheduler shutdown: {e}")
 
 
 # Registered lifespan here so FastAPI triggers startup and shutdown tasks
@@ -67,12 +73,53 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Explicitly defining allowed origins including custom domains, Slate, and local dev
+allowed_origins = [
+    "https://themodernstories.in",
+    "https://www.themodernstories.in",
+    "http://themodernstories.in",
+    "http://www.themodernstories.in",
+    "https://tmz-daixfslx.onslate.in",
+    "https://tmz-ugmypqmr.onslate.in",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+]
+
+# Include additional origins from environment settings if configured
+if hasattr(settings, "cors_origin_list") and settings.cors_origin_list:
+    if isinstance(settings.cors_origin_list, list):
+        allowed_origins.extend(settings.cors_origin_list)
+    elif isinstance(settings.cors_origin_list, str):
+        allowed_origins.append(settings.cors_origin_list)
+
+# Deduplicate origins while preserving order
+allowed_origins = list(dict.fromkeys(allowed_origins))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"^https?://.*$",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "User-Agent",
+        "DNT",
+        "Cache-Control",
+        "X-Mx-ReqToken",
+        "X-Requested-With",
+        "X-Requested-By",
+        "If-Modified-Since",
+        "Keep-Alive",
+        "*",
+    ],
+    expose_headers=["*"],
+    max_age=86400,
 )
 
 
