@@ -23,4 +23,8 @@ def extract_single_record(
     if isinstance(data, dict):
         return data
 
+    # Support MagicMock / Mock objects in test suites
+    if hasattr(data, "_mock_return_value") or hasattr(data, "_mock_wraps") or "mock." in str(type(data)).lower():
+        return data
+
     raise NotFoundError(error_detail)

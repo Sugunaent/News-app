@@ -5,7 +5,7 @@ from postgrest.exceptions import APIError
 
 from app.core.exceptions import NotFoundError
 from app.db.supabase import supabase_admin
-from app.dependencies.auth import AuthContext, get_optional_user
+from app.dependencies.auth import AuthContext, get_current_user, get_optional_user
 from app.schemas.articles import (
     ArticleDetailResponse,
     ArticleListResponse,
@@ -74,7 +74,7 @@ def _looks_like_uuid(value: str) -> bool:
 )
 def get_article(
     slug: str,
-    auth: AuthContext | None = Depends(get_optional_user),
+    auth: AuthContext = Depends(get_current_user),
 ):
     client = supabase_admin
     query = (

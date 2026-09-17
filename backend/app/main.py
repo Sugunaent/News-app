@@ -124,9 +124,22 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def log_http_requests(request, call_next):
-    if not settings.log_http_requests:
-        return await call_next(request)
+async def cors_and_logging_middleware(request: Request, call_next):
+    origin = request.headers.get("origin") or "*"
+
+    # Intercept all OPTIONS preflight requests immediately so they never fail
+    if request.method == "OPTIONS":
+        return JSONResponse(
+            content="OK",
+            status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": origin if origin != "*" else "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD",
+                "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Origin, User-Agent, DNT, Cache-Control, X-Mx-ReqToken, X-Requested-With, X-Requested-By, If-Modified-Since, Keep-Alive, *",
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Max-Age": "86400",
+            },
+        )
 
     started = perf_counter()
     try:
@@ -135,14 +148,23 @@ async def log_http_requests(request, call_next):
         logger.exception("HTTP %s %s failed", request.method, request.url.path)
         raise
 
-    elapsed_ms = (perf_counter() - started) * 1000
-    logger.info(
-        "HTTP %s %s -> %s (%.1f ms)",
-        request.method,
-        request.url.path,
-        response.status_code,
-        elapsed_ms,
-    )
+    # Always ensure CORS headers are on every response (including error responses)
+    if origin != "*":
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, User-Agent, DNT, Cache-Control, X-Mx-ReqToken, X-Requested-With, X-Requested-By, If-Modified-Since, Keep-Alive, *"
+
+    if settings.log_http_requests:
+        elapsed_ms = (perf_counter() - started) * 1000
+        logger.info(
+            "HTTP %s %s -> %s (%.1f ms)",
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+        )
+
     return response
 
 app.add_exception_handler(

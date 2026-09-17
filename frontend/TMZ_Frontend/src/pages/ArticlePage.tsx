@@ -30,7 +30,7 @@ import { ConditionalAdSlot } from '@/components/articles/AdSlot';
 export function ArticlePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, profile, refreshProfile, loading: authLoading } = useAuth();
 
   const [article, setArticle] = useState<ArticleWithBlocks | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,7 +128,11 @@ export function ArticlePage() {
 
   // Load article
   useEffect(() => {
-    if (!id) return;
+    if (!id || authLoading) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(false);
     setUnlockedPct(0);
@@ -147,7 +151,7 @@ export function ArticlePage() {
       .then((art) => { if (!art) { setError(true); return; } setArticle(art); })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, user, authLoading]);
 
   // Load sidebar data
   useEffect(() => {
@@ -341,9 +345,10 @@ export function ArticlePage() {
     }
   }, [navigate]);
 
+  if (authLoading) return <LoadingState message="Checking access..." />;
+  if (!user) return <Navigate to="/auth" state={{ redirect: `/article/${id}` }} replace />;
   if (loading) return <LoadingState message="Loading article..." />;
   if (error || !article) return <ErrorState message="Article not found." onRetry={() => navigate('/')} />;
-  if (!user) return <Navigate to="/auth" state={{ redirect: `/article/${id}` }} replace />;
 
   const typeLabel = article.article_type === 'PODCAST' ? 'Podcast'
     : article.article_type === 'QUIZ' ? 'Quiz'

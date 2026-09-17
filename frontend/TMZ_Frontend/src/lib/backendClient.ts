@@ -47,12 +47,8 @@ function isPublicGetEndpoint(path: string, method = 'GET'): boolean {
     normalized.startsWith('/api/v1/gamification/levels') ||
     normalized.startsWith('/api/v1/gamification/badges') ||
     normalized.startsWith('/api/v1/gamification/xp-rules') ||
-    (normalized.startsWith('/api/v1/articles') &&
-      !normalized.includes('/progress') &&
-      !normalized.includes('/bookmark') &&
-      !normalized.includes('/comments') &&
-      !normalized.includes('/completion') &&
-      !normalized.includes('/share'))
+    normalized === '/api/v1/articles' ||
+    normalized === '/api/v1/articles/search'
   );
 }
 
