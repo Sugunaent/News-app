@@ -1,15 +1,12 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
-import type { Category, Article } from '@/types';
-import { fetchCategoryBySlug, fetchArticlesByCategory } from '@/lib/api';
+import type { Article } from '@/types';
+import { fetchLatestArticles } from '@/lib/api';
 import { ArticleCard } from '@/components/articles/ArticleCard';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
 import { Input } from '@/components/ui/Input';
 
-export function CategoryPage() {
-  const { slug } = useParams<{ slug: string }>();
-  const [category, setCategory] = useState<Category | null>(null);
+export function LatestPage() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -23,18 +20,11 @@ export function CategoryPage() {
   }, [searchQuery]);
 
   useEffect(() => {
-    if (!slug) return;
     setLoading(true);
     setError(false);
     (async () => {
       try {
-        const cat = await fetchCategoryBySlug(slug);
-        if (!cat) {
-          setError(true);
-          return;
-        }
-        setCategory(cat);
-        const arts = await fetchArticlesByCategory(cat.id, debouncedQuery);
+        const arts = await fetchLatestArticles(50, debouncedQuery);
         setArticles(arts);
       } catch {
         setError(true);
@@ -42,26 +32,26 @@ export function CategoryPage() {
         setLoading(false);
       }
     })();
-  }, [slug, debouncedQuery]);
+  }, [debouncedQuery]);
 
-  if (loading && !category) return <LoadingState message="Loading category..." />;
-  if (error || !category) return <ErrorState message="Category not found." />;
+  if (loading && articles.length === 0) return <LoadingState message="Loading latest articles..." />;
+  if (error && articles.length === 0) return <ErrorState message="Could not load latest articles." />;
 
   return (
     <div className="relative z-10 max-w-7xl mx-auto px-4 md:px-8 py-12">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
         <div className="flex-1">
-          <h1 className="font-display text-4xl md:text-5xl text-primary mb-4">{category.name}</h1>
-          {category.description && (
-            <p className="text-lg text-secondary max-w-2xl leading-relaxed">{category.description}</p>
-          )}
+          <h1 className="font-display text-4xl md:text-5xl text-primary mb-4">Latest Articles</h1>
+          <p className="text-lg text-secondary max-w-2xl leading-relaxed">
+            Stay up to date with our most recently published stories across all categories.
+          </p>
         </div>
         <div className="w-full md:w-72 shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
             <Input
               type="text"
-              placeholder={`Search in ${category.name}...`}
+              placeholder="Search latest articles..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"
@@ -73,7 +63,7 @@ export function CategoryPage() {
       {loading ? (
         <LoadingState message="Searching..." />
       ) : articles.length === 0 ? (
-        <EmptyState message={debouncedQuery ? "No articles match your search." : "No articles in this category yet."} />
+        <EmptyState message={debouncedQuery ? "No articles match your search." : "No latest articles found."} />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {articles.map((article) => (

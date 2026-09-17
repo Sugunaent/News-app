@@ -206,6 +206,8 @@ export function ArticlePage() {
         if (commentsReady && (commentsRect.top <= windowHeight * 0.88 || commentsRect.top <= windowHeight - 40)) {
           isAtComments = true;
           setScrolledThroughComments(true);
+        } else {
+          setScrolledThroughComments(false);
         }
       }
 
@@ -242,19 +244,20 @@ export function ArticlePage() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [article, unlockedPct, user, id, commentsReady]);
 
-  // Completion — trigger confetti and show card immediately as soon as user reaches the comments box
+  // Completion — trigger confetti and show card after 3 seconds of reaching comments box
   useEffect(() => {
     if (!id || !article || unlockedPct < 100 || !scrolledThroughComments || !completionChecked || alreadyCompleted || completionTriggeredRef.current) return;
     // Trigger ONLY after genuine article completion/reading progress, NOT on cold load
     if (!userDidScrollRef.current) return;
 
-    completionTriggeredRef.current = true;
+    const timer = setTimeout(async () => {
+      if (completionTriggeredRef.current) return;
+      completionTriggeredRef.current = true;
 
-    const recordCompletion = async () => {
       try {
         const userId = user?.id || 'demo-reader';
         const result = await createCompletionCard(userId, id, article.title, 0, 'completion');
-        const articleReward = result.xp_gained + quizXpRef.current;
+        const articleReward = result.xp_gained + quizXpRef.current + (opinionModalData?.xpGained || 0);
         setCompletionCardXp(articleReward);
         setTotalXp(articleReward);
         fireCelebrationConfetti();
@@ -292,10 +295,10 @@ export function ArticlePage() {
       } catch {
         /* background sync fallback */
       }
-    };
+    }, 3000);
 
-    recordCompletion();
-  }, [unlockedPct, scrolledThroughComments, user, id, article, completionChecked, alreadyCompleted, profile, refreshProfile]);
+    return () => clearTimeout(timer);
+  }, [unlockedPct, scrolledThroughComments, user, id, article, completionChecked, alreadyCompleted, profile, refreshProfile, opinionModalData]);
 
   const handleQuizResult = useCallback((xp: number) => {
     quizXpRef.current += xp;
@@ -467,6 +470,7 @@ export function ArticlePage() {
           completedPct={unlockedPct}
           bonusXp={quizXpRef.current}
           bounds={articleBounds}
+          alreadyCompleted={alreadyCompleted}
         />
       )}
 

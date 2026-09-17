@@ -316,13 +316,15 @@ const articleListRequests = new Map<string, Promise<Article[]>>();
 let levelsCache: { items: Level[]; expiresAt: number } | null = null;
 let levelsRequest: Promise<Level[]> | null = null;
 
-export async function fetchLatestArticles(limit = 10): Promise<Article[]> {
-  const cacheKey = `latest:${limit}`;
+export async function fetchLatestArticles(limit = 10, searchQuery?: string): Promise<Article[]> {
+  const cacheKey = `latest:${limit}:${searchQuery || ''}`;
   const cached = articleListCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.items as Article[];
   const request = articleListRequests.get(cacheKey);
   if (request) return request as Promise<Article[]>;
-  const next = apiFetchJson<{ items?: any[] }>('/api/v1/articles?limit=' + limit)
+  let url = '/api/v1/articles?limit=' + limit;
+  if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
+  const next = apiFetchJson<{ items?: any[] }>(url)
     .then((data) => asArray<any>(data?.items).map(normalizeArticle).slice(0, limit))
     .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
     .finally(() => articleListRequests.delete(cacheKey));
@@ -330,13 +332,15 @@ export async function fetchLatestArticles(limit = 10): Promise<Article[]> {
   return next;
 }
 
-export async function fetchArticlesByCategory(categoryId: string): Promise<Article[]> {
-  const cacheKey = `category:${categoryId}`;
+export async function fetchArticlesByCategory(categoryId: string, searchQuery?: string): Promise<Article[]> {
+  const cacheKey = `category:${categoryId}:${searchQuery || ''}`;
   const cached = articleListCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.items as Article[];
   const request = articleListRequests.get(cacheKey);
   if (request) return request as Promise<Article[]>;
-  const next = apiFetchJson<{ items?: any[] }>(`/api/v1/articles?category_id=${encodeURIComponent(categoryId)}`)
+  let url = `/api/v1/articles?category_id=${encodeURIComponent(categoryId)}`;
+  if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
+  const next = apiFetchJson<{ items?: any[] }>(url)
     .then((data) => asArray<any>(data?.items).map(normalizeArticle))
     .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
     .finally(() => articleListRequests.delete(cacheKey));
@@ -344,13 +348,15 @@ export async function fetchArticlesByCategory(categoryId: string): Promise<Artic
   return next;
 }
 
-export async function fetchAuthorsPicks(limit = 10): Promise<Article[]> {
-  const cacheKey = `authors:${limit}`;
+export async function fetchAuthorsPicks(limit = 10, searchQuery?: string): Promise<Article[]> {
+  const cacheKey = `authors:${limit}:${searchQuery || ''}`;
   const cached = articleListCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.items as Article[];
   const request = articleListRequests.get(cacheKey);
   if (request) return request as Promise<Article[]>;
-  const next = apiFetchJson<{ items?: any[] }>('/api/v1/articles?author_picks=true&limit=' + limit)
+  let url = '/api/v1/articles?author_picks=true&limit=' + limit;
+  if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
+  const next = apiFetchJson<{ items?: any[] }>(url)
     .then((data) => asArray<any>(data?.items).map(normalizeArticle).slice(0, limit))
     .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
     .finally(() => articleListRequests.delete(cacheKey));
@@ -568,18 +574,21 @@ export async function submitQuizAttempt(
   };
 }
 
-const quizAttemptStatusRequests = new Map<string, Promise<boolean>>();
-const quizAttemptStatusCache = new Map<string, { value: boolean; expiresAt: number }>();
+const quizAttemptStatusRequests = new Map<string, Promise<{ attempted: boolean; selectedOptionId?: string }>>();
+const quizAttemptStatusCache = new Map<string, { value: { attempted: boolean; selectedOptionId?: string }; expiresAt: number }>();
 
-export async function hasUserAttemptedQuiz(_userId: string, quizId: string): Promise<boolean> {
+export async function hasUserAttemptedQuiz(_userId: string, quizId: string): Promise<{ attempted: boolean; selectedOptionId?: string }> {
   const cacheKey = `${_userId}:${quizId}`;
   const cached = quizAttemptStatusCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   const existingRequest = quizAttemptStatusRequests.get(cacheKey);
   if (existingRequest) return existingRequest;
-  const request = apiFetchJson<{ attempted?: boolean }>(`/api/v1/quizzes/${encodeURIComponent(quizId)}/attempted`)
+  const request = apiFetchJson<{ attempted?: boolean; selected_option_id?: string }>(`/api/v1/quizzes/${encodeURIComponent(quizId)}/attempted`)
     .then((data) => {
-      const value = Boolean(data?.attempted);
+      const value = {
+        attempted: Boolean(data?.attempted),
+        selectedOptionId: data?.selected_option_id,
+      };
       quizAttemptStatusCache.set(cacheKey, { value, expiresAt: Date.now() + 60_000 });
       return value;
     })
@@ -589,6 +598,9 @@ export async function hasUserAttemptedQuiz(_userId: string, quizId: string): Pro
 }
 
 /* ===================== OPINIONS ===================== */
+
+const opinionSubmissionStatusRequests = new Map<string, Promise<{ submitted: boolean; submittedText?: string }>>();
+const opinionSubmissionStatusCache = new Map<string, { value: { submitted: boolean; submittedText?: string }; expiresAt: number }>();
 
 export async function submitOpinion(
   opinionId: string,
@@ -603,7 +615,7 @@ export async function submitOpinion(
       ? { custom_response: customResponse }
       : { selected_option_id: selectedOptionId }),
   });
-  opinionSubmittedCache.set(`${userId}:${opinionId}`, { value: true, expiresAt: Date.now() + 60_000 });
+  opinionSubmissionStatusCache.set(`${userId}:${opinionId}`, { value: { submitted: true, submittedText: customResponse ?? selectedOption }, expiresAt: Date.now() + 60_000 });
   const response = data?.response ?? data;
 
   return {
@@ -616,23 +628,23 @@ export async function submitOpinion(
   };
 }
 
-const opinionSubmittedRequests = new Map<string, Promise<boolean>>();
-const opinionSubmittedCache = new Map<string, { value: boolean; expiresAt: number }>();
-
-export async function hasUserSubmittedOpinion(_userId: string, opinionId: string): Promise<boolean> {
+export async function hasUserSubmittedOpinion(_userId: string, opinionId: string): Promise<{ submitted: boolean; submittedText?: string }> {
   const cacheKey = `${_userId}:${opinionId}`;
-  const cached = opinionSubmittedCache.get(cacheKey);
+  const cached = opinionSubmissionStatusCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
-  const existingRequest = opinionSubmittedRequests.get(cacheKey);
+  const existingRequest = opinionSubmissionStatusRequests.get(cacheKey);
   if (existingRequest) return existingRequest;
-  const request = apiFetchJson<{ submitted?: boolean }>(`/api/v1/opinions/${encodeURIComponent(opinionId)}/submitted`)
+  const request = apiFetchJson<{ submitted?: boolean; opinion_text?: string }>(`/api/v1/opinions/${encodeURIComponent(opinionId)}/submitted`)
     .then((data) => {
-      const value = Boolean(data?.submitted);
-      opinionSubmittedCache.set(cacheKey, { value, expiresAt: Date.now() + 60_000 });
+      const value = {
+        submitted: Boolean(data?.submitted),
+        submittedText: data?.opinion_text,
+      };
+      opinionSubmissionStatusCache.set(cacheKey, { value, expiresAt: Date.now() + 60_000 });
       return value;
     })
-    .finally(() => opinionSubmittedRequests.delete(cacheKey));
-  opinionSubmittedRequests.set(cacheKey, request);
+    .finally(() => opinionSubmissionStatusRequests.delete(cacheKey));
+  opinionSubmissionStatusRequests.set(cacheKey, request);
   return request;
 }
 

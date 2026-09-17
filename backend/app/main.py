@@ -72,7 +72,35 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Explicit allowed origins list
+
+# 1. Custom HTTP Logging Middleware (Must be defined FIRST so CORSMiddleware wraps it)
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    # Pass OPTIONS preflight directly without intervention
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    started = perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("HTTP %s %s failed", request.method, request.url.path)
+        raise
+
+    if settings.log_http_requests:
+        elapsed_ms = (perf_counter() - started) * 1000
+        logger.info(
+            "HTTP %s %s -> %s (%.1f ms)",
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+        )
+
+    return response
+
+
+# 2. Explicit allowed origins list
 allowed_origins = [
     "https://themodernstories.in",
     "https://www.themodernstories.in",
@@ -96,7 +124,7 @@ if hasattr(settings, "cors_origin_list") and settings.cors_origin_list:
 # Deduplicate origins while preserving order
 allowed_origins = list(dict.fromkeys(allowed_origins))
 
-# Allowed headers explicitly declared to ensure preflights with Authorization pass
+# Allowed headers explicitly declared to ensure preflights pass
 allowed_headers = [
     "Authorization",
     "Content-Type",
@@ -107,49 +135,31 @@ allowed_headers = [
     "Access-Control-Request-Headers",
 ]
 
-# Built-in FastAPI CORSMiddleware manages preflight OPTIONS automatically
+# 3. Built-in FastAPI CORSMiddleware added AFTER HTTP logging middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"^https?://.*\.onslate\.in$",
+    allow_origin_regex=r"^https?://.*(\.onslate\.in|\.catalystappsail\.in)$",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
-    allow_headers=allowed_headers,
+    allow_methods=["*"],
+    allow_headers=["*"],
     expose_headers=["*"],
     max_age=86400,
 )
 
 
-@app.middleware("http")
-async def request_logging_middleware(request: Request, call_next):
-    started = perf_counter()
-    try:
-        response = await call_next(request)
-    except Exception:
-        logger.exception("HTTP %s %s failed", request.method, request.url.path)
-        raise
-
-    if settings.log_http_requests:
-        elapsed_ms = (perf_counter() - started) * 1000
-        logger.info(
-            "HTTP %s %s -> %s (%.1f ms)",
-            request.method,
-            request.url.path,
-            response.status_code,
-            elapsed_ms,
-        )
-
-    return response
-
-
 # Global CORS helper to prevent exception responses from dropping headers
 def _add_cors_headers(request: Request, response: JSONResponse) -> JSONResponse:
     origin = request.headers.get("origin")
-    if origin and (origin in allowed_origins or origin.endswith(".onslate.in")):
+    if origin and (
+        origin in allowed_origins 
+        or origin.endswith(".onslate.in") 
+        or origin.endswith(".catalystappsail.in")
+    ):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD"
-        response.headers["Access-Control-Allow-Headers"] = ", ".join(allowed_headers)
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
     return response
 
 

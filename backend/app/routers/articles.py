@@ -26,13 +26,16 @@ router = APIRouter(
     response_model=ArticleListResponse,
 )
 def list_articles(
+    q: str | None = Query(default=None),
     category_id: str | None = Query(default=None),
     featured: bool = Query(default=False),
     author_picks: bool = Query(default=False),
     limit: int | None = Query(default=None, ge=1, le=100),
 ):
+    search_term = q.strip() if q else None
     return {
         "items": fetch_published_teasers(
+            search_term=search_term,
             category_id=category_id,
             featured=featured,
             author_picks=author_picks,

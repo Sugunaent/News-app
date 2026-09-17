@@ -285,7 +285,7 @@ def has_attempted_quiz(
     try:
         attempts_res = (
             client.table("quiz_attempts")
-            .select("question_id")
+            .select("question_id, selected_option_id")
             .eq("user_id", str(auth.user.id))
             .in_("question_id", question_ids)
             .limit(1)
@@ -298,7 +298,7 @@ def has_attempted_quiz(
         try:
             attempts_res = (
                 supabase_admin.table("quiz_attempts")
-                .select("question_id")
+                .select("question_id, selected_option_id")
                 .eq("user_id", str(auth.user.id))
                 .in_("question_id", question_ids)
                 .limit(1)
@@ -307,7 +307,13 @@ def has_attempted_quiz(
         except Exception:
             pass
 
-    return {"attempted": bool(getattr(attempts_res, "data", None))}
+    attempts_data = getattr(attempts_res, "data", None) or []
+    if attempts_data:
+        return {
+            "attempted": True,
+            "selected_option_id": attempts_data[0].get("selected_option_id")
+        }
+    return {"attempted": False}
 
 
 @router.post(

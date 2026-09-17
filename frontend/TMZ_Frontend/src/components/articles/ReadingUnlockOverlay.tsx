@@ -5,6 +5,7 @@ interface ReadingUnlockOverlayProps {
   completedPct: number;
   bonusXp?: number;
   bounds?: { left: number; width: number } | null;
+  alreadyCompleted?: boolean;
 }
 
 export function ReadingUnlockOverlay({
@@ -12,6 +13,7 @@ export function ReadingUnlockOverlay({
   completedPct,
   bonusXp = 0,
   bounds,
+  alreadyCompleted = false,
 }: ReadingUnlockOverlayProps) {
   const isComplete = completedPct >= 100;
   const radius = 18;
@@ -119,7 +121,9 @@ export function ReadingUnlockOverlay({
                 </span>
               </div>
               <p className="text-xs text-muted line-clamp-1 mt-0.5 text-center">
-                {isComplete
+                {alreadyCompleted
+                  ? 'You can view your sharable completion card in the profile.'
+                  : isComplete
                   ? 'Keep scrolling comments to claim shareable card'
                   : 'Scroll down as you read to unlock completion card'}
               </p>

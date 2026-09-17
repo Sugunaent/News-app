@@ -15,8 +15,13 @@ export function QuizBlock({ quiz, onResult }: { quiz: Quiz; onResult?: (xp: numb
 
   useEffect(() => {
     if (!user) return;
-    hasUserAttemptedQuiz(user.id, quiz.id).then((has) => {
-      if (has) setAnswered(true);
+    hasUserAttemptedQuiz(user.id, quiz.id).then((res) => {
+      if (res.attempted) {
+        setAnswered(true);
+        if (res.selectedOptionId) {
+          setSelectedOption(res.selectedOptionId);
+        }
+      }
     }).catch(() => {});
   }, [user, quiz.id]);
 

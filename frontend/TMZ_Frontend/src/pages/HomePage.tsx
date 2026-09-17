@@ -126,7 +126,7 @@ export function HomePage() {
       {/* 2. LATEST — continuous marquee with LARGE vertical cards matching CategoryPage ArticleCard */}
       {latest.length > 0 && (
         <section id="latest-section">
-          <SectionHeader title="Latest" />
+          <SectionHeader title="Latest" action="View All" onAction={() => navigate('/latest')} />
           <LatestMarquee articles={latest} onArticleClick={handleArticleClick} />
         </section>
       )}

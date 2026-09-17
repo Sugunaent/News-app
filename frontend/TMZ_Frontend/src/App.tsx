@@ -20,6 +20,8 @@ import { PrivacyPage } from '@/pages/PrivacyPage';
 import { LegalPage } from '@/pages/LegalPage';
 import { ProfileListPage } from '@/pages/ProfileListPage';
 import { CardPage } from '@/pages/CardPage';
+import { LatestPage } from '@/pages/LatestPage';
+import { AuthorsPicksPage } from '@/pages/AuthorsPicksPage';
 
 function AppLayout() {
   const location = useLocation();
@@ -33,10 +35,11 @@ function AppLayout() {
           <Route path="/" element={<HomePage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/category/:slug" element={<CategoryPage />} />
+          <Route path="/latest" element={<LatestPage />} />
+          <Route path="/authors-picks" element={<AuthorsPicksPage />} />
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route path="/article/:id" element={<ArticlePage />} />
-          <Route path="/authors-picks" element={<HomePage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/profile/:type" element={<ProfileListPage />} />
           <Route path="/settings" element={<SettingsPage />} />

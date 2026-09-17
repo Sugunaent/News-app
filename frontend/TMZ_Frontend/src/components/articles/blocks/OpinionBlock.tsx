@@ -28,8 +28,11 @@ export function OpinionBlock({
   useEffect(() => {
     if (!user) return;
     hasUserSubmittedOpinion(user.id, opinion.id)
-      .then((isSub) => {
-        setSubmitted(isSub);
+      .then((res) => {
+        setSubmitted(res.submitted);
+        if (res.submittedText) {
+          setSubmittedText(res.submittedText);
+        }
       })
       .catch(() => {});
   }, [user, opinion.id]);

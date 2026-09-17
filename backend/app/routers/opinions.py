@@ -279,7 +279,7 @@ def has_submitted_opinion(
     try:
         response = (
             client.table("opinion_responses")
-            .select("id")
+            .select("id, custom_response_text, opinion_options(option_text)")
             .eq("user_id", str(auth.user.id))
             .eq("opinion_question_id", str(question_id))
             .maybe_single()
@@ -292,7 +292,7 @@ def has_submitted_opinion(
         try:
             response = (
                 supabase_admin.table("opinion_responses")
-                .select("id")
+                .select("id, custom_response_text, opinion_options(option_text)")
                 .eq("user_id", str(auth.user.id))
                 .eq("opinion_question_id", str(question_id))
                 .maybe_single()
@@ -301,7 +301,17 @@ def has_submitted_opinion(
         except Exception:
             pass
 
-    return {"submitted": bool(response and getattr(response, "data", None))}
+    data = getattr(response, "data", None)
+    if data:
+        text = data.get("custom_response_text")
+        if not text and data.get("opinion_options"):
+            opts = data["opinion_options"]
+            if isinstance(opts, list) and len(opts) > 0:
+                text = opts[0].get("option_text")
+            elif isinstance(opts, dict):
+                text = opts.get("option_text")
+        return {"submitted": True, "opinion_text": text}
+    return {"submitted": False}
 
 
 @router.post(
