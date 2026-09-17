@@ -66,7 +66,7 @@ def _ensure_profile(auth_user) -> dict:
 
         if existing_rows:
             data = dict(existing_rows[0])
-            data["role"] = data.get("role") or "USER"
+            data["role"] = str(data.get("role") or "USER").upper()
             data["is_active"] = (
                 data.get("is_active") if data.get("is_active") is not None else True
             )
@@ -89,7 +89,7 @@ def _ensure_profile(auth_user) -> dict:
                     )
                     if updated and updated.data:
                         updated_data = dict(updated.data[0])
-                        updated_data["role"] = updated_data.get("role") or "USER"
+                        updated_data["role"] = str(updated_data.get("role") or "USER").upper()
                         updated_data["is_active"] = (
                             updated_data.get("is_active")
                             if updated_data.get("is_active") is not None
@@ -121,7 +121,7 @@ def _ensure_profile(auth_user) -> dict:
         rows = created.data if created and created.data else []
         if rows:
             res_data = dict(rows[0])
-            res_data["role"] = res_data.get("role") or "USER"
+            res_data["role"] = str(res_data.get("role") or "USER").upper()
             res_data["is_active"] = (
                 res_data.get("is_active") if res_data.get("is_active") is not None else True
             )
@@ -135,7 +135,7 @@ def _ensure_profile(auth_user) -> dict:
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> AuthContext:
-    access_token = credentials.credentials
+    access_token = credentials.credentials.strip(' "') if credentials.credentials else ""
 
     auth_user = None
     try:

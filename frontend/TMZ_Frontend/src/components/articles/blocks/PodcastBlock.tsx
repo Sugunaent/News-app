@@ -72,8 +72,38 @@ export function PodcastBlock({ podcast }: { podcast: PodcastBlockType }) {
     }
   };
 
-  const audioSource = podcast.audio_url?.trim();
-  const hasValidAudioSource = Boolean(audioSource && isValidMediaUrl(audioSource));
+  const audioSource = podcast.audio_url?.trim() || '';
+  
+  const isYouTube = (url: string) => url.includes('youtube.com/watch') || url.includes('youtu.be/');
+  const getYouTubeEmbedUrl = (url: string) => {
+    try {
+      if (url.includes('youtube.com/watch')) {
+        const v = new URL(url).searchParams.get('v');
+        return `https://www.youtube.com/embed/${v}`;
+      }
+      if (url.includes('youtu.be/')) {
+        const v = url.split('youtu.be/')[1].split('?')[0];
+        return `https://www.youtube.com/embed/${v}`;
+      }
+    } catch { /* ignore */ }
+    return url;
+  };
+
+  const isSpotify = (url: string) => url.includes('spotify.com');
+  const getSpotifyEmbedUrl = (url: string) => {
+    try {
+      if (url.includes('/episode/')) return url.replace('/episode/', '/embed/episode/');
+      if (url.includes('/show/')) return url.replace('/show/', '/embed/show/');
+      if (url.includes('/track/')) return url.replace('/track/', '/embed/track/');
+    } catch { /* ignore */ }
+    return url;
+  };
+
+  const isYt = isYouTube(audioSource);
+  const isSp = isSpotify(audioSource);
+  const isExternalEmbed = isYt || isSp;
+  const hasValidAudioSource = Boolean(audioSource && !isExternalEmbed);
+
   const pct = duration ? (progress / duration) * 100 : 0;
 
   return (
@@ -92,59 +122,88 @@ export function PodcastBlock({ podcast }: { podcast: PodcastBlockType }) {
         <p className="text-sm mb-5" style={{ color: 'var(--article-muted)' }}>{podcast.description}</p>
       )}
 
-      <audio ref={audioRef} src={audioSource || undefined} preload="metadata" />
-
-      {!hasValidAudioSource && (
-        <p className="text-sm" style={{ color: 'var(--article-muted)' }}>Audio is unavailable.</p>
-      )}
-
-      {hasValidAudioSource && (
-        <a
-          href={audioSource}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-block mt-3 text-sm underline text-brand-primary"
-        >
-          Open audio source
-        </a>
-      )}
-
-      {/* Player */}
-      <div className="flex items-center gap-4 p-4 rounded-xl" style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-subtle)' }}>
-        <button
-          onClick={togglePlay}
-          className="w-12 h-12 rounded-full bg-brand-primary text-white flex items-center justify-center flex-shrink-0 transition-transform hover:scale-110"
-          aria-label={playing ? 'Pause' : 'Play'}
-        >
-          {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
-        </button>
-
-        <div className="flex-1 min-w-0">
-          <div
-            onClick={seek}
-            className="h-2 rounded-full cursor-pointer mb-2"
-            style={{ background: 'var(--border-default)' }}
-          >
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${pct}%`, background: 'var(--brand-primary)' }}
-            />
-          </div>
-          <div className="flex items-center justify-between text-xs" style={{ color: 'var(--article-muted)' }}>
-            <span>{fmt(progress)}</span>
-            <span>{fmt(duration)}</span>
-          </div>
+      {isYt && (
+        <div className="aspect-video w-full rounded-xl overflow-hidden mb-4 border border-[var(--border-subtle)]">
+          <iframe 
+            src={getYouTubeEmbedUrl(audioSource)} 
+            className="w-full h-full"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+            allowFullScreen 
+          />
         </div>
+      )}
 
-        <button
-          onClick={toggleMute}
-          className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-colors"
-          style={{ color: 'var(--article-muted)' }}
-          aria-label={muted ? 'Unmute' : 'Mute'}
-        >
-          {muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-        </button>
-      </div>
+      {isSp && (
+        <div className="w-full rounded-xl overflow-hidden mb-4">
+          <iframe 
+            src={getSpotifyEmbedUrl(audioSource)} 
+            width="100%" 
+            height="152" 
+            allowFullScreen 
+            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
+            loading="lazy" 
+          />
+        </div>
+      )}
+
+      {!isExternalEmbed && (
+        <>
+          <audio ref={audioRef} src={hasValidAudioSource ? audioSource : undefined} preload="metadata" />
+
+          {!hasValidAudioSource && (
+            <p className="text-sm" style={{ color: 'var(--article-muted)' }}>Audio is unavailable.</p>
+          )}
+
+          {hasValidAudioSource && (
+            <a
+              href={audioSource}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block mt-3 mb-3 text-sm underline text-brand-primary"
+            >
+              Open audio source
+            </a>
+          )}
+
+          {hasValidAudioSource && (
+            <div className="flex items-center gap-4 p-4 rounded-xl" style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-subtle)' }}>
+              <button
+                onClick={togglePlay}
+                className="w-12 h-12 rounded-full bg-brand-primary text-white flex items-center justify-center flex-shrink-0 transition-transform hover:scale-110"
+                aria-label={playing ? 'Pause' : 'Play'}
+              >
+                {playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+              </button>
+
+              <div className="flex-1 min-w-0">
+                <div
+                  onClick={seek}
+                  className="h-2 rounded-full cursor-pointer mb-2"
+                  style={{ background: 'var(--border-default)' }}
+                >
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{ width: `${pct}%`, background: 'var(--brand-primary)' }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-xs" style={{ color: 'var(--article-muted)' }}>
+                  <span>{fmt(progress)}</span>
+                  <span>{fmt(duration)}</span>
+                </div>
+              </div>
+
+              <button
+                onClick={toggleMute}
+                className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-colors"
+                style={{ color: 'var(--article-muted)' }}
+                aria-label={muted ? 'Unmute' : 'Mute'}
+              >
+                {muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

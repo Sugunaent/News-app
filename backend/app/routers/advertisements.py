@@ -81,7 +81,6 @@ def _build_ad_select_query() -> str:
             key,
             name,
             description,
-            placement,
             is_active,
             created_at,
             updated_at
@@ -153,7 +152,7 @@ def _resolve_media_id(client, value: str) -> str:
         .maybe_single()
         .execute()
     )
-    if not result.data:
+    if not result or not getattr(result, "data", None):
         raise NotFoundError("Advertisement image media not found")
     return str(result.data["id"])
 
@@ -786,6 +785,7 @@ def create_advertisement_slot(
         client=current_user.client,
     )
 
+    _normalize_slot(slot)
     return slot
 
 
@@ -861,6 +861,7 @@ def update_advertisement_slot(
         client=current_user.client,
     )
 
+    _normalize_slot(slot)
     return slot
 
 

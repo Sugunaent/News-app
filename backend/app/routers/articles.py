@@ -12,7 +12,7 @@ from app.schemas.articles import (
 )
 from app.services.analytics import record_article_view
 from app.services.article_teasers import fetch_published_teasers
-from app.services.media_urls import attach_signed_url
+from app.services.media_urls import attach_signed_url, create_signed_url
 from app.services.gamification import get_active_xp_amount
 
 router = APIRouter(
@@ -191,13 +191,17 @@ def get_article(
             )
 
         elif block_type == "PODCAST":
+            ext_url = block.get("external_url") or ""
+            if ext_url and not (ext_url.startswith("http://") or ext_url.startswith("https://")):
+                ext_url = create_signed_url(ext_url) or ext_url
+
             blocks.append(
                 {
                     "id": block["id"],
                     "type": "PODCAST",
                     "display_order": block["display_order"],
                     "description": block.get("text_content") or "",
-                    "external_url": block.get("external_url") or "",
+                    "audio_url": ext_url,
                     "title": block.get("title") or "Podcast",
                 }
             )

@@ -8,12 +8,9 @@
 
 export type ArticleStatus =
   | 'DRAFT'
-  | 'PENDING_REVIEW'
-  | 'REJECTED'
   | 'PUBLISHED'
   | 'UNPUBLISHED'
-  | 'SCHEDULED'
-  | 'ARCHIVED';
+  | 'SCHEDULED';
 
 export type ArticleType = 'ARTICLE' | 'PODCAST' | 'QUIZ' | 'OPINION' | 'FEATURED';
 export type BlockType = 'TEXT' | 'IMAGE' | 'QUIZ' | 'OPINION' | 'PODCAST';

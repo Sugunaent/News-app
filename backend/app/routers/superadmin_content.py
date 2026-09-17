@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from re import sub
 from uuid import UUID, uuid4
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Query, status
 from fastapi import HTTPException
@@ -207,12 +208,9 @@ def _validate_article_status(
 ) -> None:
     allowed = {
         "DRAFT",
-        "PENDING_REVIEW",
-        "REJECTED",
         "PUBLISHED",
         "UNPUBLISHED",
         "SCHEDULED",
-        "ARCHIVED",
     }
 
     if value not in allowed:
@@ -403,8 +401,7 @@ def _is_supported_media_reference(value: str | None) -> bool:
 
     parsed = urlparse(normalized)
     if parsed.scheme in {"http", "https"}:
-        lower_path = parsed.path.lower()
-        return lower_path.endswith((".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".mp4", ".m4v", ".webm")) or "/audio/" in lower_path or "/media/" in lower_path
+        return True
 
     return False
 
@@ -1275,62 +1272,7 @@ def schedule_article(
     )
 
 
-# ============================================================
-# ARTICLES — ARCHIVE
-# ============================================================
 
-@router.post(
-    "/articles/{article_id}/archive",
-    response_model=SuperadminArticleDetailResponse,
-)
-def archive_article(
-    article_id: UUID,
-    current_user: AuthContext = Depends(
-        get_current_user
-    ),
-):
-    _require_superadmin(current_user)
-
-    client = current_user.client
-
-    article = _get_article(
-        client,
-        article_id,
-    )
-
-    (
-        client
-        .table("articles")
-        .update(
-            {
-                "status": "ARCHIVED",
-                "scheduled_at": None,
-                "updated_by": str(
-                    current_user.user.id
-                ),
-            }
-        )
-        .eq("id", str(article_id))
-        .execute()
-    )
-
-    record_audit(
-        actor_user_id=current_user.user.id,
-        action="ARTICLE_ARCHIVED",
-        entity_type="ARTICLE",
-        entity_id=article_id,
-        metadata={
-            "previous_status": article.get("status"),
-        },
-        client=current_user.client,
-    )
-
-    return _map_article(
-        _get_article(
-            client,
-            article_id,
-        )
-    )
 
 
 # ============================================================
@@ -1882,6 +1824,7 @@ def list_categories(
         current_user.client
         .table("categories")
         .select(CATEGORY_SELECT)
+        .eq("is_active", True)
         .order("display_order")
         .execute()
     )

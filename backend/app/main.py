@@ -4,8 +4,8 @@ from time import perf_counter
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from postgrest.exceptions import APIError
 from supabase import create_client
 
@@ -18,9 +18,9 @@ from app.routers.articles import router as articles_router
 from app.routers.audit import router as audit_router
 from app.routers.bookmarks import router as bookmarks_router
 from app.routers.categories import router as categories_router
-from app.routers.contact import router as contact_router
 from app.routers.comments import router as comments_router
 from app.routers.completions import router as completions_router
+from app.routers.contact import router as contact_router
 from app.routers.gamification import router as gamification_router
 from app.routers.home import router as home_router
 from app.routers.media import router as media_router
@@ -66,14 +66,13 @@ async def lifespan(app: FastAPI):
         logger.error(f"Error during article scheduler shutdown: {e}")
 
 
-# Registered lifespan here so FastAPI triggers startup and shutdown tasks
 app = FastAPI(
     title="Cognition News API",
     version="1.0.0",
     lifespan=lifespan,
 )
 
-# Explicitly defining allowed origins including custom domains, Slate, and local dev
+# Explicit allowed origins list
 allowed_origins = [
     "https://themodernstories.in",
     "https://www.themodernstories.in",
@@ -97,63 +96,38 @@ if hasattr(settings, "cors_origin_list") and settings.cors_origin_list:
 # Deduplicate origins while preserving order
 allowed_origins = list(dict.fromkeys(allowed_origins))
 
+# Allowed headers explicitly declared to ensure preflights with Authorization pass
+allowed_headers = [
+    "Authorization",
+    "Content-Type",
+    "Accept",
+    "Origin",
+    "X-Requested-With",
+    "Access-Control-Request-Method",
+    "Access-Control-Request-Headers",
+]
+
+# Built-in FastAPI CORSMiddleware manages preflight OPTIONS automatically
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"^https?://.*$",
+    allow_origin_regex=r"^https?://.*\.onslate\.in$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
-    allow_headers=[
-        "Authorization",
-        "Content-Type",
-        "Accept",
-        "Origin",
-        "User-Agent",
-        "DNT",
-        "Cache-Control",
-        "X-Mx-ReqToken",
-        "X-Requested-With",
-        "X-Requested-By",
-        "If-Modified-Since",
-        "Keep-Alive",
-        "*",
-    ],
+    allow_headers=allowed_headers,
     expose_headers=["*"],
     max_age=86400,
 )
 
 
 @app.middleware("http")
-async def cors_and_logging_middleware(request: Request, call_next):
-    origin = request.headers.get("origin") or "*"
-
-    # Intercept all OPTIONS preflight requests immediately so they never fail
-    if request.method == "OPTIONS":
-        return JSONResponse(
-            content="OK",
-            status_code=200,
-            headers={
-                "Access-Control-Allow-Origin": origin if origin != "*" else "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD",
-                "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Origin, User-Agent, DNT, Cache-Control, X-Mx-ReqToken, X-Requested-With, X-Requested-By, If-Modified-Since, Keep-Alive, *",
-                "Access-Control-Allow-Credentials": "true",
-                "Access-Control-Max-Age": "86400",
-            },
-        )
-
+async def request_logging_middleware(request: Request, call_next):
     started = perf_counter()
     try:
         response = await call_next(request)
     except Exception:
         logger.exception("HTTP %s %s failed", request.method, request.url.path)
         raise
-
-    # Always ensure CORS headers are on every response (including error responses)
-    if origin != "*":
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD"
-        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, User-Agent, DNT, Cache-Control, X-Mx-ReqToken, X-Requested-With, X-Requested-By, If-Modified-Since, Keep-Alive, *"
 
     if settings.log_http_requests:
         elapsed_ms = (perf_counter() - started) * 1000
@@ -167,14 +141,20 @@ async def cors_and_logging_middleware(request: Request, call_next):
 
     return response
 
-app.add_exception_handler(
-    AppException,
-    app_exception_handler,
-)
-app.add_exception_handler(
-    APIError,
-    api_error_handler,
-)
+
+# Global CORS helper to prevent exception responses from dropping headers
+def _add_cors_headers(request: Request, response: JSONResponse) -> JSONResponse:
+    origin = request.headers.get("origin")
+    if origin and (origin in allowed_origins or origin.endswith(".onslate.in")):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD"
+        response.headers["Access-Control-Allow-Headers"] = ", ".join(allowed_headers)
+    return response
+
+
+app.add_exception_handler(AppException, app_exception_handler)
+app.add_exception_handler(APIError, api_error_handler)
 
 
 @app.exception_handler(RequestValidationError)
@@ -197,7 +177,8 @@ async def request_validation_handler(request: Request, exc: RequestValidationErr
         request.url.path,
         safe_errors,
     )
-    return JSONResponse(status_code=422, content={"detail": safe_errors})
+    res = JSONResponse(status_code=422, content={"detail": safe_errors})
+    return _add_cors_headers(request, res)
 
 
 @app.exception_handler(HTTPException)
@@ -210,14 +191,14 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             exc.status_code,
             exc.detail,
         )
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
+    headers = dict(exc.headers) if exc.headers else {}
+    res = JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=headers)
+    return _add_cors_headers(request, res)
 
 
 @app.get("/health")
 async def health_check():
-    return {
-        "status": "ok",
-    }
+    return {"status": "ok"}
 
 
 app.include_router(users_router)

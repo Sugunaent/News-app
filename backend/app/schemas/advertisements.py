@@ -116,7 +116,6 @@ class AdvertisementSlotCreate(BaseModel):
         default=None,
         max_length=1000,
     )
-    placement: str = Field(default="sidebar", min_length=1, max_length=100)
 
     is_active: bool = True
 
@@ -138,6 +137,5 @@ class AdvertisementSlotUpdate(BaseModel):
         default=None,
         max_length=1000,
     )
-    placement: str | None = Field(default=None, min_length=1, max_length=100)
 
     is_active: bool | None = None

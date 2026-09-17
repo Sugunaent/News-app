@@ -1,4 +1,11 @@
 {
     "stack": "python3.13",
-    "command": "sh start.sh"
+    "command": "sh start.sh",
+    "routes": [
+        {
+            "path": "/*",
+            "auth": "public",
+            "target_type": "app"
+        }
+    ]
 }

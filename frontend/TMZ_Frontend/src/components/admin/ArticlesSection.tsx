@@ -31,22 +31,16 @@ type StatusTab = ArticleStatus | 'ALL';
 const statusTabs: { key: StatusTab; label: string }[] = [
   { key: 'ALL', label: 'All' },
   { key: 'DRAFT', label: 'Drafts' },
-  { key: 'PENDING_REVIEW', label: 'Pending Review' },
   { key: 'PUBLISHED', label: 'Published' },
   { key: 'SCHEDULED', label: 'Scheduled' },
   { key: 'UNPUBLISHED', label: 'Unpublished' },
-  { key: 'REJECTED', label: 'Rejected' },
-  { key: 'ARCHIVED', label: 'Archived' },
 ];
 
 const statusColors: Record<string, string> = {
   DRAFT: 'bg-gray-500/10 text-gray-500',
-  PENDING_REVIEW: 'bg-amber-500/10 text-amber-500',
   PUBLISHED: 'bg-green-500/10 text-green-500',
   SCHEDULED: 'bg-blue-500/10 text-blue-500',
   UNPUBLISHED: 'bg-orange-500/10 text-orange-500',
-  REJECTED: 'bg-red-500/10 text-red-500',
-  ARCHIVED: 'bg-purple-500/10 text-purple-500',
 };
 
 export function ArticlesSection({ editorArticleId, setEditorArticleId }: ArticlesSectionProps) {
@@ -1046,19 +1040,12 @@ function getAvailableActions(status: ArticleStatus): ArticleAction[] {
     { key: 'save', label: 'Save Draft', status: status, variant: 'secondary', icon: Save },
   ];
 
-  if (status === 'DRAFT' || status === 'REJECTED' || status === 'UNPUBLISHED') {
-    actions.push({ key: 'submit', label: 'Submit for Review', status: 'PENDING_REVIEW', variant: 'secondary', icon: Send });
-  }
-  if (status === 'DRAFT' || status === 'PENDING_REVIEW' || status === 'UNPUBLISHED' || status === 'REJECTED') {
+  if (status === 'DRAFT' || status === 'UNPUBLISHED') {
     actions.push({ key: 'publish', label: 'Publish', status: 'PUBLISHED', variant: 'primary', icon: Globe });
     actions.push({ key: 'schedule', label: 'Schedule', status: 'SCHEDULED', variant: 'secondary', icon: Calendar });
   }
   if (status === 'PUBLISHED') {
     actions.push({ key: 'unpublish', label: 'Unpublish', status: 'UNPUBLISHED', variant: 'secondary', icon: GlobeLock });
-    actions.push({ key: 'archive', label: 'Archive', status: 'ARCHIVED', variant: 'ghost', icon: Archive });
-  }
-  if (status === 'PENDING_REVIEW') {
-    actions.push({ key: 'reject', label: 'Reject', status: 'REJECTED', variant: 'ghost' });
   }
   actions.push({ key: 'delete', label: 'Delete', variant: 'ghost', icon: Trash2 });
 

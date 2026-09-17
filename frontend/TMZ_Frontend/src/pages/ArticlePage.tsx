@@ -131,6 +131,7 @@ export function ArticlePage() {
     if (!id || authLoading) return;
     if (!user) {
       setLoading(false);
+      navigate('/auth', { replace: true });
       return;
     }
     setLoading(true);

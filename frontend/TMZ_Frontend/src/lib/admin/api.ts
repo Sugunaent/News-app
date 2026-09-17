@@ -58,12 +58,9 @@ const normalizeArticleType = (value: string | null | undefined): AdminArticle['a
 const normalizeArticleStatus = (value: string | null | undefined): ArticleStatus => {
   switch (value) {
     case 'DRAFT':
-    case 'PENDING_REVIEW':
-    case 'REJECTED':
     case 'PUBLISHED':
     case 'UNPUBLISHED':
     case 'SCHEDULED':
-    case 'ARCHIVED':
       return value;
     default:
       return 'DRAFT';
@@ -230,6 +227,7 @@ const toAdminBlock = (item: any): AdminBlock => ({
   block_type: item.block_type,
   order_index: Number(item.display_order ?? item.order_index ?? 0),
   content: item.text_content ?? item.content ?? null,
+  external_url: item.external_url ?? null,
   image_url: item.image_url ?? item.external_url ?? item.media?.signed_url ?? null,
   image_caption: item.caption ?? item.image_caption ?? null,
   title: item.title ?? null,
@@ -415,8 +413,6 @@ export async function updateArticle(id: string, updates: Partial<AdminArticle>):
     await apiFetchJson(`/api/v1/superadmin/articles/${id}/publish`, { method: 'POST' });
   } else if (updates.status === 'UNPUBLISHED') {
     await apiFetchJson(`/api/v1/superadmin/articles/${id}/unpublish`, { method: 'POST' });
-  } else if (updates.status === 'ARCHIVED') {
-    await apiFetchJson(`/api/v1/superadmin/articles/${id}/archive`, { method: 'POST' });
   } else if (updates.status === 'SCHEDULED') {
     if (!updates.scheduled_at) throw new Error('A scheduled date is required');
     await apiFetchJson(`/api/v1/superadmin/articles/${id}/schedule`, {

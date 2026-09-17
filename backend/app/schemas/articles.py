@@ -116,7 +116,7 @@ class ArticlePodcastBlock(BaseModel):
     type: Literal["PODCAST"]
     display_order: int
     description: str | None = None
-    external_url: str | None = None
+    audio_url: str | None = None
 
 
 class ArticleOpinionBlock(BaseModel):
