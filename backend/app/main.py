@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 import logging
 from time import perf_counter
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -44,7 +44,6 @@ logger = logging.getLogger("app.http")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Safely initialize Supabase & Cron scheduler without failing whole server
     try:
         if settings.supabase_url and settings.supabase_service_role_key:
             admin_client = create_client(
@@ -72,13 +71,33 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# 1. Broad Cors Middleware for standard routes
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,  # Set to False when using wildcard allow_origins for proxy compatibility
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
+)
 
-# 1. Custom HTTP Logging Middleware (Must be defined FIRST so CORSMiddleware wraps it)
+
+# 2. Universal Options Interceptor Middleware (Fixes Zoho Gateway Preflight dropping)
 @app.middleware("http")
-async def request_logging_middleware(request: Request, call_next):
-    # Pass OPTIONS preflight directly without intervention
+async def cors_options_interceptor(request: Request, call_next):
+    origin = request.headers.get("origin", "*")
+    
     if request.method == "OPTIONS":
-        return await call_next(request)
+        response = Response(status_code=200)
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = request.headers.get(
+            "access-control-request-headers", "*"
+        )
+        response.headers["Access-Control-Max-Age"] = "86400"
+        return response
 
     started = perf_counter()
     try:
@@ -87,7 +106,11 @@ async def request_logging_middleware(request: Request, call_next):
         logger.exception("HTTP %s %s failed", request.method, request.url.path)
         raise
 
-    if settings.log_http_requests:
+    # Guarantee CORS headers on every response passing through
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    
+    if getattr(settings, "log_http_requests", True):
         elapsed_ms = (perf_counter() - started) * 1000
         logger.info(
             "HTTP %s %s -> %s (%.1f ms)",
@@ -100,66 +123,13 @@ async def request_logging_middleware(request: Request, call_next):
     return response
 
 
-# 2. Explicit allowed origins list
-allowed_origins = [
-    "https://themodernstories.in",
-    "https://www.themodernstories.in",
-    "http://themodernstories.in",
-    "http://www.themodernstories.in",
-    "https://tmz-daixfslx.onslate.in",
-    "https://tmz-ugmypqmr.onslate.in",
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5173",
-]
-
-# Include additional origins from environment settings if configured
-if hasattr(settings, "cors_origin_list") and settings.cors_origin_list:
-    if isinstance(settings.cors_origin_list, list):
-        allowed_origins.extend(settings.cors_origin_list)
-    elif isinstance(settings.cors_origin_list, str):
-        allowed_origins.append(settings.cors_origin_list)
-
-# Deduplicate origins while preserving order
-allowed_origins = list(dict.fromkeys(allowed_origins))
-
-# Allowed headers explicitly declared to ensure preflights pass
-allowed_headers = [
-    "Authorization",
-    "Content-Type",
-    "Accept",
-    "Origin",
-    "X-Requested-With",
-    "Access-Control-Request-Method",
-    "Access-Control-Request-Headers",
-]
-
-# 3. Built-in FastAPI CORSMiddleware added AFTER HTTP logging middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_origin_regex=r"^https?://.*(\.onslate\.in|\.catalystappsail\.in)$",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=86400,
-)
-
-
-# Global CORS helper to prevent exception responses from dropping headers
+# Exception Handlers
 def _add_cors_headers(request: Request, response: JSONResponse) -> JSONResponse:
-    origin = request.headers.get("origin")
-    if origin and (
-        origin in allowed_origins 
-        or origin.endswith(".onslate.in") 
-        or origin.endswith(".catalystappsail.in")
-    ):
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "*"
+    origin = request.headers.get("origin", "*")
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
     return response
 
 
@@ -176,17 +146,10 @@ async def request_validation_handler(request: Request, exc: RequestValidationErr
             return [_json_safe(item) for item in value]
         if isinstance(value, (str, int, float, bool)) or value is None:
             return value
-        if isinstance(value, Exception):
-            return str(value)
         return str(value)
 
     safe_errors = [_json_safe(item) for item in exc.errors()]
-    logger.error(
-        "VALIDATION 422 %s %s errors=%s",
-        request.method,
-        request.url.path,
-        safe_errors,
-    )
+    logger.error("VALIDATION 422 %s %s errors=%s", request.method, request.url.path, safe_errors)
     res = JSONResponse(status_code=422, content={"detail": safe_errors})
     return _add_cors_headers(request, res)
 
@@ -210,26 +173,38 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 async def health_check():
     return {"status": "ok"}
 
+# Direct fallback route for preflight requests across all paths
+@app.options("/{full_path:path}")
+async def options_handler(request: Request, full_path: str):
+    origin = request.headers.get("origin", "*")
+    headers = {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+        "Access-Control-Allow-Headers": request.headers.get("access-control-request-headers", "*"),
+        "Access-Control-Max-Age": "86400",
+    }
+    return Response(status_code=200, headers=headers)
 
-app.include_router(users_router)
-app.include_router(articles_router)
-app.include_router(categories_router)
-app.include_router(progress_router)
-app.include_router(quizzes_router)
-app.include_router(opinions_router)
-app.include_router(completions_router)
-app.include_router(gamification_router)
-app.include_router(home_router)
-app.include_router(promotions_router)
-app.include_router(sharing_router)
-app.include_router(comments_router)
-app.include_router(advertisements_router)
-app.include_router(analytics_router)
-app.include_router(bookmarks_router)
-app.include_router(site_router)
-app.include_router(contact_router)
-app.include_router(superadmin_content_router)
-app.include_router(superadmin_interactive_router)
-app.include_router(superadmin_management_router)
-app.include_router(media_router)
-app.include_router(audit_router)
+app.include_router(users_router, prefix="/api/v1")
+app.include_router(articles_router, prefix="/api/v1")
+app.include_router(categories_router, prefix="/api/v1")
+app.include_router(progress_router, prefix="/api/v1")
+app.include_router(quizzes_router, prefix="/api/v1")
+app.include_router(opinions_router, prefix="/api/v1")
+app.include_router(completions_router, prefix="/api/v1")
+app.include_router(gamification_router, prefix="/api/v1")
+app.include_router(home_router, prefix="/api/v1")
+app.include_router(promotions_router, prefix="/api/v1")
+app.include_router(sharing_router, prefix="/api/v1")
+app.include_router(comments_router, prefix="/api/v1")
+app.include_router(advertisements_router, prefix="/api/v1")
+app.include_router(analytics_router, prefix="/api/v1")
+app.include_router(bookmarks_router, prefix="/api/v1")
+app.include_router(site_router, prefix="/api/v1")
+app.include_router(contact_router, prefix="/api/v1")
+app.include_router(superadmin_content_router, prefix="/api/v1")
+app.include_router(superadmin_interactive_router, prefix="/api/v1")
+app.include_router(superadmin_management_router, prefix="/api/v1")
+app.include_router(media_router, prefix="/api/v1")
+app.include_router(audit_router, prefix="/api/v1")
