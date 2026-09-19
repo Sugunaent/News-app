@@ -152,7 +152,7 @@ export function ArticlePage() {
       .then((art) => { if (!art) { setError(true); return; } setArticle(art); })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, [id, user, authLoading]);
+  }, [id, user, authLoading, 'force-refresh-1']);
 
   // Load sidebar data
   useEffect(() => {
@@ -244,16 +244,16 @@ export function ArticlePage() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [article, unlockedPct, user, id, commentsReady]);
 
-  // Completion — trigger confetti and show card after 3 seconds of reaching comments box
+  // Completion — trigger confetti and show card immediately upon reaching completion criteria
   useEffect(() => {
     if (!id || !article || unlockedPct < 100 || !scrolledThroughComments || !completionChecked || alreadyCompleted || completionTriggeredRef.current) return;
     // Trigger ONLY after genuine article completion/reading progress, NOT on cold load
     if (!userDidScrollRef.current) return;
+    if (completionTriggeredRef.current) return;
 
-    const timer = setTimeout(async () => {
-      if (completionTriggeredRef.current) return;
-      completionTriggeredRef.current = true;
+    completionTriggeredRef.current = true;
 
+    const triggerCompletion = async () => {
       try {
         const userId = user?.id || 'demo-reader';
         const result = await createCompletionCard(userId, id, article.title, 0, 'completion');
@@ -295,9 +295,10 @@ export function ArticlePage() {
       } catch {
         /* background sync fallback */
       }
-    }, 3000);
+    };
 
-    return () => clearTimeout(timer);
+    triggerCompletion();
+
   }, [unlockedPct, scrolledThroughComments, user, id, article, completionChecked, alreadyCompleted, profile, refreshProfile, opinionModalData]);
 
   const handleQuizResult = useCallback((xp: number) => {

@@ -10,12 +10,14 @@ from app.schemas.user import (
     UserProfileAggregateResponse,
     UserProfileBadgeResponse,
     UserProfileLevelResponse,
+    UserProfileOpinionResponse,
     UserProfileQuizPerformanceResponse,
     UserProfileReadingProgressResponse,
     UserProfileResponse,
     UserProfileShareCardResponse,
     UserProfileUpdate,
 )
+from app.services.gamification import get_active_xp_amount
 from app.services.media_urls import create_signed_url
 
 router = APIRouter(
@@ -485,7 +487,8 @@ def get_my_profile(
             .select(
                 "article_id, progress_percentage, "
                 "last_block_id, last_position, "
-                "started_at, last_read_at, completed_at"
+                "started_at, last_read_at, completed_at, "
+                "articles(title)"
             )
             .eq("user_id", user_id)
             .order("last_read_at", desc=True)
@@ -502,9 +505,11 @@ def get_my_profile(
         )
 
         for item in progress_items:
+            article_data = item.get("articles") or {}
             reading_progress.append(
                 UserProfileReadingProgressResponse(
                     article_id=item["article_id"],
+                    article_title=article_data.get("title"),
                     progress_percentage=item["progress_percentage"],
                     last_block_id=item.get("last_block_id"),
                     last_position=item.get("last_position"),
@@ -564,21 +569,30 @@ def get_my_profile(
     )
 
     # ---------------------------------------------------------
-    # 9. Historical share cards
+    # 9. Historical share cards & Opinions List
     # ---------------------------------------------------------
 
     share_cards: list[UserProfileShareCardResponse] = []
+    opinions_list: list[UserProfileOpinionResponse] = []
 
     for completion in completions:
         article_id = completion["article_id"]
         article = completion.get("articles") or {}
         article_title = article.get("title") or "Article"
 
+        completion_xp = sum(
+            txn["amount"]
+            for txn in transactions
+            if str(txn.get("article_id", "")) == str(article_id)
+            and txn["source_type"] in ["ARTICLE_COMPLETION", "QUIZ"]
+        )
+
         share_cards.append(
             UserProfileShareCardResponse(
                 id=UUID(str(article_id)),
                 card_type="ARTICLE_COMPLETION",
                 created_at=completion["completed_at"],
+                xp_gained=completion_xp,
                 title="Article completed",
                 description=f"Completed {article_title}",
                 article_id=article_id,
@@ -612,11 +626,34 @@ def get_my_profile(
             selected_option_text,
         )
 
+        opinions_list.append(
+            UserProfileOpinionResponse(
+                id=opinion["id"],
+                opinion_question_id=question.get("id", opinion["opinion_question_id"]),
+                article_id=article_id,
+                article_title=article_title,
+                question_text=question.get("question_text", "Opinion Question"),
+                opinion_text=opinion_text,
+                created_at=opinion["created_at"],
+            )
+        )
+
+        opinion_xp = sum(
+            txn["amount"]
+            for txn in transactions
+            if txn["source_type"] == "OPINION_RESPONSE"
+            and str(txn.get("source_id", "")) == str(opinion["id"])
+        )
+
+        if opinion_xp == 0:
+            opinion_xp = get_active_xp_amount("OPINION_SUBMITTED")
+
         share_cards.append(
             UserProfileShareCardResponse(
                 id=UUID(str(opinion["id"])),
                 card_type="OPINION",
                 created_at=opinion["created_at"],
+                xp_gained=opinion_xp,
                 title="Opinion shared",
                 description=f"Shared an opinion on {article_title}",
                 article_id=article_id,
@@ -637,9 +674,18 @@ def get_my_profile(
         reverse=True,
     )
 
+    opinions_list.sort(
+        key=lambda item: item.created_at,
+        reverse=True,
+    )
+
     # ---------------------------------------------------------
     # 10. Final aggregate response
     # ---------------------------------------------------------
+
+    print(f"DEBUG GET MY PROFILE - USER {user_id}")
+    print(f"DEBUG reading_progress: {reading_progress}")
+    print(f"DEBUG opinions_list: {opinions_list}")
 
     return UserProfileAggregateResponse(
         user=user_profile,
@@ -648,6 +694,7 @@ def get_my_profile(
         articles_completed=articles_completed,
         quiz_performance=quiz_performance,
         opinions_submitted=opinions_submitted,
+        opinions=opinions_list,
         badges=badges,
         achievement_history=achievement_history,
         share_cards=share_cards,

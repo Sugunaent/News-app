@@ -104,6 +104,10 @@ function ProfileOverview() {
         scroll_position: Number(item.last_position ?? 0),
         completed: Boolean(item.completed_at),
         updated_at: item.last_read_at,
+        article: {
+          id: item.article_id,
+          title: item.article_title || 'Article',
+        },
       }));
       const achievementByCard = new Map<string, number>();
       for (const item of aggregate.achievement_history ?? []) {
@@ -150,6 +154,7 @@ function ProfileOverview() {
         accuracy: Number(aggregate.quiz_performance?.accuracy_percentage ?? 0),
       });
       setOpinionsCount(Number(aggregate.opinions_submitted ?? 0));
+      setUserOpinions(aggregate.opinions ?? []);
       setShareCardsCount(cards.length);
       setReadingHistory(history);
       setCompletedArticles(history.filter((item: ReadingHistoryItem) => item.completed));
@@ -214,11 +219,11 @@ function ProfileOverview() {
 
       {/* Continue Reading */}
       <Section title="Continue Reading" icon={BookOpen}>
-        {readingHistory.length === 0 ? (
+        {readingHistory.filter((i) => !i.completed).length === 0 ? (
           <EmptyStateCard icon={BookOpen} message="No articles in progress. Start reading to see them here." />
         ) : (
           <div className="grid md:grid-cols-2 gap-4">
-            {readingHistory.slice(0, 4).map((item) => (
+            {readingHistory.filter((i) => !i.completed).slice(0, 4).map((item) => (
               <ReadingHistoryCard key={item.article_id} item={item} />
             ))}
           </div>
@@ -672,25 +677,29 @@ function CompletedArticleCard({ item }: { item: ReadingHistoryItem }) {
 /* ===== Opinion Row ===== */
 
 function OpinionRow({ opinion }: { opinion: OpinionWithArticle }) {
+  const navigate = useNavigate();
+
   return (
-    <GlassCard hover={false} className="p-4">
-      <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
-          <MessageSquare className="w-5 h-5 text-amber-500" />
-        </div>
-        <div className="flex-1 min-w-0">
-          {opinion.opinion && (
-            <p className="text-sm text-primary font-body mb-1">{opinion.opinion.question}</p>
-          )}
-          <p className="text-sm text-muted">
-            <span className="text-secondary font-body">Response:</span> {opinion.selected_option}
-          </p>
-          <div className="flex items-center gap-3 mt-2 text-xs text-muted">
-            {opinion.article && <span>{opinion.article.title}</span>}
-            <span>{formatRelativeTime(opinion.created_at)}</span>
-          </div>
+    <GlassCard hover={false} className="p-4 flex items-center gap-4">
+      <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
+        <MessageSquare className="w-5 h-5 text-amber-500" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-primary font-body mb-1">{opinion.question_text}</p>
+        <p className="text-sm text-muted">
+          <span className="text-secondary font-body">Response:</span> {opinion.opinion_text}
+        </p>
+        <div className="flex items-center gap-3 mt-2 text-xs text-muted">
+          <span>{opinion.article_title}</span>
+          <span>{formatRelativeTime(opinion.created_at)}</span>
         </div>
       </div>
+      <button
+        onClick={() => navigate(`/article/${opinion.article_id}`)}
+        className="btn-secondary text-xs px-4 py-2 shrink-0"
+      >
+        Reopen
+      </button>
     </GlassCard>
   );
 }

@@ -198,14 +198,28 @@ def get_article(
             if ext_url and not (ext_url.startswith("http://") or ext_url.startswith("https://")):
                 ext_url = create_signed_url(ext_url) or ext_url
 
+            media = block.get("media_assets")
+            if isinstance(media, list):
+                media = media[0] if media else None
+                
+            internal_audio = attach_signed_url(media)
+            if internal_audio and not ext_url:
+                if isinstance(internal_audio, dict):
+                    ext_url = internal_audio.get("signed_url") or internal_audio.get("storage_path") or ""
+                elif isinstance(internal_audio, str):
+                    ext_url = internal_audio
+
             blocks.append(
                 {
                     "id": block["id"],
                     "type": "PODCAST",
                     "display_order": block["display_order"],
-                    "description": block.get("text_content") or "",
-                    "audio_url": ext_url,
-                    "title": block.get("title") or "Podcast",
+                    "podcast": {
+                        "id": block["id"],
+                        "title": block.get("title") or "Podcast",
+                        "description": block.get("text_content") or "",
+                        "audio_url": ext_url,
+                    }
                 }
             )
 

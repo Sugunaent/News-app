@@ -188,7 +188,14 @@ def _map_article(data: dict) -> dict:
 
 
 def _map_block(data: dict) -> dict:
-    return {
+    media = data.get("media_assets")
+    if isinstance(media, list):
+        media = media[0] if media else None
+    
+    media_data = attach_signed_url(media)
+    ext_url = data.get("external_url")
+
+    result = {
         "id": data["id"],
         "article_id": data["article_id"],
         "block_type": data["block_type"],
@@ -196,11 +203,28 @@ def _map_block(data: dict) -> dict:
         "media_id": data.get("media_id"),
         "quiz_id": data.get("quiz_id"),
         "opinion_id": data.get("opinion_id"),
-        "external_url": data.get("external_url"),
+        "external_url": ext_url,
         "text_content": data.get("text_content"),
         "caption": data.get("caption"),
         "title": data.get("title"),
+        "media": media_data,
     }
+
+    if data["block_type"] == "PODCAST":
+        audio_url = ext_url or ""
+        if audio_url and not (audio_url.startswith("http://") or audio_url.startswith("https://")):
+            audio_url = create_signed_url(audio_url) or audio_url
+        if media_data and not ext_url:
+            audio_url = media_data.get("signed_url") or media_data.get("storage_path") or ""
+
+        result["podcast"] = {
+            "id": data["id"],
+            "title": data.get("title") or "Podcast",
+            "description": data.get("text_content") or "",
+            "audio_url": audio_url,
+        }
+
+    return result
 
 
 def _validate_article_status(

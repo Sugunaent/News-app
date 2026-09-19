@@ -279,7 +279,7 @@ def has_submitted_opinion(
     try:
         response = (
             client.table("opinion_responses")
-            .select("id, custom_response_text, opinion_options(option_text)")
+            .select("id, custom_response, opinion_options(option_text)")
             .eq("user_id", str(auth.user.id))
             .eq("opinion_question_id", str(question_id))
             .maybe_single()
@@ -292,7 +292,7 @@ def has_submitted_opinion(
         try:
             response = (
                 supabase_admin.table("opinion_responses")
-                .select("id, custom_response_text, opinion_options(option_text)")
+                .select("id, custom_response, opinion_options(option_text)")
                 .eq("user_id", str(auth.user.id))
                 .eq("opinion_question_id", str(question_id))
                 .maybe_single()
@@ -303,7 +303,7 @@ def has_submitted_opinion(
 
     data = getattr(response, "data", None)
     if data:
-        text = data.get("custom_response_text")
+        text = data.get("custom_response")
         if not text and data.get("opinion_options"):
             opts = data["opinion_options"]
             if isinstance(opts, list) and len(opts) > 0:
@@ -434,18 +434,12 @@ def submit_opinion_response(
         "custom_response": payload.custom_response,
     }
 
-    # 5. Insert or Update safely
+    # 5. Insert safely
     try:
         if existing_id:
-            response_res = (
-                supabase_admin.table("opinion_responses")
-                .update({
-                    "selected_option_id": selected_option_str,
-                    "custom_response": payload.custom_response,
-                })
-                .eq("id", existing_id)
-                .select()
-                .execute()
+            raise HTTPException(
+                status_code=409,
+                detail="Opinion already submitted"
             )
         else:
             response_res = (

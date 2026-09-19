@@ -116,7 +116,7 @@ function CompletedList({ userId }: { userId: string }) {
               <p className="text-xs text-muted mt-0.5">{formatRelativeTime(item.updated_at)}</p>
             </div>
             <button
-              onClick={() => navigate(`/article/${article.id}`)}
+              onClick={() => navigate(`/article/${item.article_id}`)}
               className="btn-secondary text-xs px-4 py-2 shrink-0"
             >
               Reopen
@@ -331,6 +331,7 @@ function CardsList({ userId }: { userId: string }) {
 /* ===== Opinions ===== */
 
 function OpinionsList({ userId }: { userId: string }) {
+  const navigate = useNavigate();
   const [items, setItems] = useState<OpinionWithArticle[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -347,24 +348,26 @@ function OpinionsList({ userId }: { userId: string }) {
   return (
     <div className="space-y-3">
       {items.map((op) => (
-        <GlassCard key={op.id} hover={false} className="p-4">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
-              <MessageSquare className="w-5 h-5 text-amber-500" />
-            </div>
-            <div className="flex-1 min-w-0">
-              {op.opinion && (
-                <p className="text-sm text-primary font-body mb-1">{op.opinion.question}</p>
-              )}
-              <p className="text-sm text-muted">
-                <span className="text-secondary font-body">Response:</span> {op.selected_option}
-              </p>
-              <div className="flex items-center gap-3 mt-2 text-xs text-muted">
-                {op.article && <span>{op.article.title}</span>}
-                <span>{formatRelativeTime(op.created_at)}</span>
-              </div>
+        <GlassCard key={op.id} hover={false} className="p-4 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
+            <MessageSquare className="w-5 h-5 text-amber-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-primary font-body mb-1">{op.question_text}</p>
+            <p className="text-sm text-muted">
+              <span className="text-secondary font-body">Response:</span> {op.opinion_text}
+            </p>
+            <div className="flex items-center gap-3 mt-2 text-xs text-muted">
+              <span>{op.article_title}</span>
+              <span>{formatRelativeTime(op.created_at)}</span>
             </div>
           </div>
+          <button
+            onClick={() => navigate(`/article/${op.article_id}`)}
+            className="btn-secondary text-xs px-4 py-2 shrink-0"
+          >
+            Reopen
+          </button>
         </GlassCard>
       ))}
     </div>

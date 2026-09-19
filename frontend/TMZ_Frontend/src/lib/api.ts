@@ -435,13 +435,14 @@ export async function fetchArticleById(id: string): Promise<ArticleWithBlocks | 
       }
 
       if (block.type === 'PODCAST') {
+        const pObj = block.podcast || {};
         baseBlock.podcast = {
-          id: block.id,
+          id: pObj.id ?? block.id,
           article_id: item.id,
-          title: block.title ?? 'Podcast',
-          audio_url: block.external_url ?? '',
-          duration_seconds: null,
-          description: block.description ?? null,
+          title: pObj.title ?? block.title ?? 'Podcast',
+          audio_url: pObj.audio_url ?? block.audio_url ?? block.external_url ?? '',
+          duration_seconds: pObj.duration_seconds ?? null,
+          description: pObj.description ?? block.description ?? null,
         };
       }
 
@@ -959,24 +960,41 @@ export async function submitFeedback(_data: { content: string }): Promise<void> 
 /* ===================== PROFILE DATA ===================== */
 
 export async function fetchReadingHistory(_userId: string): Promise<ReadingHistoryItem[]> {
-  await delay();
-  return [...DEFAULT_READING_HISTORY];
+  const data = await fetchProfileAggregate(_userId);
+  if (!data || !data.reading_history) return [];
+  return data.reading_history
+    .filter((h: any) => !h.completed_at)
+    .map((item: any) => ({
+      article_id: item.article_id,
+      user_id: _userId,
+      percentage: Number(item.progress_percentage ?? 0),
+      scroll_position: Number(item.last_position ?? 0),
+      completed: false,
+      updated_at: item.last_read_at,
+      article: {
+        id: item.article_id,
+        title: item.article_title || 'Article',
+      } as any
+    }));
 }
 
 export async function fetchCompletedArticles(_userId: string): Promise<ReadingHistoryItem[]> {
-  await delay();
-  return _completionCards.map((cc) => {
-    const article = ARTICLES.find((a) => a.id === cc.article_id);
-    return {
-      article_id: cc.article_id,
+  const data = await fetchProfileAggregate(_userId);
+  if (!data || !data.reading_history) return [];
+  return data.reading_history
+    .filter((h: any) => h.completed_at)
+    .map((item: any) => ({
+      article_id: item.article_id,
       user_id: _userId,
-      percentage: 100,
-      scroll_position: 0,
+      percentage: Number(item.progress_percentage ?? 100),
+      scroll_position: Number(item.last_position ?? 0),
       completed: true,
-      updated_at: cc.created_at,
-      article,
-    };
-  });
+      updated_at: item.last_read_at,
+      article: {
+        id: item.article_id,
+        title: item.article_title || 'Article',
+      } as any
+    }));
 }
 
 export async function fetchSavedArticles(_userId: string): Promise<SavedArticleItem[]> {
@@ -989,14 +1007,20 @@ export async function fetchSavedArticles(_userId: string): Promise<SavedArticleI
 }
 
 export async function fetchQuizStats(_userId: string): Promise<QuizStats> {
-  await delay(50);
-  const total = _quizAttempted.size;
-  return { total, correct: total, incorrect: 0, accuracy: total > 0 ? 100 : 0 };
+  const data = await fetchProfileAggregate(_userId);
+  if (!data || !data.quiz_performance) return { total: 0, correct: 0, incorrect: 0, accuracy: 0 };
+  return {
+    total: data.quiz_performance.total_attempts,
+    correct: data.quiz_performance.correct_attempts,
+    incorrect: data.quiz_performance.incorrect_attempts,
+    accuracy: data.quiz_performance.accuracy_percentage,
+  };
 }
 
 export async function fetchUserOpinions(_userId: string): Promise<OpinionWithArticle[]> {
-  await delay();
-  return [...DEFAULT_OPINIONS];
+  const data = await fetchProfileAggregate(_userId);
+  if (!data || !data.opinions) return [];
+  return data.opinions;
 }
 
 export async function fetchAllBadges(_userId: string): Promise<{ all: Badge[]; earned: Set<string> }> {

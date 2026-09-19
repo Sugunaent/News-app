@@ -45,6 +45,7 @@ class UserProfileQuizPerformanceResponse(BaseModel):
 
 class UserProfileReadingProgressResponse(BaseModel):
     article_id: UUID
+    article_title: str | None = None
     progress_percentage: float
     last_block_id: UUID | None
     last_position: float | None
@@ -62,6 +63,16 @@ class UserProfileAchievementResponse(BaseModel):
     badge_id: UUID | None = None
 
 
+class UserProfileOpinionResponse(BaseModel):
+    id: UUID
+    opinion_question_id: UUID
+    article_id: UUID
+    article_title: str
+    question_text: str
+    opinion_text: str
+    created_at: datetime
+
+
 class UserProfileShareCardResponse(BaseModel):
     """
     Historical shareable achievement/activity card.
@@ -73,6 +84,7 @@ class UserProfileShareCardResponse(BaseModel):
     id: UUID
     card_type: str
     created_at: datetime
+    xp_gained: int = 0
 
     title: str
     description: str
@@ -100,6 +112,7 @@ class UserProfileAggregateResponse(BaseModel):
     quiz_performance: UserProfileQuizPerformanceResponse
 
     opinions_submitted: int
+    opinions: list[UserProfileOpinionResponse] = []
 
     badges: list[UserProfileBadgeResponse]
 
