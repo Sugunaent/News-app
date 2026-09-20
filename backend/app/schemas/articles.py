@@ -111,12 +111,18 @@ class ArticleImageBlock(BaseModel):
     media: ArticleMedia | None = None
 
 
+class ArticlePodcastData(BaseModel):
+    id: UUID
+    title: str
+    description: str | None = None
+    audio_url: str | None = None
+
+
 class ArticlePodcastBlock(BaseModel):
     id: UUID
     type: Literal["PODCAST"]
     display_order: int
-    description: str | None = None
-    audio_url: str | None = None
+    podcast: ArticlePodcastData | None = None
 
 
 class ArticleOpinionBlock(BaseModel):

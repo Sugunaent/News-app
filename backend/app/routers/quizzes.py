@@ -444,6 +444,27 @@ def submit_quiz_attempt(
             detail="Authenticated user profile is not available for quiz submission",
         ) from exc
 
+    existing_id = None
+    try:
+        existing_res = (
+            client.table("quiz_attempts")
+            .select("question_id")
+            .eq("user_id", str(auth.user.id))
+            .eq("question_id", str(question_id))
+            .maybe_single()
+            .execute()
+        )
+        if existing_res and existing_res.data:
+            existing_id = True
+    except Exception:
+        pass
+
+    if existing_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Quiz already attempted"
+        )
+
     attempt_response = None
     try:
         attempt_response = (
