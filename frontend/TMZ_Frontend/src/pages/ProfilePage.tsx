@@ -36,7 +36,7 @@ export function ProfilePage() {
   }
 
   return (
-    <div className="relative z-10 max-w-6xl mx-auto px-4 md:px-8 py-8 md:py-12">
+    <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 sm:py-8">
       <ProfileOverview />
     </div>
   );
@@ -323,11 +323,10 @@ function ProfileOverview() {
                   className="flex flex-col items-center gap-2 group"
                 >
                   <div
-                    className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-105 ${
-                      earned
+                    className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-105 ${earned
                         ? 'bg-gradient-to-br from-brand-primary to-brand-accent shadow-lg'
                         : 'bg-brand-accent/5 opacity-40'
-                    }`}
+                      }`}
                   >
                     {badge.image_url ? (
                       <img src={badge.image_url} alt={badge.name} className="w-10 h-10 rounded-xl object-cover" />
@@ -709,12 +708,12 @@ function OpinionRow({ opinion }: { opinion: OpinionWithArticle }) {
 function AchievementRow({ achievement }: { achievement: AchievementItem }) {
   const icon = achievement.type === 'completion' ? CheckCircle2
     : achievement.type === 'badge' ? Award
-    : Target;
+      : Target;
 
   const Icon = icon as React.ComponentType<{ className?: string }>;
   const color = achievement.type === 'completion' ? 'text-green-500'
     : achievement.type === 'badge' ? 'text-purple-500'
-    : 'text-brand-primary';
+      : 'text-brand-primary';
 
   return (
     <GlassCard hover={false} className="p-4 flex items-center gap-3">

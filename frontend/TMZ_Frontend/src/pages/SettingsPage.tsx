@@ -29,7 +29,7 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="relative z-10 max-w-3xl mx-auto px-4 md:px-8 py-8 md:py-12">
+    <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 sm:py-8">
       {/* Back */}
       <button
         type="button"
@@ -230,9 +230,8 @@ function AppearanceSection() {
       <div className="grid grid-cols-2 gap-4">
         <button
           onClick={() => { if (theme !== 'light') toggleTheme(); }}
-          className={`p-5 rounded-2xl border-2 transition-all text-left ${
-            theme === 'light' ? 'border-brand-primary' : 'border-transparent'
-          }`}
+          className={`p-5 rounded-2xl border-2 transition-all text-left ${theme === 'light' ? 'border-brand-primary' : 'border-transparent'
+            }`}
           style={{ background: 'var(--btn-secondary)' }}
         >
           <div className="flex items-center gap-3 mb-3">
@@ -248,9 +247,8 @@ function AppearanceSection() {
 
         <button
           onClick={() => { if (theme !== 'dark') toggleTheme(); }}
-          className={`p-5 rounded-2xl border-2 transition-all text-left ${
-            theme === 'dark' ? 'border-brand-primary' : 'border-transparent'
-          }`}
+          className={`p-5 rounded-2xl border-2 transition-all text-left ${theme === 'dark' ? 'border-brand-primary' : 'border-transparent'
+            }`}
           style={{ background: 'var(--btn-secondary)' }}
         >
           <div className="flex items-center gap-3 mb-3">

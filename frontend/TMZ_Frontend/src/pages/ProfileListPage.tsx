@@ -47,7 +47,7 @@ export function ProfileListPage() {
   const Icon = meta.icon;
 
   return (
-    <div className="relative z-10 max-w-4xl mx-auto px-4 md:px-8 py-8 md:py-12">
+    <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 sm:py-8">
       <button
         type="button"
         onClick={() => {
@@ -91,7 +91,7 @@ function CompletedList({ userId }: { userId: string }) {
   useEffect(() => {
     fetchCompletedArticles(userId)
       .then(setItems)
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, [userId]);
 
@@ -139,7 +139,7 @@ function BadgesList({ userId }: { userId: string }) {
   useEffect(() => {
     fetchAllBadges(userId)
       .then((result) => { setAllBadges(result.all); setEarnedIds(result.earned); })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, [userId]);
 
@@ -158,11 +158,10 @@ function BadgesList({ userId }: { userId: string }) {
               className="flex flex-col items-center gap-2 group"
             >
               <div
-                className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-105 ${
-                  earned
+                className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-105 ${earned
                     ? 'bg-gradient-to-br from-brand-primary to-brand-accent shadow-lg'
                     : 'bg-brand-accent/5 opacity-40'
-                }`}
+                  }`}
               >
                 {badge.image_url ? (
                   <img src={badge.image_url} alt={badge.name} className="w-10 h-10 rounded-xl object-cover" />
@@ -217,7 +216,7 @@ function AchievementsList({ userId }: { userId: string }) {
   useEffect(() => {
     fetchAchievementHistory(userId)
       .then(setItems)
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, [userId]);
 
@@ -229,10 +228,10 @@ function AchievementsList({ userId }: { userId: string }) {
       {items.map((ach) => {
         const Icon = ach.type === 'completion' ? CheckCircle2
           : ach.type === 'badge' ? Award
-          : Target;
+            : Target;
         const color = ach.type === 'completion' ? 'text-green-500'
           : ach.type === 'badge' ? 'text-amber-500'
-          : 'text-brand-primary';
+            : 'text-brand-primary';
 
         return (
           <GlassCard key={ach.id} hover={false} className="p-4 flex items-center gap-3">
@@ -265,7 +264,7 @@ function CardsList({ userId }: { userId: string }) {
   useEffect(() => {
     fetchCompletionCards(userId)
       .then(setItems)
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, [userId]);
 
@@ -338,7 +337,7 @@ function OpinionsList({ userId }: { userId: string }) {
   useEffect(() => {
     fetchUserOpinions(userId)
       .then(setItems)
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, [userId]);
 
@@ -384,7 +383,7 @@ function SavedList({ userId }: { userId: string }) {
   useEffect(() => {
     fetchSavedArticles(userId)
       .then(setItems)
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, [userId]);
 

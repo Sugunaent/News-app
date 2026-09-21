@@ -38,7 +38,7 @@ export function LatestPage() {
   if (error && articles.length === 0) return <ErrorState message="Could not load latest articles." />;
 
   return (
-    <div className="relative z-10 max-w-7xl mx-auto px-4 md:px-8 py-12">
+    <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 sm:py-8">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
         <div className="flex-1">
           <h1 className="font-display text-4xl md:text-5xl text-primary mb-4">Latest Articles</h1>
@@ -65,7 +65,7 @@ export function LatestPage() {
       ) : articles.length === 0 ? (
         <EmptyState message={debouncedQuery ? "No articles match your search." : "No latest articles found."} />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {articles.map((article) => (
             <ArticleCard key={article.id} article={article} />
           ))}
