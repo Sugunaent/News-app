@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Share2, Copy, X, Quote, Check, ExternalLink } from 'lucide-react';
+import { Share2, Copy, X, Quote, Check, ExternalLink, Download } from 'lucide-react';
+import { toBlob } from 'html-to-image';
 import { useToast } from '@/lib/toast';
 import { TMSLogo } from '@/components/brand/TMSLogo';
 import { buildCardShareUrl, buildCardRelativePath } from '@/lib/cardShare';
@@ -79,6 +80,41 @@ export function CompletionCard({
     return buildCardRelativePath(cardPayload);
   };
 
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  const generateBlob = async () => {
+    if (!cardRef.current) return null;
+    try {
+      return await toBlob(cardRef.current, {
+        filter: (node) => {
+          if (node instanceof HTMLElement && node.dataset?.excludeFromExport === 'true') {
+            return false;
+          }
+          return true;
+        },
+        cacheBust: true,
+      });
+    } catch (err) {
+      console.error('Failed to generate image blob', err);
+      return null;
+    }
+  };
+
+  const handleDownload = async () => {
+    const blob = await generateBlob();
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `tms-share-card-${Date.now()}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Image downloaded!', 'success');
+    } else {
+      showToast('Failed to generate image', 'error');
+    }
+  };
+
   const handleShare = async () => {
     const shareUrl = getShareUrl();
     const shareText = isOpinionCard
@@ -87,13 +123,22 @@ export function CompletionCard({
 
     if (navigator.share) {
       try {
-        await navigator.share({
+        const blob = await generateBlob();
+        const files = blob ? [new File([blob], 'share-card.png', { type: 'image/png' })] : undefined;
+        
+        const shareData: ShareData = {
           title: 'The Modern Stories',
           text: shareText,
           url: shareUrl,
-        });
-      } catch {
-        /* user dismissed native share */
+        };
+
+        if (files && navigator.canShare && navigator.canShare({ files })) {
+          shareData.files = files;
+        }
+
+        await navigator.share(shareData);
+      } catch (err) {
+        console.error('Share failed', err);
       }
     } else {
       try {
@@ -121,6 +166,7 @@ export function CompletionCard({
 
   return (
     <div
+      ref={cardRef}
       onMouseMove={handleMouseMove}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -157,6 +203,7 @@ export function CompletionCard({
         {onClose && (
           <button
             onClick={onClose}
+            data-exclude-from-export="true"
             className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-muted hover:text-primary transition-colors z-30 active:scale-95"
             style={{ background: 'var(--btn-secondary)' }}
             aria-label="Close"
@@ -210,21 +257,29 @@ export function CompletionCard({
           )}
         </div>
 
-        {/* Footer: Share, Copy Link, and in-app Preview */}
-        <div className="flex flex-col items-center justify-center gap-3 mt-4 pt-6 border-t border-subtle">
-          <div className="flex items-center justify-center gap-3 w-full">
+        {/* Footer: Share, Copy Link, Download, and in-app Preview */}
+        <div data-exclude-from-export="true" className="flex flex-col items-center justify-center gap-3 mt-4 pt-6 border-t border-subtle">
+          <div className="flex flex-wrap items-center justify-center gap-2 w-full">
             <button
               type="button"
               onClick={handleShare}
-              className="btn-primary text-sm px-6 py-2.5 flex-1 max-w-[140px] flex items-center justify-center gap-2 rounded-xl transition-transform active:scale-95 shadow-sm cursor-pointer"
+              className="btn-primary text-sm px-4 py-2.5 flex-1 min-w-[110px] max-w-[140px] flex items-center justify-center gap-2 rounded-xl transition-transform active:scale-95 shadow-sm cursor-pointer"
             >
               <Share2 className="w-4 h-4" />
               <span>Share</span>
             </button>
             <button
               type="button"
+              onClick={handleDownload}
+              className="btn-secondary text-sm px-4 py-2.5 flex-1 min-w-[110px] max-w-[140px] flex items-center justify-center gap-2 rounded-xl transition-transform active:scale-95 border border-default cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download</span>
+            </button>
+            <button
+              type="button"
               onClick={handleCopy}
-              className="btn-secondary text-sm px-6 py-2.5 flex-1 max-w-[140px] flex items-center justify-center gap-2 rounded-xl transition-transform active:scale-95 border border-default cursor-pointer"
+              className="btn-secondary text-sm px-4 py-2.5 flex-1 min-w-[110px] max-w-[140px] flex items-center justify-center gap-2 rounded-xl transition-transform active:scale-95 border border-default cursor-pointer"
             >
               {copied ? (
                 <>
@@ -234,7 +289,7 @@ export function CompletionCard({
               ) : (
                 <>
                   <Copy className="w-4 h-4" />
-                  <span>Copy Link</span>
+                  <span>Link</span>
                 </>
               )}
             </button>

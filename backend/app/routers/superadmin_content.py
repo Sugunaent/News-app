@@ -29,7 +29,7 @@ from app.schemas.superadmin_content import (
     SuperadminHomeResponse,
 )
 from app.services.audit import record_audit
-from app.services.media_urls import create_signed_url
+from app.services.media_urls import attach_signed_url, create_signed_url
 
 
 router = APIRouter(

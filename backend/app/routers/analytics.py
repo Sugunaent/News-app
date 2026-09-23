@@ -27,6 +27,8 @@ def _require_superadmin(
         )
 
 
+from app.db.supabase import supabase_admin
+
 @router.get(
     "/dashboard",
     response_model=AnalyticsDashboardResponse,
@@ -61,7 +63,7 @@ def get_analytics_dashboard(
     _require_superadmin(current_user)
 
     return build_dashboard(
-        client=current_user.client,
+        client=supabase_admin,
         top_articles_limit=top_articles_limit,
         top_categories_limit=top_categories_limit,
         top_users_limit=top_users_limit,

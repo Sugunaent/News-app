@@ -41,7 +41,16 @@ async def get_hero_config():
     value = (response.data or {}).get("value") if response and response.data else None
     if not isinstance(value, dict):
         return DEFAULT_HERO
-    return {**DEFAULT_HERO, **value}
+    
+    result = {**DEFAULT_HERO, **value}
+    image_url = result.get("imageUrl")
+    if image_url and not (image_url.startswith("http://") or image_url.startswith("https://") or image_url.startswith("/")):
+        from app.services.media_urls import create_signed_url
+        signed = create_signed_url(image_url)
+        if signed:
+            result["imageUrl"] = signed
+            
+    return result
 
 
 @router.put("/hero", response_model=HeroConfig)
@@ -50,8 +59,20 @@ async def update_hero_config(
     auth: AuthContext = Depends(get_current_user),
 ):
     _require_superadmin(auth)
-    current = await get_hero_config()
-    updated = current.model_dump() if hasattr(current, "model_dump") else dict(current)
+    
+    response = (
+        supabase.table("site_settings")
+        .select("value")
+        .eq("key", "hero_banner")
+        .maybe_single()
+        .execute()
+    )
+    raw_value = (response.data or {}).get("value") if response and response.data else None
+    if not isinstance(raw_value, dict):
+        raw_value = {}
+        
+    updated = {**DEFAULT_HERO, **raw_value}
+    
     for key, value in payload.model_dump(exclude_none=True).items():
         updated[key] = value
 

@@ -2,14 +2,19 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { GlowingEffect } from '@/components/articles/GlowingEffect';
-import { type HeroConfig, DEFAULT_HERO_CONFIG, getStoredHeroConfig } from '@/lib/api';
+import { type HeroConfig, DEFAULT_HERO_CONFIG, getStoredHeroConfig, fetchHeroConfig } from '@/lib/api';
 
 export function HeroBanner() {
   const [config, setConfig] = useState<HeroConfig>(getStoredHeroConfig);
 
   useEffect(() => {
-    // Initial fetch
-    setConfig(getStoredHeroConfig());
+    // Initial fetch from backend
+    fetchHeroConfig().then((data) => {
+      setConfig(data);
+    }).catch(() => {
+      // Fallback to local storage if network fails
+      setConfig(getStoredHeroConfig());
+    });
 
     // Listen for live updates from admin without requiring full page reload
     const handleUpdate = (e: CustomEvent<HeroConfig>) => {

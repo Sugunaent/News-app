@@ -55,7 +55,7 @@ def _get_active_client(auth: AuthContext):
     Management endpoints are tested against the module-level Supabase client and
     are expected to route through the trusted admin connection for persistence.
     """
-    return supabase
+    return supabase_admin
 
 
 def _extract_single_record(data: list | dict | None, detail: str) -> dict:

@@ -180,7 +180,7 @@ def create_promotion(
         media_filter = ("storage_path", str(payload.image_media_id).strip())
 
     media_result = (
-        current_user.client.table("media_assets")
+        supabase_admin.table("media_assets")
         .select("id, storage_path")
         .eq(*media_filter)
         .maybe_single()
@@ -197,7 +197,7 @@ def create_promotion(
         data["external_url"] = str(payload.external_url)
 
     result = (
-        current_user.client
+        supabase_admin
         .table("promotional_items")
         .insert(data)
         .select(_build_select_query())
