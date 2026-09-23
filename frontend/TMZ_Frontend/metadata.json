@@ -1,8 +1,5 @@
 {
-  "name": "The Modern Stories Web App",
-  "description": "Interactive storytelling web platform featuring gamified article reading, quizzes, opinion polls, and an admin CMS.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "name": "The Modern Stories",
+  "description": "Interactive storytelling web platform featuring gamified article reading, quizzes, opinion polls",
+  "requestFramePermissions": []
 }

@@ -103,7 +103,7 @@ export function Footer() {
         </div>
 
         <div className="mt-10 pt-6 border-t border-subtle flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-xs text-muted">&copy; 2026 The Modern Stories. All rights reserved.</p>
+          <p className="text-xs text-muted">&copy; 2026 The Modern Stories, Powered by Suguna Entertainments. All rights reserved.</p>
           <p className="text-xs text-muted">Crafted for modern thinkers.</p>
         </div>
       </div>
