@@ -13,6 +13,7 @@ import { CompletionCard as CompletionCardComponent } from '@/components/articles
 import {
   fetchLevels, fetchSavedArticles, fetchAllBadges,
   fetchProfileAggregate,
+  getArticleRoute,
 } from '@/lib/api';
 import type {
   Level, Badge, CompletionCard, ReadingHistoryItem,
@@ -611,7 +612,7 @@ function ReadingHistoryCard({ item }: { item: ReadingHistoryItem }) {
         </p>
       </div>
       <button
-        onClick={() => navigate(`/article/${article.id}`)}
+        onClick={() => navigate(getArticleRoute(article))}
         className="btn-primary text-xs px-4 py-2 shrink-0"
       >
         Continue
@@ -629,7 +630,7 @@ function SavedArticleCard({ item }: { item: SavedArticleItem }) {
 
   return (
     <GlassCard className="overflow-hidden cursor-pointer" >
-      <div onClick={() => navigate(`/article/${article.id}`)}>
+      <div onClick={() => navigate(getArticleRoute(article))}>
         {article.cover_image_url && (
           <div className="h-32 overflow-hidden">
             <img src={article.cover_image_url} alt={article.title} className="w-full h-full object-cover" loading="lazy" />
@@ -664,7 +665,7 @@ function CompletedArticleCard({ item }: { item: ReadingHistoryItem }) {
         <p className="text-xs text-muted mt-0.5">{formatRelativeTime(item.updated_at)}</p>
       </div>
       <button
-        onClick={() => navigate(`/article/${article.id}`)}
+        onClick={() => navigate(getArticleRoute(article))}
         className="btn-secondary text-xs px-4 py-2 shrink-0"
       >
         Reopen
@@ -694,8 +695,9 @@ function OpinionRow({ opinion }: { opinion: OpinionWithArticle }) {
         </div>
       </div>
       <button
-        onClick={() => navigate(`/article/${opinion.article_id}`)}
+        onClick={() => { if (opinion.article_id) navigate(getArticleRoute({ id: opinion.article_id })); }}
         className="btn-secondary text-xs px-4 py-2 shrink-0"
+        disabled={!opinion.article_id}
       >
         Reopen
       </button>

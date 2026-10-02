@@ -22,8 +22,11 @@ export interface Promotion {
 
 export interface Article {
   id: string;
+  slug?: string;
   title: string;
   subtitle: string;
+  summary?: string | null;
+  key_takeaways?: string[];
   category_id: string;
   category?: Category;
   article_type: ArticleType;
@@ -35,6 +38,10 @@ export interface Article {
   is_featured: boolean;
   is_authors_pick: boolean;
   reading_time_minutes: number | null;
+  seo_title?: string | null;
+  seo_description?: string | null;
+  meta_image_url?: string | null;
+  canonical_url?: string | null;
 }
 
 export interface QuizOption {
@@ -208,6 +215,10 @@ export interface QuizStats {
 export interface OpinionWithArticle extends OpinionSubmission {
   opinion?: Opinion;
   article?: Article;
+  question_text?: string;
+  opinion_text?: string;
+  article_title?: string;
+  article_id?: string;
 }
 
 export interface AchievementItem {

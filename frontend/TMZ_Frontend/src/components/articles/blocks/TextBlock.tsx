@@ -8,14 +8,73 @@ import React from 'react';
  * - ~~strikethrough~~
  * - `code`
  * - [label](url)
+ * - ![alt text](image-url)
+ * - @[video](YouTube-or-Vimeo-URL)
  */
+function safeLinkUrl(rawUrl: string): string | null {
+  const url = rawUrl.trim();
+  if (/^(https?:\/\/|mailto:|tel:)/i.test(url)) return url;
+  if (url.startsWith('/') && !url.startsWith('//')) return url;
+  if (url.startsWith('#')) return url;
+  return null;
+}
+
+function videoEmbedUrl(rawUrl: string): string | null {
+  try {
+    const url = new URL(rawUrl);
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (host === 'youtube.com' || host === 'm.youtube.com') {
+      const videoId = url.pathname === '/watch' ? url.searchParams.get('v') : url.pathname.match(/^\/(?:embed|shorts)\/([\w-]+)/)?.[1];
+      return videoId ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}` : null;
+    }
+    if (host === 'youtu.be') {
+      const videoId = url.pathname.slice(1).split('/')[0];
+      return videoId ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}` : null;
+    }
+    if (host === 'vimeo.com' || host === 'player.vimeo.com') {
+      const videoId = url.pathname.match(/\/(?:video\/)?(\d+)/)?.[1];
+      return videoId ? `https://player.vimeo.com/video/${videoId}` : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function formatInlineText(text: string): React.ReactNode {
   // Regex tokenizing our supported inline elements
-  const tokenRegex = /(<b>[\s\S]*?<\/b>|<strong>[\s\S]*?<\/strong>|<u>[\s\S]*?<\/u>|<i>[\s\S]*?<\/i>|<em>[\s\S]*?<\/em>|\*\*[\s\S]+?\*\*|__[\s\S]+?__|~~[\s\S]+?~~|\*[\s\S]+?\*|_[\s\S]+?_|`[^`]+`|\[[\s\S]+?\]\([^)]+\))/g;
+  const tokenRegex = /(!\[[\s\S]*?\]\([^)]+\)|@\[video\]\([^)]+\)|<b>[\s\S]*?<\/b>|<strong>[\s\S]*?<\/strong>|<u>[\s\S]*?<\/u>|<i>[\s\S]*?<\/i>|<em>[\s\S]*?<\/em>|\*\*[\s\S]+?\*\*|__[\s\S]+?__|~~[\s\S]+?~~|\*[\s\S]+?\*|_[\s\S]+?_|`[^`]+`|\[[\s\S]+?\]\([^)]+\))/g;
   const parts = text.split(tokenRegex);
 
   return parts.map((part, index) => {
     if (!part) return null;
+
+    const embedMatch = part.match(/^@\[video\]\(([^)]+)\)$/);
+    if (embedMatch) {
+      const embedUrl = videoEmbedUrl(embedMatch[1]);
+      return embedUrl ? (
+        <span key={index} className="my-6 block aspect-video overflow-hidden rounded-2xl bg-black">
+          <iframe
+            src={embedUrl}
+            title="Embedded video"
+            className="h-full w-full"
+            loading="lazy"
+            referrerPolicy="strict-origin-when-cross-origin"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+          />
+        </span>
+      ) : <span key={index}>{part}</span>;
+    }
+
+    const imageMatch = part.match(/^!\[([\s\S]*?)\]\(([^)]+)\)$/);
+    if (imageMatch) {
+      const [, alt, rawUrl] = imageMatch;
+      const url = safeLinkUrl(rawUrl);
+      return url ? (
+        <img key={index} src={url} alt={alt} loading="lazy" className="my-5 max-h-[640px] w-full rounded-2xl object-contain" />
+      ) : <span key={index}>{part}</span>;
+    }
 
     // <u>...</u> HTML underline tag
     if (part.startsWith('<u>') && part.endsWith('</u>')) {
@@ -71,13 +130,16 @@ function formatInlineText(text: string): React.ReactNode {
     if (part.startsWith('[') && part.includes('](') && part.endsWith(')')) {
       const match = part.match(/^\[([\s\S]+?)\]\(([^)]+)\)$/);
       if (match) {
-        const [, label, url] = match;
+        const [, label, rawUrl] = match;
+        const url = safeLinkUrl(rawUrl);
+        if (!url) return <span key={index}>{label}</span>;
+        const external = /^https?:\/\//i.test(url);
         return (
           <a
             key={index}
             href={url}
-            target="_blank"
-            rel="noopener noreferrer"
+            target={external ? '_blank' : undefined}
+            rel={external ? 'noopener noreferrer' : undefined}
             className="text-brand-primary hover:text-brand-accent underline underline-offset-2 transition-colors font-medium"
           >
             {label}

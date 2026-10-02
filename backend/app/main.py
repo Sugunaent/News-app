@@ -28,6 +28,7 @@ from app.routers.opinions import router as opinions_router
 from app.routers.progress import router as progress_router
 from app.routers.promotions import router as promotions_router
 from app.routers.quizzes import router as quizzes_router
+from app.routers.seo import router as seo_router
 from app.routers.sharing import router as sharing_router
 from app.routers.site import router as site_router
 from app.routers.superadmin_content import router as superadmin_content_router
@@ -110,8 +111,11 @@ async def cors_options_interceptor(request: Request, call_next):
     response.headers["Access-Control-Allow-Origin"] = origin
     response.headers["Access-Control-Allow-Credentials"] = "true"
     
+    elapsed_ms = (perf_counter() - started) * 1000
+    response.headers["Server-Timing"] = f"app;dur={elapsed_ms:.1f}"
+    response.headers["X-Response-Time-ms"] = f"{elapsed_ms:.1f}"
+
     if getattr(settings, "log_http_requests", True):
-        elapsed_ms = (perf_counter() - started) * 1000
         logger.info(
             "HTTP %s %s -> %s (%.1f ms)",
             request.method,
@@ -196,6 +200,7 @@ app.include_router(completions_router)
 app.include_router(gamification_router)
 app.include_router(home_router)
 app.include_router(promotions_router)
+app.include_router(seo_router)
 app.include_router(sharing_router)
 app.include_router(comments_router)
 app.include_router(advertisements_router)

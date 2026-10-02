@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  FileText, Plus, Edit3, Trash2, Send, Globe, GlobeLock, Calendar,
-  Archive, Star, ArrowLeft, Save, Loader2, GripVertical,
+  FileText, Plus, Edit3, Trash2, Globe, GlobeLock, Calendar,
+  Star, ArrowLeft, Save, Loader2, GripVertical,
   Type, Image as ImageIcon, HelpCircle, MessageSquare, Mic, X,
   Check, ChevronUp, ChevronDown, AlertCircle, Copy,
 } from 'lucide-react';
@@ -348,6 +348,16 @@ function createEmptyBlock(type: BlockType, order: number): EditorBlock {
   };
 }
 
+function isSafeMediaUrl(value: string): boolean {
+  if (value.startsWith('/') && !value.startsWith('//')) return true;
+  if (value.startsWith('media/')) return true;
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 const blockTypes: { type: BlockType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { type: 'TEXT', label: 'Text', icon: Type },
   { type: 'IMAGE', label: 'Image', icon: ImageIcon },
@@ -507,17 +517,33 @@ function ArticleEditor({
         if (block.block_type === 'TEXT' && !block.content.trim()) {
           throw new Error(`Text block ${index + 1} is empty`);
         }
-        if (block.block_type === 'IMAGE' && !block.image_url.trim()) {
-          throw new Error(`Image block ${index + 1} needs an image URL`);
+        if (block.block_type === 'IMAGE') {
+          const imageUrl = block.image_url.trim();
+          if (!imageUrl) throw new Error(`Image block ${index + 1} needs an image URL`);
+          if (!isSafeMediaUrl(imageUrl)) {
+            throw new Error(`Image block ${index + 1} needs a valid HTTPS URL or media storage path`);
+          }
         }
         if (block.block_type === 'PODCAST' && (!block.podcast_audio_url.trim() || !block.podcast_description.trim())) {
           throw new Error(`Podcast block ${index + 1} needs an audio URL and description`);
         }
-        if (block.block_type === 'QUIZ' && (!block.quiz_question.trim() || block.quiz_options.filter((option) => option.label.trim()).length < 2)) {
-          throw new Error(`Quiz block ${index + 1} needs a question and at least two options`);
+        if (block.block_type === 'QUIZ') {
+          const filledOptions = block.quiz_options.filter((option) => option.label.trim());
+          if (!block.quiz_question.trim() || filledOptions.length < 2) {
+            throw new Error(`Quiz block ${index + 1} needs a question and at least two non-empty options`);
+          }
+          if (filledOptions.filter((option) => option.is_correct).length !== 1) {
+            throw new Error(`Quiz block ${index + 1} must have exactly one correct answer`);
+          }
         }
-        if (block.block_type === 'OPINION' && (!block.opinion_question.trim() || block.opinion_options.filter((option) => option.trim()).length < 2)) {
-          throw new Error(`Opinion block ${index + 1} needs a question and at least two options`);
+        if (block.block_type === 'OPINION') {
+          const filledOptions = block.opinion_options.map((option) => option.trim()).filter(Boolean);
+          if (!block.opinion_question.trim() || filledOptions.length < 2) {
+            throw new Error(`Opinion block ${index + 1} needs a question and at least two non-empty options`);
+          }
+          if (new Set(filledOptions.map((option) => option.toLocaleLowerCase())).size !== filledOptions.length) {
+            throw new Error(`Opinion block ${index + 1} cannot contain duplicate options`);
+          }
         }
       }
       let savedArticle: AdminArticle;
@@ -529,28 +555,29 @@ function ArticleEditor({
       }
 
       const existingBlocks = article ? await fetchArticleBlocks(savedArticle.id) : [];
-      const existingQuizzes = await fetchQuizzes();
       const existingIds = new Set(existingBlocks.map((block) => block.id));
       const retainedIds = new Set<string>();
 
       for (const [index, block] of blocks.entries()) {
         const existingBlock = existingBlocks.find((item) => item.id === block.id);
-        let reference: { quiz_id?: string; opinion_id?: string } = {};
+        const reference: { quiz_id?: string; opinion_id?: string } = {};
         if (block.block_type === 'QUIZ') {
           const quizData = {
             article_id: savedArticle.id,
             title: block.quiz_title || 'Quiz',
             question: block.quiz_question || 'Quiz question',
-            options: block.quiz_options.map((option, optionIndex) => ({
+            options: block.quiz_options.filter((option) => option.label.trim()).map((option, optionIndex) => ({
               id: option.id.startsWith('opt-') ? '' : option.id,
-              label: option.label,
+              label: option.label.trim(),
               is_correct: option.is_correct,
               explanation: option.explanation || null,
               order_index: optionIndex,
             })),
           };
-          const existingQuizId = existingBlock?.quiz_id
-            ?? existingQuizzes.find((item) => item.article_id === savedArticle.id)?.id;
+          // Only reuse a quiz explicitly linked to this block. Falling back
+          // to any quiz for the article made multiple quiz blocks overwrite
+          // the same quiz record.
+          const existingQuizId = existingBlock?.quiz_id;
           const quiz = existingQuizId
             ? { id: existingQuizId }
             : await createQuiz(quizData);
@@ -561,7 +588,7 @@ function ArticleEditor({
             article_id: savedArticle.id,
             question: block.opinion_question || 'Opinion question',
             allow_custom_text: Boolean(block.opinion_xp),
-            options: block.opinion_options.filter(Boolean),
+            options: block.opinion_options.map((option) => option.trim()).filter(Boolean),
           };
           const opinion = existingBlock?.opinion_id
             ? { id: existingBlock.opinion_id }

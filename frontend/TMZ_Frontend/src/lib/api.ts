@@ -27,6 +27,15 @@ const delay = (ms = 150) => new Promise((r) => setTimeout(r, ms));
 
 const asArray = <T>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
 
+async function withMockFallback<T>(request: Promise<T>, fallback: T, label = 'request'): Promise<T> {
+  try {
+    return await request;
+  } catch (error) {
+    console.warn(`[api] Falling back to mock ${label}:`, error);
+    return fallback;
+  }
+}
+
 function normalizeCategory(item: any): Category {
   return {
     id: item.id,
@@ -38,10 +47,25 @@ function normalizeCategory(item: any): Category {
 }
 
 function normalizeArticle(item: any): Article {
+  const summaryText = item.summary ?? item.subtitle ?? '';
+  const baseTakeaways = Array.isArray(item.key_takeaways)
+    ? item.key_takeaways.filter((value: unknown) => typeof value === 'string' && value.trim())
+    : [];
+  const derivedTakeaways = baseTakeaways.length > 0
+    ? baseTakeaways
+    : summaryText
+      .split(/[•\n;]|\s+-\s+/)
+      .map((value: string) => value.trim())
+      .filter((value: string) => value.length > 0 && value.length < 120)
+      .slice(0, 3);
+
   return {
     id: item.id,
+    slug: item.slug ?? '',
     title: item.title,
     subtitle: item.subtitle ?? '',
+    summary: summaryText || null,
+    key_takeaways: derivedTakeaways.slice(0, 3),
     category_id: item.category_id ?? item.category?.id ?? '',
     category: item.category ? normalizeCategory(item.category) : undefined,
     article_type: item.article_type ?? 'ARTICLE',
@@ -53,7 +77,16 @@ function normalizeArticle(item: any): Article {
     is_featured: Boolean(item.is_featured),
     is_authors_pick: Boolean(item.is_author_pick),
     reading_time_minutes: item.reading_time_minutes ?? null,
+    seo_title: item.seo_title ?? item.meta_title ?? item.title ?? null,
+    seo_description: item.seo_description ?? item.meta_description ?? item.summary ?? item.subtitle ?? null,
+    meta_image_url: item.meta_image_url ?? item.og_image ?? item.cover_image_url ?? item.cover?.signed_url ?? null,
+    canonical_url: item.canonical_url ?? null,
   };
+}
+
+export function getArticleRoute(articleLike: { id: string; slug?: string | null } | string): string {
+  const slug = typeof articleLike === 'string' ? articleLike : articleLike.slug || articleLike.id;
+  return `/article/${encodeURIComponent(slug)}`;
 }
 
 function normalizeReadingProgress(item: any): ReadingProgress | null {
@@ -169,15 +202,19 @@ export async function fetchCategories(): Promise<Category[]> {
   if (categoriesCache && categoriesCache.expiresAt > Date.now()) return categoriesCache.items;
   if (categoriesRequest) return categoriesRequest;
 
-  categoriesRequest = apiFetchJson<{ items?: any[] }>('/api/v1/categories')
-    .then((data) => {
-      const items = asArray<any>(data?.items).map(normalizeCategory);
-      categoriesCache = { items, expiresAt: Date.now() + 60_000 };
-      return items;
-    })
-    .finally(() => {
-      categoriesRequest = null;
-    });
+  categoriesRequest = withMockFallback(
+    apiFetchJson<{ items?: any[] }>('/api/v1/categories')
+      .then((data) => {
+        const items = asArray<any>(data?.items).map(normalizeCategory);
+        categoriesCache = { items, expiresAt: Date.now() + 60_000 };
+        return items;
+      })
+      .finally(() => {
+        categoriesRequest = null;
+      }),
+    CATEGORIES,
+    'categories',
+  );
   return categoriesRequest;
 }
 
@@ -246,7 +283,7 @@ export function saveStoredHeroConfig(config: Partial<HeroConfig>): HeroConfig {
 }
 
 export async function fetchHeroConfig(): Promise<HeroConfig> {
-  const data = await apiFetchJson<any>('/api/v1/site/hero');
+  const data = await apiFetchJson<any>('/api/v1/site/hero', { cache: 'no-store' });
   if (!data) return getStoredHeroConfig();
   return {
     imageUrl: data.imageUrl ?? data.image_url ?? getStoredHeroConfig().imageUrl,
@@ -261,16 +298,52 @@ export async function fetchHeroConfig(): Promise<HeroConfig> {
 /* ===================== PROMOTIONS ===================== */
 
 export async function fetchPromotions(): Promise<Promotion[]> {
-  const data = await apiFetchJson<any[]>('/api/v1/promotions');
-  return (Array.isArray(data) ? data : []).map((item) => ({
-    id: item.id,
-    title: item.title,
-    description: item.description,
-    image_url: item.image_url ?? item.image?.signed_url ?? '',
-    external_url: item.external_url,
-    date_time: item.event_date ?? item.date_time ?? null,
-    active: item.is_active ?? item.active ?? true,
-  }));
+  return withMockFallback(
+    apiFetchJson<any[]>('/api/v1/promotions').then((data) =>
+      (Array.isArray(data) ? data : []).map((item) => ({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        image_url: item.image_url ?? item.image?.signed_url ?? '',
+        external_url: item.external_url,
+        date_time: item.event_date ?? item.date_time ?? null,
+        active: item.is_active ?? item.active ?? true,
+      })),
+    ),
+    PROMOTIONS,
+    'promotions',
+  );
+}
+
+export interface HomeDiscoveryData {
+  categories: Category[];
+  trending: Article[];
+  category_sections: { category: Category; articles: Article[] }[];
+  authors_picks: Article[];
+}
+
+export async function fetchHomeDiscovery(): Promise<HomeDiscoveryData> {
+  return withMockFallback(
+    apiFetchJson<any>('/api/v1/home/discovery').then((data) => ({
+      categories: asArray<any>(data?.categories).map(normalizeCategory),
+      trending: asArray<any>(data?.trending).map(normalizeArticle),
+      category_sections: asArray<any>(data?.category_sections).map((section) => ({
+        category: normalizeCategory(section.category),
+        articles: asArray<any>(section.articles).map(normalizeArticle),
+      })),
+      authors_picks: asArray<any>(data?.authors_picks).map(normalizeArticle),
+    })),
+    {
+      categories: CATEGORIES,
+      trending: ARTICLES.slice(0, 5),
+      category_sections: CATEGORIES.map((category) => ({
+        category,
+        articles: ARTICLES.filter((article) => article.category_id === category.id).slice(0, 4),
+      })),
+      authors_picks: ARTICLES.filter((article) => article.is_authors_pick).slice(0, 5),
+    },
+    'home discovery',
+  );
 }
 
 /* ===================== ARTICLES ===================== */
@@ -324,10 +397,14 @@ export async function fetchLatestArticles(limit = 10, searchQuery?: string): Pro
   if (request) return request as Promise<Article[]>;
   let url = '/api/v1/articles?limit=' + limit;
   if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
-  const next = apiFetchJson<{ items?: any[] }>(url)
-    .then((data) => asArray<any>(data?.items).map(normalizeArticle).slice(0, limit))
-    .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
-    .finally(() => articleListRequests.delete(cacheKey));
+  const next = withMockFallback(
+    apiFetchJson<{ items?: any[] }>(url)
+      .then((data) => asArray<any>(data?.items).map(normalizeArticle).slice(0, limit))
+      .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
+      .finally(() => articleListRequests.delete(cacheKey)),
+    ARTICLES.slice(0, limit),
+    'latest articles',
+  );
   articleListRequests.set(cacheKey, next);
   return next;
 }
@@ -340,10 +417,14 @@ export async function fetchArticlesByCategory(categoryId: string, searchQuery?: 
   if (request) return request as Promise<Article[]>;
   let url = `/api/v1/articles?category_id=${encodeURIComponent(categoryId)}`;
   if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
-  const next = apiFetchJson<{ items?: any[] }>(url)
-    .then((data) => asArray<any>(data?.items).map(normalizeArticle))
-    .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
-    .finally(() => articleListRequests.delete(cacheKey));
+  const next = withMockFallback(
+    apiFetchJson<{ items?: any[] }>(url)
+      .then((data) => asArray<any>(data?.items).map(normalizeArticle))
+      .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
+      .finally(() => articleListRequests.delete(cacheKey)),
+    ARTICLES.filter((article) => article.category_id === categoryId),
+    `category ${categoryId} articles`,
+  );
   articleListRequests.set(cacheKey, next);
   return next;
 }
@@ -356,10 +437,14 @@ export async function fetchAuthorsPicks(limit = 10, searchQuery?: string): Promi
   if (request) return request as Promise<Article[]>;
   let url = '/api/v1/articles?author_picks=true&limit=' + limit;
   if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
-  const next = apiFetchJson<{ items?: any[] }>(url)
-    .then((data) => asArray<any>(data?.items).map(normalizeArticle).slice(0, limit))
-    .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
-    .finally(() => articleListRequests.delete(cacheKey));
+  const next = withMockFallback(
+    apiFetchJson<{ items?: any[] }>(url)
+      .then((data) => asArray<any>(data?.items).map(normalizeArticle).slice(0, limit))
+      .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
+      .finally(() => articleListRequests.delete(cacheKey)),
+    ARTICLES.filter((article) => article.is_authors_pick).slice(0, limit),
+    'authors picks',
+  );
   articleListRequests.set(cacheKey, next);
   return next;
 }
@@ -370,10 +455,14 @@ export async function fetchFeaturedArticles(limit = 5): Promise<Article[]> {
   if (cached && cached.expiresAt > Date.now()) return cached.items as Article[];
   const request = articleListRequests.get(cacheKey);
   if (request) return request as Promise<Article[]>;
-  const next = apiFetchJson<{ items?: any[] }>('/api/v1/articles?featured=true&limit=' + limit)
-    .then((data) => asArray<any>(data?.items).map(normalizeArticle).slice(0, limit))
-    .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
-    .finally(() => articleListRequests.delete(cacheKey));
+  const next = withMockFallback(
+    apiFetchJson<{ items?: any[] }>('/api/v1/articles?featured=true&limit=' + limit)
+      .then((data) => asArray<any>(data?.items).map(normalizeArticle).slice(0, limit))
+      .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
+      .finally(() => articleListRequests.delete(cacheKey)),
+    ARTICLES.filter((article) => article.is_featured).slice(0, limit),
+    'featured articles',
+  );
   articleListRequests.set(cacheKey, next);
   return next;
 }
@@ -386,74 +475,78 @@ export async function fetchArticleById(id: string): Promise<ArticleWithBlocks | 
   if (cached && cached.expiresAt > Date.now()) return cached.item;
   const existingRequest = articleDetailRequests.get(id);
   if (existingRequest) return existingRequest;
-  const request = apiFetchJson<any>(`/api/v1/articles/${encodeURIComponent(id)}`)
-    .then((item) => {
-  if (!item) return null;
+  const request = withMockFallback(
+    apiFetchJson<any>(`/api/v1/articles/${encodeURIComponent(id)}`)
+      .then((item) => {
+        if (!item) return null;
 
-  const article: ArticleWithBlocks = {
-    ...normalizeArticle(item),
-    blocks: (item.blocks ?? []).map((block: any) => {
-      const baseBlock = {
-        id: block.id,
-        article_id: item.id,
-        block_type: block.type,
-        order_index: block.display_order,
-        content: block.text ?? null,
-        image_url: block.media?.signed_url ?? block.media?.storage_path ?? block.external_url ?? null,
-        image_caption: block.caption ?? null,
-        quiz_id: block.quiz_id ?? null,
-        opinion_id: block.opinion_id ?? null,
-        podcast_id: null,
-      } as any;
+        const article: ArticleWithBlocks = {
+          ...normalizeArticle(item),
+          blocks: (item.blocks ?? []).map((block: any) => {
+            const baseBlock = {
+              id: block.id,
+              article_id: item.id,
+              block_type: block.type,
+              order_index: block.display_order,
+              content: block.text ?? null,
+              image_url: block.media?.signed_url ?? block.media?.storage_path ?? block.external_url ?? null,
+              image_caption: block.caption ?? null,
+              quiz_id: block.quiz_id ?? null,
+              opinion_id: block.opinion_id ?? null,
+              podcast_id: null,
+            } as any;
 
-      if (block.type === 'QUIZ' && block.quiz) {
-        baseBlock.quiz = {
-          id: block.quiz.id,
-          article_id: item.id,
-          title: block.quiz.title ?? 'Quiz',
-          question: block.quiz.questions?.[0]?.question ?? 'Quiz question',
-          xp_reward: Number(block.quiz.xp_reward ?? 0),
-          options: (block.quiz.questions?.[0]?.options ?? []).map((option: any) => ({
-            id: option.id,
-            label: option.option_text,
-            is_correct: Boolean(option.is_correct),
-            explanation: option.explanation ?? null,
-          })),
+            if (block.type === 'QUIZ' && block.quiz) {
+              baseBlock.quiz = {
+                id: block.quiz.id,
+                article_id: item.id,
+                title: block.quiz.title ?? 'Quiz',
+                question: block.quiz.questions?.[0]?.question ?? 'Quiz question',
+                xp_reward: Number(block.quiz.xp_reward ?? 0),
+                options: (block.quiz.questions?.[0]?.options ?? []).map((option: any) => ({
+                  id: option.id,
+                  label: option.option_text,
+                  is_correct: Boolean(option.is_correct),
+                  explanation: option.explanation ?? null,
+                })),
+              };
+            }
+
+            if (block.type === 'OPINION' && block.opinion) {
+              baseBlock.opinion = {
+                id: block.opinion_id ?? block.opinion.id,
+                article_id: item.id,
+                question: block.opinion.question ?? 'Opinion',
+                options: (block.opinion.options ?? []).map((opt: any) => opt.option_text ?? opt),
+                option_ids: (block.opinion.options ?? []).map((opt: any) => String(opt.id ?? '')),
+                xp_reward: Number(block.opinion.xp_reward ?? 0),
+                allow_custom_text: Boolean(block.opinion.allow_custom_response),
+              };
+            }
+
+            if (block.type === 'PODCAST') {
+              const pObj = block.podcast || {};
+              baseBlock.podcast = {
+                id: pObj.id ?? block.id,
+                article_id: item.id,
+                title: pObj.title ?? block.title ?? 'Podcast',
+                audio_url: pObj.audio_url ?? block.audio_url ?? block.external_url ?? '',
+                duration_seconds: pObj.duration_seconds ?? null,
+                description: pObj.description ?? block.description ?? null,
+              };
+            }
+
+            return baseBlock;
+          }),
         };
-      }
 
-      if (block.type === 'OPINION' && block.opinion) {
-        baseBlock.opinion = {
-          id: block.opinion_id ?? block.opinion.id,
-          article_id: item.id,
-          question: block.opinion.question ?? 'Opinion',
-          options: (block.opinion.options ?? []).map((opt: any) => opt.option_text ?? opt),
-          option_ids: (block.opinion.options ?? []).map((opt: any) => String(opt.id ?? '')),
-          xp_reward: Number(block.opinion.xp_reward ?? 0),
-          allow_custom_text: Boolean(block.opinion.allow_custom_response),
-        };
-      }
-
-      if (block.type === 'PODCAST') {
-        const pObj = block.podcast || {};
-        baseBlock.podcast = {
-          id: pObj.id ?? block.id,
-          article_id: item.id,
-          title: pObj.title ?? block.title ?? 'Podcast',
-          audio_url: pObj.audio_url ?? block.audio_url ?? block.external_url ?? '',
-          duration_seconds: pObj.duration_seconds ?? null,
-          description: pObj.description ?? block.description ?? null,
-        };
-      }
-
-      return baseBlock;
-    }),
-  };
-
-      articleDetailCache.set(id, { item: article, expiresAt: Date.now() + 60_000 });
-      return article;
-    })
-    .finally(() => articleDetailRequests.delete(id));
+        articleDetailCache.set(id, { item: article, expiresAt: Date.now() + 60_000 });
+        return article;
+      })
+      .finally(() => articleDetailRequests.delete(id)),
+    ARTICLES_WITH_BLOCKS[id] ?? generateArticleWithBlocks(ARTICLES.find((article) => article.id === id) ?? ARTICLES[0]),
+    `article ${id}`,
+  );
   articleDetailRequests.set(id, request);
   return request;
 }
@@ -564,7 +657,10 @@ export async function submitQuizAttempt(
     method: 'POST',
     body: JSON.stringify({ selected_option_id: _selectedOptionId }),
   });
-  quizAttemptStatusCache.set(`${_userId}:${quizId}`, { value: true, expiresAt: Date.now() + 60_000 });
+  quizAttemptStatusCache.set(`${_userId}:${quizId}`, {
+    value: { attempted: true, selectedOptionId: _selectedOptionId },
+    expiresAt: Date.now() + 60_000,
+  });
 
   return {
     attempt_id: data?.attempt?.question_id ?? `attempt-${Date.now()}`,

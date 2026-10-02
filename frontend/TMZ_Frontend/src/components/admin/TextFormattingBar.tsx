@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Heading2, Heading3, Bold, Italic, Underline, Strikethrough,
-  Quote, List, ListOrdered, Link2, Code,
+  Quote, List, ListOrdered, Link2, Code, ImagePlus, Clapperboard,
 } from 'lucide-react';
 
 interface TextFormattingBarProps {
@@ -15,7 +15,7 @@ export function TextFormattingBar({
   content,
   onChange,
 }: TextFormattingBarProps) {
-  const insertFormatting = (type: 'h2' | 'h3' | 'bold' | 'italic' | 'underline' | 'strike' | 'quote' | 'bullet' | 'number' | 'link' | 'code') => {
+  const insertFormatting = (type: 'h2' | 'h3' | 'bold' | 'italic' | 'underline' | 'strike' | 'quote' | 'bullet' | 'number' | 'link' | 'image' | 'embed' | 'code') => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
@@ -111,12 +111,31 @@ export function TextFormattingBar({
         break;
       case 'link':
         if (selectedText) {
-          replacement = `[${selectedText}](https://example.com)`;
-          cursorOffset = replacement.length - 1;
+          const url = window.prompt('Enter an http(s) URL or an internal path (for example, /about):');
+          if (url === null) return;
+          replacement = `[${selectedText}](${url.trim()})`;
+          cursorOffset = replacement.length;
         } else {
-          replacement = '[Link text](https://example.com)';
-          cursorOffset = replacement.length - 1;
+          const url = window.prompt('Enter an http(s) URL or an internal path (for example, /about):');
+          if (url === null) return;
+          replacement = `[Link text](${url.trim()})`;
+          cursorOffset = replacement.length;
         }
+        break;
+      case 'image': {
+        const url = window.prompt('Enter an image URL (https://...):');
+        if (url === null) return;
+        const alt = selectedText || 'Image description';
+        replacement = `![${alt}](${url.trim()})`;
+        cursorOffset = replacement.length;
+        break;
+      }
+      case 'embed': {
+        const url = window.prompt('Enter a YouTube or Vimeo video URL:');
+        if (url === null) return;
+        replacement = `@[video](${url.trim()})`;
+        cursorOffset = replacement.length;
+      }
         break;
       case 'code':
         if (selectedText) {
@@ -243,10 +262,30 @@ export function TextFormattingBar({
         <button
           type="button"
           onClick={() => insertFormatting('link')}
-          title="Insert Link ([label](url))"
+          title="Insert Link (internal path or http(s) URL)"
           className="p-1.5 rounded hover:bg-brand-primary/10 text-secondary hover:text-primary transition-colors"
         >
           <Link2 className="w-3.5 h-3.5" />
+        </button>
+
+        {/* Inline image */}
+        <button
+          type="button"
+          onClick={() => insertFormatting('image')}
+          title="Insert an image by URL (select text first to use it as alt text)"
+          className="p-1.5 rounded hover:bg-brand-primary/10 text-secondary hover:text-primary transition-colors"
+        >
+          <ImagePlus className="w-3.5 h-3.5" />
+        </button>
+
+        {/* Video embed */}
+        <button
+          type="button"
+          onClick={() => insertFormatting('embed')}
+          title="Embed a YouTube or Vimeo video"
+          className="p-1.5 rounded hover:bg-brand-primary/10 text-secondary hover:text-primary transition-colors"
+        >
+          <Clapperboard className="w-3.5 h-3.5" />
         </button>
 
         {/* Code */}

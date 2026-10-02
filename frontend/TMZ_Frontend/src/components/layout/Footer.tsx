@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Twitter, Linkedin, Github } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Twitter, Instagram } from 'lucide-react';
 import { TMSLogo } from '@/components/brand/TMSLogo';
 import { useAuth } from '@/lib/auth';
 import { fetchCategories } from '@/lib/api';
@@ -14,11 +14,6 @@ export function Footer() {
   useEffect(() => {
     fetchCategories().then(setCategories).catch(() => setCategories([]));
   }, []);
-
-  const scrollNavTo = (path: string) => {
-    navigate(path);
-    window.scrollTo(0, 0);
-  };
 
   const scrollToContact = () => {
     navigate('/about');
@@ -51,14 +46,11 @@ export function Footer() {
               A premium editorial platform for modern thinkers. Read, learn, and grow with interactive articles, quizzes, and more.
             </p>
             <div className="flex gap-3 mt-4">
-              <a href="#" className="w-9 h-9 rounded-full glass flex items-center justify-center text-secondary hover:text-brand-primary transition-colors" aria-label="Twitter">
+              <a href="https://twitter.com/TheModernStories" target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-full glass flex items-center justify-center text-secondary hover:text-brand-primary transition-colors" aria-label="The Modern Stories on X">
                 <Twitter className="w-4 h-4" />
               </a>
-              <a href="#" className="w-9 h-9 rounded-full glass flex items-center justify-center text-secondary hover:text-brand-primary transition-colors" aria-label="LinkedIn">
-                <Linkedin className="w-4 h-4" />
-              </a>
-              <a href="#" className="w-9 h-9 rounded-full glass flex items-center justify-center text-secondary hover:text-brand-primary transition-colors" aria-label="GitHub">
-                <Github className="w-4 h-4" />
+              <a href="https://www.instagram.com/TheModernStories" target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-full glass flex items-center justify-center text-secondary hover:text-brand-primary transition-colors" aria-label="The Modern Stories on Instagram">
+                <Instagram className="w-4 h-4" />
               </a>
             </div>
           </div>
@@ -67,13 +59,13 @@ export function Footer() {
           <div>
             <h3 className="text-sm font-bold text-primary mb-4">Navigation</h3>
             <ul className="space-y-2.5">
-              <li><button onClick={() => scrollNavTo('/')} className="text-sm text-muted hover:text-brand-primary transition-colors">Home</button></li>
-              <li><button onClick={() => scrollNavTo('/about')} className="text-sm text-muted hover:text-brand-primary transition-colors">About</button></li>
+              <li><Link to="/" onClick={() => window.scrollTo(0, 0)} className="text-sm text-muted hover:text-brand-primary transition-colors">Home</Link></li>
+              <li><Link to="/about" onClick={() => window.scrollTo(0, 0)} className="text-sm text-muted hover:text-brand-primary transition-colors">About</Link></li>
               <li><button onClick={scrollToContact} className="text-sm text-muted hover:text-brand-primary transition-colors">Contact</button></li>
               {user ? (
-                <li><button onClick={() => scrollNavTo('/profile')} className="text-sm text-muted hover:text-brand-primary transition-colors">Profile</button></li>
+                <li><Link to="/profile" onClick={() => window.scrollTo(0, 0)} className="text-sm text-muted hover:text-brand-primary transition-colors">Profile</Link></li>
               ) : (
-                <li><button onClick={() => scrollNavTo('/auth')} className="text-sm text-muted hover:text-brand-primary transition-colors">Login</button></li>
+                <li><Link to="/auth" onClick={() => window.scrollTo(0, 0)} className="text-sm text-muted hover:text-brand-primary transition-colors">Login</Link></li>
               )}
             </ul>
           </div>
@@ -84,9 +76,9 @@ export function Footer() {
             <ul className="space-y-2.5">
               {categories.map((category) => (
                 <li key={category.id}>
-                  <button onClick={() => scrollNavTo(`/category/${category.slug}`)} className="text-sm text-muted hover:text-brand-primary transition-colors">
+                  <Link to={`/category/${category.slug}`} onClick={() => window.scrollTo(0, 0)} className="text-sm text-muted hover:text-brand-primary transition-colors">
                     {category.name}
-                  </button>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -96,8 +88,8 @@ export function Footer() {
           <div>
             <h3 className="text-sm font-bold text-primary mb-4">Legal</h3>
             <ul className="space-y-2.5">
-              <li><button onClick={() => scrollNavTo('/privacy')} className="text-sm text-muted hover:text-brand-primary transition-colors">Privacy Policy</button></li>
-              <li><button onClick={() => scrollNavTo('/legal')} className="text-sm text-muted hover:text-brand-primary transition-colors">Terms &amp; Legal</button></li>
+              <li><Link to="/privacy" onClick={() => window.scrollTo(0, 0)} className="text-sm text-muted hover:text-brand-primary transition-colors">Privacy Policy</Link></li>
+              <li><Link to="/legal" onClick={() => window.scrollTo(0, 0)} className="text-sm text-muted hover:text-brand-primary transition-colors">Terms &amp; Legal</Link></li>
             </ul>
           </div>
         </div>

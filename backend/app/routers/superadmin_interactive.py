@@ -1697,6 +1697,19 @@ async def create_opinion(
         payload.article_id,
     )
 
+    display_order = payload.display_order
+    if display_order is None:
+        current_orders = (
+            client.table("opinion_questions")
+            .select("display_order")
+            .eq("article_id", str(payload.article_id))
+            .order("display_order", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(current_orders, "data", None) or []
+        display_order = int(rows[0].get("display_order", -1)) + 1 if rows else 0
+
     result = (
         client.table("opinion_questions")
         .insert(
@@ -1704,7 +1717,7 @@ async def create_opinion(
                 "article_id": str(
                     payload.article_id
                 ),
-                "display_order": payload.display_order,
+                "display_order": display_order,
                 "allow_custom_response": (
                     payload.allow_custom_response
                 ),
@@ -1728,7 +1741,7 @@ async def create_opinion(
         entity_id=opinion_id,
         metadata={
             "article_id": str(payload.article_id),
-            "display_order": payload.display_order,
+            "display_order": display_order,
             "allow_custom_response": (
                 payload.allow_custom_response
             ),

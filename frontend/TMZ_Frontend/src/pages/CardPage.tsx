@@ -3,7 +3,7 @@ import { useLocation, Link } from 'react-router-dom';
 import { BookOpen, Sparkles, ArrowRight, Compass } from 'lucide-react';
 import { parseCardShareUrl, PublicCardData } from '@/lib/cardShare';
 import { CompletionCard } from '@/components/articles/CompletionCard';
-import { fetchArticleById } from '@/lib/api';
+import { fetchArticleById, getArticleRoute } from '@/lib/api';
 import type { ArticleWithBlocks } from '@/types';
 
 export function CardPage() {
@@ -70,7 +70,7 @@ export function CardPage() {
           <div className="w-full flex flex-col sm:flex-row items-center justify-center gap-3">
             {cardData.articleId ? (
               <Link
-                to={`/article/${cardData.articleId}`}
+                to={getArticleRoute({ id: cardData.articleId })}
                 className="btn-primary w-full sm:w-auto px-6 py-3 flex items-center justify-center gap-2 rounded-xl text-sm font-medium shadow-md group"
               >
                 <BookOpen className="w-4 h-4" />

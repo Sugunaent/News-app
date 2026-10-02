@@ -3,11 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Calendar, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Category, Promotion, Article } from '@/types';
 import {
-  fetchCategories,
   fetchPromotions,
-  fetchLatestArticles,
-  fetchAuthorsPicks,
-  fetchArticlesByCategory,
+  fetchHomeDiscovery,
+  getArticleRoute,
 } from '@/lib/api';
 import { SectionHeader, LoadingState, ErrorState } from '@/components/ui/States';
 import { BookmarkButton } from '@/components/articles/BookmarkButton';
@@ -33,49 +31,29 @@ export function HomePage() {
     const load = async () => {
       try {
         setLoading(true);
-        const [catsRes, promosRes, latestRes, picksRes] = await Promise.allSettled([
-          fetchCategories(),
+        const [promosRes, discoveryRes] = await Promise.allSettled([
           fetchPromotions(),
-          fetchLatestArticles(10),
-          fetchAuthorsPicks(10),
+          fetchHomeDiscovery(),
         ]);
 
         if (!mounted) return;
 
-        const cats = catsRes.status === 'fulfilled' ? catsRes.value : [];
         const promos = promosRes.status === 'fulfilled' ? promosRes.value : [];
-        const latestArts = latestRes.status === 'fulfilled' ? latestRes.value : [];
-        const picks = picksRes.status === 'fulfilled' ? picksRes.value : [];
+        const discovery = discoveryRes.status === 'fulfilled' ? discoveryRes.value : null;
 
-        // Only trigger error state if all main story sources failed
-        if (
-          catsRes.status === 'rejected' &&
-          latestRes.status === 'rejected' &&
-          picksRes.status === 'rejected'
-        ) {
+        if (!discovery) {
           setError(true);
           return;
         }
 
-        setCategories(cats);
+        setCategories(discovery.categories);
         setPromotions(promos);
-        setLatest(latestArts);
-        setAuthorsPicks(picks);
+        setLatest(discovery.trending);
+        setAuthorsPicks(discovery.authors_picks);
+        setCategoryArticles(Object.fromEntries(
+          discovery.category_sections.map((section) => [section.category.id, section.articles]),
+        ));
         setError(false);
-
-        const catArts: Record<string, Article[]> = {};
-        if (cats.length > 0) {
-          const firstCat = cats[0];
-          try {
-            const arts = await fetchArticlesByCategory(firstCat.id);
-            if (mounted) {
-              catArts[firstCat.id] = arts;
-              setCategoryArticles(catArts);
-            }
-          } catch {
-            // Keep empty on error without breaking page
-          }
-        }
       } catch (err) {
         console.error('[HomePage] Load error:', err);
         if (mounted) setError(true);
@@ -102,11 +80,12 @@ export function HomePage() {
     return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  const handleArticleClick = (articleId: string) => {
+  const handleArticleClick = (article: Article) => {
+    const route = getArticleRoute(article);
     if (user) {
-      navigate(`/article/${articleId}`);
+      navigate(route);
     } else {
-      navigate('/auth', { state: { redirect: `/article/${articleId}` } });
+      navigate('/auth', { state: { redirect: route } });
     }
   };
 
@@ -166,6 +145,7 @@ export function HomePage() {
         <CategorySection
           key={cat.id}
           category={cat}
+          articles={categoryArticles[cat.id] ?? []}
           onSeeAll={() => navigate(`/category/${cat.slug}`)}
           onArticleClick={handleArticleClick}
         />
@@ -318,7 +298,7 @@ function ArticleCarouselRow({
   action?: string;
   onAction?: () => void;
   articles: Article[];
-  onArticleClick: (id: string) => void;
+  onArticleClick: (article: Article) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -393,7 +373,7 @@ function ArticleCarouselRow({
           <AuthorsPickCard
             key={article.id}
             article={article}
-            onClick={() => onArticleClick(article.id)}
+            onClick={() => onArticleClick(article)}
           />
         ))}
       </div>
@@ -403,7 +383,7 @@ function ArticleCarouselRow({
 
 /* ===== Latest Marquee (LARGE VERTICAL cards, image-dominant & sleek) ===== */
 
-function LatestMarquee({ articles, onArticleClick }: { articles: Article[]; onArticleClick: (id: string) => void }) {
+function LatestMarquee({ articles, onArticleClick }: { articles: Article[]; onArticleClick: (article: Article) => void }) {
   const typeLabel = (type: string) =>
     type === 'PODCAST' ? 'Podcast' : type === 'QUIZ' ? 'Quiz' : type === 'OPINION' ? 'Opinion' : type === 'FEATURED' ? 'Featured' : 'Article';
 
@@ -415,7 +395,7 @@ function LatestMarquee({ articles, onArticleClick }: { articles: Article[]; onAr
         {items.map((article, i) => (
           <div
             key={`${article.id}-${i}`}
-            onClick={() => onArticleClick(article.id)}
+            onClick={() => onArticleClick(article)}
             className="relative glass-card overflow-hidden cursor-pointer group w-[275px] sm:w-[295px] md:w-[310px] h-[385px] flex flex-col transition-transform duration-300 hover:scale-105 flex-shrink-0"
             style={{ transformOrigin: 'center' }}
           >
@@ -456,24 +436,15 @@ function LatestMarquee({ articles, onArticleClick }: { articles: Article[]; onAr
 
 function CategorySection({
   category,
+  articles,
   onSeeAll,
   onArticleClick,
 }: {
   category: Category;
+  articles: Article[];
   onSeeAll: () => void;
-  onArticleClick: (id: string) => void;
+  onArticleClick: (article: Article) => void;
 }) {
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    fetchArticlesByCategory(category.id)
-      .then(setArticles)
-      .catch(() => {})
-      .finally(() => setLoaded(true));
-  }, [category.id]);
-
-  if (!loaded) return null;
   if (articles.length === 0) return null;
 
   return (

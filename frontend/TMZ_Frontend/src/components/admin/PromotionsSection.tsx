@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, Loader2, ExternalLink, Calendar, X } from 'lucide-react';
 import type { AdminPromotion } from '@/lib/admin/adminTypes';
-import { fetchPromotions, createPromotion, updatePromotion, deletePromotion } from '@/lib/admin/api';
+import { fetchPromotions, createPromotion, updatePromotion, deletePromotion, fetchMedia } from '@/lib/admin/api';
 import { useToast } from '@/lib/toast';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Modal } from '@/components/ui/States';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import type { MediaItem } from '@/lib/admin/adminTypes';
 
-const empty = { title: '', description: '', image_url: '', external_url: '', date_time: '', active: true };
+const empty = { title: '', description: '', image_media_id: '', external_url: '', date_time: '', active: true };
 
 export function PromotionsSection(): JSX.Element {
   const { showToast } = useToast();
   const [items, setItems] = useState<AdminPromotion[]>([]);
+  const [media, setMedia] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<AdminPromotion | null>(null);
@@ -28,23 +30,49 @@ export function PromotionsSection(): JSX.Element {
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    fetchMedia().then(setMedia).catch(() => setMedia([]));
+  }, []);
+
   const openAdd = () => { setEditing(null); setForm(empty); setModalOpen(true); };
   const openEdit = (p: AdminPromotion) => {
     setEditing(p);
-    setForm({ title: p.title, description: p.description, image_url: p.image_url, external_url: p.external_url, date_time: p.date_time || '', active: p.active });
+    setForm({ title: p.title, description: p.description, image_media_id: p.image_media_id || '', external_url: p.external_url, date_time: p.date_time?.slice(0, 16) || '', active: p.active });
     setModalOpen(true);
   };
 
   const save = async () => {
+    const title = String(form.title).trim();
+    const description = String(form.description).trim();
+    const externalUrl = String(form.external_url).trim();
+    const imageMediaId = String(form.image_media_id).trim();
+    if (!title || !description || !externalUrl || !imageMediaId) {
+      showToast('Title, description, image, and destination URL are required', 'error');
+      return;
+    }
+    try {
+      const parsedUrl = new URL(externalUrl);
+      if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') throw new Error('invalid URL scheme');
+    } catch {
+      showToast('Enter a valid HTTP or HTTPS destination URL', 'error');
+      return;
+    }
     const data = {
-      title: String(form.title), description: String(form.description),
-      image_url: String(form.image_url), external_url: String(form.external_url),
+      title, description,
+      image_media_id: imageMediaId,
+      external_url: externalUrl,
       date_time: form.date_time ? String(form.date_time) : null,
       active: Boolean(form.active),
     };
     try {
-      if (editing) { await updatePromotion(editing.id, { ...data, image_media_id: editing.image_media_id }); setItems((p) => p.map((x) => x.id === editing.id ? { ...x, ...data } : x)); }
-      else { const n = await createPromotion(data); setItems((p) => [...p, n]); }
+      if (editing) {
+        await updatePromotion(editing.id, data);
+        const selectedImage = media.find((item) => item.id === imageMediaId);
+        setItems((p) => p.map((x) => x.id === editing.id ? { ...x, ...data, image_url: selectedImage?.signed_url || selectedImage?.file_path || x.image_url } as AdminPromotion : x));
+      } else {
+        const n = await createPromotion(data);
+        setItems((p) => [...p, n]);
+      }
       showToast('Promotion saved', 'success');
       setModalOpen(false);
     } catch { showToast('Failed to save', 'error'); }
@@ -74,7 +102,7 @@ export function PromotionsSection(): JSX.Element {
             <GlassCard key={p.id} className="p-5 space-y-3">
               <div className="aspect-video rounded-lg flex items-center justify-center overflow-hidden" style={{ background: 'var(--border-default)' }}>
                 {p.image_url ? (
-                  <img src={p.image_url} alt="" className="w-full h-full object-cover rounded-lg" referrerPolicy="no-referrer" />
+                  <img src={p.image_url} alt={p.title} className="w-full h-full object-cover rounded-lg" referrerPolicy="no-referrer" />
                 ) : (
                   <span className="font-body text-sm" style={{ color: 'var(--text-muted)' }}>No image</span>
                 )}
@@ -124,7 +152,22 @@ export function PromotionsSection(): JSX.Element {
           <div className="space-y-3.5 pt-1">
             <Input label="Title" value={String(form.title)} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} />
             <Input label="Description" value={String(form.description)} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} />
-            <Input label="Image URL" value={String(form.image_url)} onChange={(e) => setForm((p) => ({ ...p, image_url: e.target.value }))} />
+            <div>
+              <label className="mb-1.5 block text-sm text-secondary">Promotion image</label>
+              <select
+                className="input-field w-full"
+                value={String(form.image_media_id)}
+                onChange={(e) => setForm((p) => ({ ...p, image_media_id: e.target.value }))}
+              >
+                <option value="">Select an uploaded image…</option>
+                {media.filter((item) => item.file_type.startsWith('image/')).map((item) => (
+                  <option key={item.id} value={item.id}>{item.filename}</option>
+                ))}
+              </select>
+              {media.filter((item) => item.file_type.startsWith('image/')).length === 0 && (
+                <p className="mt-1 text-xs text-muted">Upload an image in Media Library before creating a promotion.</p>
+              )}
+            </div>
             <Input label="External URL" value={String(form.external_url)} onChange={(e) => setForm((p) => ({ ...p, external_url: e.target.value }))} />
             <Input label="Date & Time" type="datetime-local" value={String(form.date_time)} onChange={(e) => setForm((p) => ({ ...p, date_time: e.target.value }))} />
             <label className="flex items-center gap-2 font-body text-sm pt-1" style={{ color: 'var(--text-secondary)' }}>

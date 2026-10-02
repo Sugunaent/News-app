@@ -31,6 +31,7 @@ export function MediaSection(): JSX.Element {
   const [uploading, setUploading] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [failedPreviews, setFailedPreviews] = useState<Set<string>>(() => new Set());
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -44,12 +45,23 @@ export function MediaSection(): JSX.Element {
 
   const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
   const pageItems = items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const mediaUrl = (item: MediaItem) => item.signed_url || item.file_path;
+
+  const handlePreviewError = (id: string) => {
+    setFailedPreviews((current) => new Set(current).add(id));
+  };
+
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setUploading(true);
     try {
       for (const file of Array.from(files)) {
         const item = await uploadMedia(file);
+        setFailedPreviews((current) => {
+          const next = new Set(current);
+          next.delete(item.id);
+          return next;
+        });
         setItems((p) => [item, ...p]);
       }
       showToast(`${files.length} file(s) uploaded`, 'success');
@@ -88,21 +100,41 @@ export function MediaSection(): JSX.Element {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {pageItems.map((m) => (
               <GlassCard key={m.id} className="p-4 space-y-3">
-                <div className="aspect-square rounded-lg flex items-center justify-center" style={{ background: 'var(--bg-card)' }}>
-                  {m.file_type.startsWith('image/') ? (
-                    <img src={m.file_path} alt={m.filename} className="w-full h-full object-cover rounded-lg" />
+                <div className="aspect-square rounded-lg overflow-hidden flex items-center justify-center" style={{ background: 'var(--bg-card)' }}>
+                  {m.file_type.startsWith('image/') && mediaUrl(m) && !failedPreviews.has(m.id) ? (
+                    <img
+                      src={mediaUrl(m)}
+                      alt={m.filename}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      onError={() => handlePreviewError(m.id)}
+                    />
+                  ) : m.file_type.startsWith('video/') && mediaUrl(m) && !failedPreviews.has(m.id) ? (
+                    <video
+                      src={mediaUrl(m)}
+                      className="w-full h-full object-cover"
+                      muted
+                      playsInline
+                      preload="metadata"
+                      onError={() => handlePreviewError(m.id)}
+                      aria-label={`Video preview: ${m.filename}`}
+                    />
                   ) : (
-                    typeIcon(m.file_type)
+                    <div className="flex flex-col items-center gap-2 p-3 text-center">
+                      {typeIcon(m.file_type)}
+                      {failedPreviews.has(m.id) && <span className="text-[10px] text-muted">Preview unavailable</span>}
+                    </div>
                   )}
                 </div>
                 <div className="space-y-1">
                   <p className="font-body text-sm truncate" style={{ color: 'var(--text-primary)' }} title={m.filename}>{m.filename}</p>
+                  <p className="font-body text-xs truncate" style={{ color: 'var(--text-muted)' }} title={m.file_type}>{m.file_type}</p>
                   <p className="font-body text-xs" style={{ color: 'var(--text-muted)' }}>{formatSize(m.file_size)}</p>
                   <p className="font-body text-xs" style={{ color: 'var(--text-muted)' }}>{new Date(m.created_at).toLocaleDateString()}</p>
                 </div>
                 <div className="space-y-2">
-                  <input className="input-field text-[10px]" value={m.file_path} readOnly />
-                  <button onClick={async () => { try { await navigator.clipboard.writeText(m.file_path); showToast('URL copied', 'success'); } catch { showToast('Copy failed', 'error'); } }} className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-body transition-colors hover:bg-white/10" style={{ color: 'var(--text-muted)' }}>
+                  <input className="input-field text-[10px]" value={mediaUrl(m)} readOnly aria-label={`Media URL for ${m.filename}`} />
+                  <button onClick={async () => { try { await navigator.clipboard.writeText(mediaUrl(m)); showToast('URL copied', 'success'); } catch { showToast('Copy failed', 'error'); } }} className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-body transition-colors hover:bg-white/10" style={{ color: 'var(--text-muted)' }}>
                     Copy URL
                   </button>
                 </div>

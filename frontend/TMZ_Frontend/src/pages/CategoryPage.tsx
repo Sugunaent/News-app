@@ -6,6 +6,8 @@ import { fetchCategoryBySlug, fetchArticlesByCategory } from '@/lib/api';
 import { ArticleCard } from '@/components/articles/ArticleCard';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
 import { Input } from '@/components/ui/Input';
+import { Breadcrumbs } from '@/components/common/Breadcrumbs';
+import { canonicalUrl, setPageMetadata, upsertJsonLd } from '@/lib/seo';
 
 export function CategoryPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -44,11 +46,39 @@ export function CategoryPage() {
     })();
   }, [slug, debouncedQuery]);
 
+  useEffect(() => {
+    if (error && slug) {
+      setPageMetadata({
+        title: 'Category not found | The Modern Stories',
+        description: 'This story category could not be found.',
+        canonicalPath: `/category/${slug}`,
+        robots: 'noindex, nofollow',
+      });
+      return;
+    }
+    if (!category || !slug) return;
+
+    const title = `${category.name} Stories | The Modern Stories`;
+    const description = category.description || `Explore published ${category.name.toLowerCase()} stories and interactive articles from The Modern Stories.`;
+    const canonical = canonicalUrl(`/category/${category.slug}`);
+    setPageMetadata({ title, description, canonicalPath: canonical });
+    upsertJsonLd('page-jsonld', {
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      '@id': `${canonical}#webpage`,
+      url: canonical,
+      name: title,
+      description,
+      isPartOf: { '@id': `${canonicalUrl('/')}#website` },
+    });
+  }, [category, error, slug]);
+
   if (loading && !category) return <LoadingState message="Loading category..." />;
   if (error || !category) return <ErrorState message="Category not found." />;
 
   return (
     <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 sm:py-8">
+      <Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: category.name }]} />
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
         <div className="flex-1">
           <h1 className="font-display text-4xl md:text-5xl text-primary mb-4">{category.name}</h1>

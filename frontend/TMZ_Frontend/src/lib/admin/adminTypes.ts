@@ -10,7 +10,10 @@ export type ArticleStatus =
   | 'DRAFT'
   | 'PUBLISHED'
   | 'UNPUBLISHED'
-  | 'SCHEDULED';
+  | 'SCHEDULED'
+  | 'PENDING_REVIEW'
+  | 'REJECTED'
+  | 'ARCHIVED';
 
 export type ArticleType = 'ARTICLE' | 'PODCAST' | 'QUIZ' | 'OPINION' | 'FEATURED';
 export type BlockType = 'TEXT' | 'IMAGE' | 'QUIZ' | 'OPINION' | 'PODCAST';
@@ -189,6 +192,7 @@ export interface MediaItem {
   id: string;
   filename: string;
   file_path: string;
+  signed_url?: string | null;
   file_type: string;
   file_size: number;
   uploaded_by: string | null;

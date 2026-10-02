@@ -1,6 +1,18 @@
 import { supabase } from './supabase';
 
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
+const LOCAL_BACKEND_URL = 'http://localhost:8001';
+
+export const API_BASE_URL = (() => {
+  const configured = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  if (configured && configured.trim()) return configured.trim().replace(/\/$/, '');
+
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
+  if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') {
+    return LOCAL_BACKEND_URL;
+  }
+
+  return '';
+})();
 
 let refreshPromise: Promise<string | null> | null = null;
 
@@ -44,6 +56,7 @@ function isPublicGetEndpoint(path: string, method = 'GET'): boolean {
     normalized.startsWith('/api/v1/promotions') ||
     normalized.startsWith('/api/v1/site') ||
     normalized.startsWith('/api/v1/advertisements') ||
+    normalized === '/api/v1/home/discovery' ||
     normalized.startsWith('/api/v1/gamification/levels') ||
     normalized.startsWith('/api/v1/gamification/badges') ||
     normalized.startsWith('/api/v1/gamification/xp-rules') ||
@@ -123,6 +136,7 @@ export async function apiFetch<T>(path: string, init: ApiFetchOptions = {}): Pro
       else if (Array.isArray(payload.detail)) message = payload.detail.map((item) => item.msg || JSON.stringify(item)).join('; ');
       else if (typeof payload.message === 'string') message = payload.message;
     } catch {
+      // Preserve the raw response text when the error body is not JSON.
     }
     console.error(`[API] ${method} ${path} detail:`, message);
     throw new Error(message);

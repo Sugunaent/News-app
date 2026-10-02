@@ -9,6 +9,7 @@ class HomeCategorySection(BaseModel):
 
 
 class HomeDiscoveryResponse(BaseModel):
+    categories: list[ArticleCategory]
     trending: list[ArticleListItem]
     category_sections: list[HomeCategorySection]
     authors_picks: list[ArticleListItem]

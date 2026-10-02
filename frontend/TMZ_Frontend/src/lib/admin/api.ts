@@ -215,7 +215,9 @@ const toMediaItem = (item: any): MediaItem => ({
   id: String(item.id),
   filename: item.filename ?? item.storage_path?.split('/').pop() ?? 'media',
   file_path: item.storage_path ?? item.file_path ?? '',
-  file_type: item.media_type ?? item.mime_type ?? item.file_type ?? 'unknown',
+  signed_url: item.signed_url ?? item.url ?? null,
+  // Prefer MIME type: media_type is a category such as "IMAGE", not "image/png".
+  file_type: item.mime_type ?? item.file_type ?? (item.media_type ? `${String(item.media_type).toLowerCase()}/*` : 'unknown'),
   file_size: Number(item.file_size ?? item.size ?? 0),
   uploaded_by: item.uploaded_by ?? item.user_id ?? null,
   created_at: item.created_at ?? new Date().toISOString(),
@@ -669,7 +671,6 @@ export async function createOpinion(data: Partial<AdminOpinion>): Promise<AdminO
     body: JSON.stringify({
       article_id: data.article_id,
       question_text: data.question ?? 'New Opinion',
-      display_order: 0,
       allow_custom_response: Boolean(data.allow_custom_text),
     }),
   });
@@ -928,8 +929,6 @@ export async function createPromotion(data: Partial<AdminPromotion>): Promise<Ad
       event_date: data.date_time ?? null,
       display_order: 0,
       is_active: data.active ?? true,
-      starts_at: null,
-      ends_at: null,
     }),
   });
   return toAdminPromotion(row);
@@ -1069,10 +1068,10 @@ export async function fetchAnalytics(): Promise<AnalyticsData> {
 
   return {
     totals: {
-      articles: Number(dashboard.top_articles?.length ?? overview.total_article_views ?? 0),
-      published_articles: Math.max(0, Number(overview.articles_completed ?? 0)),
-      draft_articles: 0,
-      pending_review: 0,
+      articles: Number(overview.total_articles ?? 0),
+      published_articles: Number(overview.published_articles ?? 0),
+      draft_articles: Number(overview.draft_articles ?? 0),
+      pending_review: Number(overview.pending_review_articles ?? 0),
       users: Number(overview.total_users ?? 0),
       active_users: Number(overview.active_users ?? 0),
       comments: Number(overview.comments_created ?? 0),

@@ -30,7 +30,7 @@ services:
       args:
         - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-https://ylovbonsskqatgvypdms.supabase.co}
         - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlsb3Zib25zc2txYXRndnlwZG1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyODk2NjksImV4cCI6MjEwMjg2NTY2OX0.HFABdMUJ4anF1ktDc5QhHAebPYoN7-GLkEpaIx2dLzQ}
-        - VITE_SITE_URL=${VITE_SITE_URL:-http://localhost:3000}
+        - VITE_SITE_URL=${VITE_SITE_URL:-https://www.themodernstories.in}
         - VITE_API_BASE_URL=${VITE_API_BASE_URL:-}
     container_name: news-app-frontend
     restart: unless-stopped

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import type { Article } from '@/types';
 import { fetchLatestArticles } from '@/lib/api';
@@ -7,17 +8,32 @@ import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
 import { Input } from '@/components/ui/Input';
 
 export function LatestPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlQuery = searchParams.get('q') ?? '';
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(urlQuery);
   const [debouncedQuery, setDebouncedQuery] = useState('');
+
+  useEffect(() => {
+    setSearchQuery(urlQuery);
+  }, [urlQuery]);
 
   // Debounce search query
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (debouncedQuery.trim()) next.set('q', debouncedQuery.trim());
+    else next.delete('q');
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [debouncedQuery, searchParams, setSearchParams]);
 
   useEffect(() => {
     setLoading(true);

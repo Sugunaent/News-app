@@ -203,7 +203,7 @@ class SuperadminQuizCorrectAnswerUpdate(BaseModel):
 class SuperadminOpinionCreate(BaseModel):
     article_id: UUID
     question_text: str = Field(min_length=1)
-    display_order: int = Field(default=0, ge=0)
+    display_order: int | None = Field(default=None, ge=0)
     allow_custom_response: bool = True
 
     @field_validator("question_text")

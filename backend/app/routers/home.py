@@ -45,24 +45,21 @@ def get_home_discovery(
     )
 
     categories = _fetch_active_categories()
-
+    category_fetch_limit = min(
+        1000,
+        max(trending_limit, category_limit * max(len(categories), 1) * 3),
+    )
+    category_articles = fetch_published_teasers(limit=category_fetch_limit)
     category_sections = []
 
     for category in categories:
-        articles = fetch_published_teasers(
-            category_id=category["id"],
-            limit=category_limit,
-        )
-
-        if not articles:
-            continue
-
-        category_sections.append(
-            {
-                "category": category,
-                "articles": articles,
-            }
-        )
+        articles = [
+            article
+            for article in category_articles
+            if article.get("category_id") == category["id"]
+        ][:category_limit]
+        if articles:
+            category_sections.append({"category": category, "articles": articles})
 
     authors_picks = fetch_published_teasers(
         author_picks=True,
@@ -70,6 +67,7 @@ def get_home_discovery(
     )
 
     return {
+        "categories": categories,
         "trending": trending,
         "category_sections": category_sections,
         "authors_picks": authors_picks,

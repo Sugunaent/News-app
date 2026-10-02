@@ -15,6 +15,7 @@ import {
   fetchCompletionCards,
   fetchUserOpinions,
   fetchSavedArticles,
+  getArticleRoute,
 } from '@/lib/api';
 import type {
   ReadingHistoryItem, Badge, AchievementItem,
@@ -116,7 +117,7 @@ function CompletedList({ userId }: { userId: string }) {
               <p className="text-xs text-muted mt-0.5">{formatRelativeTime(item.updated_at)}</p>
             </div>
             <button
-              onClick={() => navigate(`/article/${item.article_id}`)}
+              onClick={() => navigate(getArticleRoute({ id: item.article_id }))}
               className="btn-secondary text-xs px-4 py-2 shrink-0"
             >
               Reopen
@@ -362,8 +363,9 @@ function OpinionsList({ userId }: { userId: string }) {
             </div>
           </div>
           <button
-            onClick={() => navigate(`/article/${op.article_id}`)}
+            onClick={() => { if (op.article_id) navigate(getArticleRoute({ id: op.article_id })); }}
             className="btn-secondary text-xs px-4 py-2 shrink-0"
+            disabled={!op.article_id}
           >
             Reopen
           </button>
@@ -397,7 +399,7 @@ function SavedList({ userId }: { userId: string }) {
         if (!article) return null;
         return (
           <GlassCard key={item.id} className="overflow-hidden cursor-pointer">
-            <div onClick={() => navigate(`/article/${article.id}`)}>
+            <div onClick={() => navigate(getArticleRoute(article))}>
               {article.cover_image_url && (
                 <div className="h-32 overflow-hidden">
                   <img src={article.cover_image_url} alt={article.title} className="w-full h-full object-cover" loading="lazy" />

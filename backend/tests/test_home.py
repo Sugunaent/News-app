@@ -76,7 +76,7 @@ def test_home_discovery_returns_trending_category_sections_and_authors_picks():
         ),
     ]
 
-    technology_data = [
+    category_articles_data = [
         _article(
             article_id="00000000-0000-0000-0000-000000000013",
             slug="technology-story",
@@ -88,7 +88,7 @@ def test_home_discovery_returns_trending_category_sections_and_authors_picks():
         )
     ]
 
-    science_data = [
+    category_articles_data += [
         _article(
             article_id="00000000-0000-0000-0000-000000000014",
             slug="science-story",
@@ -127,20 +127,12 @@ def test_home_discovery_returns_trending_category_sections_and_authors_picks():
             data=categories_data
         )
 
-        technology_query = MagicMock()
-        technology_query.eq.return_value = technology_query
-        technology_query.order.return_value = technology_query
-        technology_query.limit.return_value = technology_query
-        technology_query.execute.return_value = MagicMock(
-            data=technology_data
-        )
-
-        science_query = MagicMock()
-        science_query.eq.return_value = science_query
-        science_query.order.return_value = science_query
-        science_query.limit.return_value = science_query
-        science_query.execute.return_value = MagicMock(
-            data=science_data
+        category_articles_query = MagicMock()
+        category_articles_query.eq.return_value = category_articles_query
+        category_articles_query.order.return_value = category_articles_query
+        category_articles_query.limit.return_value = category_articles_query
+        category_articles_query.execute.return_value = MagicMock(
+            data=category_articles_data
         )
 
         authors_pick_query = MagicMock()
@@ -156,8 +148,7 @@ def test_home_discovery_returns_trending_category_sections_and_authors_picks():
         table_mock.select.side_effect = [
             trending_query,
             categories_query,
-            technology_query,
-            science_query,
+            category_articles_query,
             authors_pick_query,
         ]
 
@@ -170,6 +161,8 @@ def test_home_discovery_returns_trending_category_sections_and_authors_picks():
     assert response.status_code == 200
 
     data = response.json()
+
+    assert len(data["categories"]) == 2
 
     assert len(data["trending"]) == 1
     assert data["trending"][0]["slug"] == "latest-article"
@@ -227,7 +220,7 @@ def test_home_discovery_skips_categories_without_articles():
         ),
     ]
 
-    technology_data = [
+    category_articles_data = [
         _article(
             article_id="00000000-0000-0000-0000-000000000013",
             slug="technology-story",
@@ -235,8 +228,6 @@ def test_home_discovery_skips_categories_without_articles():
             published_at="2026-08-27T07:00:00Z",
         )
     ]
-
-    empty_science_data = []
 
     authors_pick_data = []
 
@@ -256,20 +247,12 @@ def test_home_discovery_skips_categories_without_articles():
             data=categories_data
         )
 
-        technology_query = MagicMock()
-        technology_query.eq.return_value = technology_query
-        technology_query.order.return_value = technology_query
-        technology_query.limit.return_value = technology_query
-        technology_query.execute.return_value = MagicMock(
-            data=technology_data
-        )
-
-        science_query = MagicMock()
-        science_query.eq.return_value = science_query
-        science_query.order.return_value = science_query
-        science_query.limit.return_value = science_query
-        science_query.execute.return_value = MagicMock(
-            data=empty_science_data
+        category_articles_query = MagicMock()
+        category_articles_query.eq.return_value = category_articles_query
+        category_articles_query.order.return_value = category_articles_query
+        category_articles_query.limit.return_value = category_articles_query
+        category_articles_query.execute.return_value = MagicMock(
+            data=category_articles_data
         )
 
         authors_pick_query = MagicMock()
@@ -285,8 +268,7 @@ def test_home_discovery_skips_categories_without_articles():
         table_mock.select.side_effect = [
             trending_query,
             categories_query,
-            technology_query,
-            science_query,
+            category_articles_query,
             authors_pick_query,
         ]
 
@@ -325,6 +307,7 @@ def test_home_discovery_returns_empty_sections_when_no_articles():
         table_mock.select.side_effect = [
             empty_query,
             categories_query,
+            empty_query,
             empty_query,
         ]
 

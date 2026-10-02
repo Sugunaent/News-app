@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import type { Article } from '@/types';
+import { getArticleRoute } from '@/lib/api';
 import { BookmarkButton } from './BookmarkButton';
 import { GlowingEffect } from './GlowingEffect';
 import { useAuth } from '@/lib/auth';
@@ -16,9 +17,9 @@ export function ArticleCard({ article, showType = true, variant = 'default' }: A
 
   const handleClick = () => {
     if (user) {
-      navigate(`/article/${article.id}`);
+      navigate(getArticleRoute(article));
     } else {
-      navigate('/auth', { state: { redirect: `/article/${article.id}` } });
+      navigate('/auth', { state: { redirect: getArticleRoute(article) } });
     }
   };
 

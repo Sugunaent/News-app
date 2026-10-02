@@ -1,6 +1,14 @@
 {
     "rewrites": [
         {
+            "source": "/article/:articleId([0-9a-fA-F-]{36})",
+            "destination": "/api/article-redirect?articleId=:articleId"
+        },
+        {
+            "source": "/sitemap.xml",
+            "destination": "/api/sitemap.xml"
+        },
+        {
             "source": "/(.*)",
             "destination": "/index.html"
         }

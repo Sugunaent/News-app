@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useParams, Navigate } from 'react-router-dom';
 import { ArrowLeft, Home, Layers, User } from 'lucide-react';
 import type { ArticleWithBlocks, Level, Badge, Article } from '@/types';
@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { fireCelebrationConfetti } from '@/lib/confetti';
 import {
   fetchArticleById,
+  getArticleRoute,
   fetchReadingProgress,
   updateReadingProgress,
   hasCompletionCard,
@@ -26,9 +27,11 @@ import { LevelUpModal } from '@/components/articles/LevelUpModal';
 import { BadgePopup } from '@/components/articles/BadgePopup';
 import { ReadingUnlockOverlay } from '@/components/articles/ReadingUnlockOverlay';
 import { ConditionalAdSlot } from '@/components/articles/AdSlot';
+import { canonicalUrl, removeJsonLd, setPageMetadata, SITE_NAME, upsertJsonLd } from '@/lib/seo';
+import { Breadcrumbs } from '@/components/common/Breadcrumbs';
 
 export function ArticlePage() {
-  const { id } = useParams<{ id: string }>();
+  const { slug: slugOrId } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const { user, profile, refreshProfile, loading: authLoading } = useAuth();
 
@@ -57,6 +60,8 @@ export function ArticlePage() {
   const [scrolledThroughComments, setScrolledThroughComments] = useState(false);
   const [commentsReady, setCommentsReady] = useState(false);
   const [articleBounds, setArticleBounds] = useState<{ left: number; width: number } | null>(null);
+  const [shareCopyState, setShareCopyState] = useState<'idle' | 'copied' | 'shared'>('idle');
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const commentsRef = useRef<HTMLDivElement>(null);
@@ -119,16 +124,16 @@ export function ArticlePage() {
       window.removeEventListener('scroll', updateBounds);
       if (ro) ro.disconnect();
     };
-  }, [article, id]);
+  }, [article, slugOrId]);
 
   // Scroll to top on every article open — do NOT inherit previous scroll position
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, [id]);
+  }, [slugOrId]);
 
   // Load article
   useEffect(() => {
-    if (!id || authLoading) return;
+    if (!slugOrId || authLoading) return;
     if (!user) {
       setLoading(false);
       navigate('/auth', { replace: true });
@@ -136,6 +141,7 @@ export function ArticlePage() {
     }
     setLoading(true);
     setError(false);
+    setArticle(null);
     setUnlockedPct(0);
     setShowCompletionModal(false);
     setOpinionModalData(null);
@@ -148,11 +154,92 @@ export function ArticlePage() {
     setXpBreakdown([]);
     setCompletionCardXp(30);
     quizXpRef.current = 0;
-    fetchArticleById(id)
-      .then((art) => { if (!art) { setError(true); return; } setArticle(art); })
+    fetchArticleById(slugOrId)
+      .then((art) => {
+        if (!art) {
+          setError(true);
+          return;
+        }
+        setArticle(art);
+        if (art.slug && slugOrId !== art.slug && slugOrId !== art.id) {
+          navigate(getArticleRoute(art), { replace: true });
+        }
+      })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, [id, user, authLoading, 'force-refresh-1']);
+  }, [slugOrId, user, authLoading, navigate]);
+
+  useEffect(() => {
+    if (!error) return;
+    setPageMetadata({
+      title: 'Story not found | The Modern Stories',
+      description: 'This story could not be found or is no longer published.',
+      canonicalPath: window.location.pathname,
+      robots: 'noindex, nofollow',
+    });
+    removeJsonLd('article-jsonld');
+  }, [error]);
+
+  useEffect(() => {
+    if (!article) return;
+
+    const title = article.seo_title || article.title;
+    const description = article.seo_description || article.summary || article.subtitle || 'Read this story on The Modern Stories.';
+    const route = getArticleRoute(article);
+    const canonical = article.canonical_url || canonicalUrl(route);
+    const image = canonicalUrl(article.meta_image_url || article.cover_image_url || '/modern_stories_hero.jpg');
+    const bodyText = [article.title, article.subtitle, article.summary, ...article.blocks
+      .filter((block) => block.block_type === 'TEXT')
+      .map((block) => block.content || '')]
+      .filter(Boolean)
+      .join(' ');
+    const wordCount = bodyText.trim().split(/\s+/).filter(Boolean).length;
+    const publishedDate = article.published_at && !Number.isNaN(Date.parse(article.published_at))
+      ? new Date(article.published_at).toISOString()
+      : undefined;
+
+    setPageMetadata({
+      title: `${title} | ${SITE_NAME}`,
+      description,
+      canonicalPath: canonical,
+      image,
+      ogType: 'article',
+      author: article.author_name || SITE_NAME,
+    });
+
+    upsertJsonLd('page-jsonld', {
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      '@id': `${canonical}#webpage`,
+      url: canonical,
+      name: title,
+      description,
+      isPartOf: { '@id': `${canonicalUrl('/')}#website` },
+      mainEntity: { '@id': `${canonical}#article` },
+    });
+
+    upsertJsonLd('article-jsonld', {
+      '@context': 'https://schema.org',
+      '@type': 'NewsArticle',
+      '@id': `${canonical}#article`,
+      mainEntityOfPage: { '@type': 'WebPage', '@id': canonical },
+      headline: title,
+      description,
+      image: [image],
+      ...(publishedDate ? { datePublished: publishedDate } : {}),
+      ...(publishedDate ? { dateModified: publishedDate } : {}),
+      author: article.author_name
+        ? { '@type': 'Person', name: article.author_name }
+        : { '@type': 'Organization', name: SITE_NAME },
+      publisher: { '@id': `${canonicalUrl('/')}#organization` },
+      articleSection: article.category?.name || 'Editorial Stories',
+      genre: article.category?.name || article.article_type,
+      wordCount,
+      inLanguage: 'en',
+    });
+
+    return () => removeJsonLd('article-jsonld');
+  }, [article, slugOrId]);
 
   // Load sidebar data
   useEffect(() => {
@@ -162,8 +249,8 @@ export function ArticlePage() {
 
   // Load saved reading progress (resume only if user has saved progress)
   useEffect(() => {
-    if (!user || !id) return;
-    fetchReadingProgress(user.id, id)
+    if (!user || !slugOrId) return;
+    fetchReadingProgress(user.id, slugOrId)
       .then((p) => {
         if (p) {
           setUnlockedPct(p.percentage);
@@ -173,16 +260,16 @@ export function ArticlePage() {
         }
       })
       .catch(() => {});
-  }, [user, id]);
+  }, [user, slugOrId]);
 
   // Check for existing completion card (do NOT show modal on initial load)
   useEffect(() => {
-    if (!user || !id) return;
-    hasCompletionCard(user.id, id).then((exists) => {
+    if (!user || !slugOrId) return;
+    hasCompletionCard(user.id, slugOrId).then((exists) => {
       setAlreadyCompleted(exists);
       setCompletionChecked(true);
     }).catch(() => setCompletionChecked(true));
-  }, [user, id]);
+  }, [user, slugOrId]);
 
   // Scroll-based progressive unlock & detection of comments section
   useEffect(() => {
@@ -229,12 +316,12 @@ export function ArticlePage() {
       const shouldPersistProgress =
         newUnlocked > lastSavedProgressRef.current ||
         newUnlocked < 100 && Math.abs(window.scrollY - lastSavedScrollRef.current) >= 300;
-      if (now - lastSaveRef.current > 10000 && shouldPersistProgress && user && id) {
+      if (now - lastSaveRef.current > 10000 && shouldPersistProgress && user && slugOrId) {
         lastSaveRef.current = now;
         const scrollPos = window.scrollY;
         lastSavedProgressRef.current = newUnlocked;
         lastSavedScrollRef.current = scrollPos;
-        updateReadingProgress(user.id, id, newUnlocked, scrollPos, newUnlocked >= 100).catch(() => {});
+        updateReadingProgress(user.id, slugOrId, newUnlocked, scrollPos, newUnlocked >= 100).catch(() => {});
       }
     };
 
@@ -242,11 +329,11 @@ export function ArticlePage() {
     // Run once on mount / update
     handleScroll();
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [article, unlockedPct, user, id, commentsReady]);
+  }, [article, unlockedPct, user, slugOrId, commentsReady]);
 
   // Completion — trigger confetti and show card immediately upon reaching completion criteria
   useEffect(() => {
-    if (!id || !article || unlockedPct < 100 || !scrolledThroughComments || !completionChecked || alreadyCompleted || completionTriggeredRef.current) return;
+    if (!slugOrId || !article || unlockedPct < 100 || !scrolledThroughComments || !completionChecked || alreadyCompleted || completionTriggeredRef.current) return;
     // Trigger ONLY after genuine article completion/reading progress, NOT on cold load
     if (!userDidScrollRef.current) return;
     if (completionTriggeredRef.current) return;
@@ -256,7 +343,7 @@ export function ArticlePage() {
     const triggerCompletion = async () => {
       try {
         const userId = user?.id || 'demo-reader';
-        const result = await createCompletionCard(userId, id, article.title, 0, 'completion');
+        const result = await createCompletionCard(userId, article.id, article.title, 0, 'completion');
         const articleReward = result.xp_gained + quizXpRef.current + (opinionModalData?.xpGained || 0);
         setCompletionCardXp(articleReward);
         setTotalXp(articleReward);
@@ -299,7 +386,7 @@ export function ArticlePage() {
 
     triggerCompletion();
 
-  }, [unlockedPct, scrolledThroughComments, user, id, article, completionChecked, alreadyCompleted, profile, refreshProfile, opinionModalData]);
+  }, [unlockedPct, scrolledThroughComments, user, slugOrId, article, completionChecked, alreadyCompleted, profile, refreshProfile, opinionModalData]);
 
   const handleQuizResult = useCallback((xp: number) => {
     quizXpRef.current += xp;
@@ -314,7 +401,7 @@ export function ArticlePage() {
   }, []);
 
   const handleOpinionSubmit = useCallback(async (opinionText: string, xpEarned: number) => {
-    if (!article || !id) return;
+    if (!article || !slugOrId) return;
     if (xpEarned > 0) {
       setShowXp(true);
       setTotalXp(xpEarned);
@@ -322,7 +409,7 @@ export function ArticlePage() {
     }
     try {
       const userId = user?.id || 'demo-user';
-      await createOpinionCard(userId, id, article.title, opinionText, xpEarned);
+      await createOpinionCard(userId, article.id, article.title, opinionText, xpEarned);
       if (user) {
         await refreshProfile();
       }
@@ -336,7 +423,7 @@ export function ArticlePage() {
         xpGained: xpEarned,
       });
     }
-  }, [user, article, id, refreshProfile]);
+  }, [user, article, slugOrId, refreshProfile]);
 
   const handleBack = useCallback((e?: React.MouseEvent) => {
     if (e) {
@@ -350,8 +437,78 @@ export function ArticlePage() {
     }
   }, [navigate]);
 
+  const summaryText = useMemo(() => article?.summary || article?.subtitle || '', [article]);
+  const keyTakeaways = useMemo(() => {
+    if (!article) return [];
+    const rawTakeaways = article.key_takeaways && article.key_takeaways.length > 0
+      ? article.key_takeaways
+      : [article.summary, article.subtitle].filter(Boolean) as string[];
+
+    const splitTakeaways = rawTakeaways
+      .flatMap((entry) => entry
+        .split(/(?:•|\n|;|\.)\s+/)
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0 && part.length < 160))
+      .slice(0, 3);
+
+    return splitTakeaways;
+  }, [article]);
+
+  const handleShare = useCallback(async () => {
+    if (!article) return;
+
+    const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
+    const shareMessage = `${article.title}${article.summary ? ` — ${article.summary}` : ''}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: article.title,
+          text: shareMessage,
+          url: shareUrl,
+        });
+        setShareCopyState('shared');
+        setShareMenuOpen(false);
+        return;
+      }
+    } catch {
+      // Native share is unavailable or user cancelled; fall through to manual share options.
+    }
+
+    setShareMenuOpen((open) => !open);
+  }, [article]);
+
+  const handleShareTarget = useCallback(async (target: 'copy' | 'x' | 'facebook' | 'linkedin' | 'whatsapp') => {
+    if (!article) return;
+
+    const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
+    const shareMessage = `${article.title}${article.summary ? ` — ${article.summary}` : ''}`;
+
+    if (target === 'copy') {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(`${shareMessage}\n${shareUrl}`);
+        setShareCopyState('copied');
+      }
+      setShareMenuOpen(false);
+      window.setTimeout(() => setShareCopyState('idle'), 2000);
+      return;
+    }
+
+    const targetUrlMap = {
+      x: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
+      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`,
+      whatsapp: `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${shareUrl}`)}`,
+    } satisfies Record<'x' | 'facebook' | 'linkedin' | 'whatsapp', string>;
+
+    window.open(targetUrlMap[target], '_blank', 'noopener,noreferrer');
+    setShareCopyState('shared');
+    setShareMenuOpen(false);
+    window.setTimeout(() => setShareCopyState('idle'), 2000);
+  }, [article]);
+
   if (authLoading) return <LoadingState message="Checking access..." />;
-  if (!user) return <Navigate to="/auth" state={{ redirect: `/article/${id}` }} replace />;
+  if (!user) return <Navigate to="/auth" state={{ redirect: getArticleRoute(slugOrId ?? '') }} replace />;
   if (loading) return <LoadingState message="Loading article..." />;
   if (error || !article) return <ErrorState message="Article not found." onRetry={() => navigate('/')} />;
 
@@ -381,6 +538,11 @@ export function ArticlePage() {
         <div className="flex flex-col lg:flex-row gap-8 xl:gap-10 items-start">
           {/* Main column - responsive majority of width */}
           <div className="flex-1 min-w-0 w-full">
+            <Breadcrumbs items={[
+              { label: 'Home', href: '/' },
+              ...(article.category?.slug ? [{ label: article.category.name, href: `/category/${article.category.slug}` }] : []),
+              { label: article.title },
+            ]} />
             {/* Top controls */}
             <div className="flex items-center justify-between mb-6 md:mb-8">
               <button
@@ -399,13 +561,35 @@ export function ArticlePage() {
             <article ref={articleRef} className="article-surface p-6 sm:p-8 md:p-12 w-full">
               {/* Header */}
               <div className="mb-8">
-                <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center gap-2 mb-4 flex-wrap">
                   {article.category && (
                     <span className="text-xs px-3 py-1 rounded-full bg-brand-primary/10 text-brand-primary font-body">
                       {article.category.name}
                     </span>
                   )}
                   <span className="text-xs text-muted">{typeLabel}</span>
+                  <div className="relative ml-auto">
+                    <button
+                      type="button"
+                      onClick={handleShare}
+                      className="inline-flex items-center gap-2 rounded-full border border-border-default bg-white/5 px-3 py-1.5 text-sm font-medium text-primary hover:bg-brand-primary/10 transition-colors"
+                      aria-label="Share article"
+                    >
+                      <span>{shareCopyState === 'copied' ? 'Link copied' : shareCopyState === 'shared' ? 'Shared' : 'Share'}</span>
+                    </button>
+
+                    {shareMenuOpen && (
+                      <div className="absolute right-0 top-full z-20 mt-2 w-56 rounded-2xl border border-border-default bg-surface-primary/95 p-2 shadow-2xl backdrop-blur-md">
+                        <div className="grid grid-cols-1 gap-1 text-sm">
+                          <button type="button" onClick={() => void handleShareTarget('copy')} className="rounded-xl px-3 py-2 text-left hover:bg-white/5">Copy Link</button>
+                          <button type="button" onClick={() => void handleShareTarget('whatsapp')} className="rounded-xl px-3 py-2 text-left hover:bg-white/5">WhatsApp</button>
+                          <button type="button" onClick={() => void handleShareTarget('x')} className="rounded-xl px-3 py-2 text-left hover:bg-white/5">X / Twitter</button>
+                          <button type="button" onClick={() => void handleShareTarget('facebook')} className="rounded-xl px-3 py-2 text-left hover:bg-white/5">Facebook</button>
+                          <button type="button" onClick={() => void handleShareTarget('linkedin')} className="rounded-xl px-3 py-2 text-left hover:bg-white/5">LinkedIn</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <h1 className="font-display text-2xl sm:text-3xl md:text-4xl leading-tight mb-3" style={{ color: 'var(--article-text)' }}>
                   {article.title}
@@ -414,6 +598,31 @@ export function ArticlePage() {
                   {article.subtitle}
                 </p>
               </div>
+
+              {summaryText && (
+                <section className="mb-8 rounded-2xl border border-border-default bg-surface-secondary/70 p-5 md:p-6">
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="text-xs uppercase tracking-[0.18em] font-semibold text-brand-primary">Article Summary</span>
+                  </div>
+                  <p className="text-base md:text-lg leading-relaxed font-medium" style={{ color: 'var(--article-text)' }}>
+                    {summaryText}
+                  </p>
+
+                  {keyTakeaways.length > 0 && (
+                    <div className="mt-5">
+                      <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.12em] text-muted">Key Takeaways</h2>
+                      <ul className="space-y-2 text-sm md:text-base" style={{ color: 'var(--article-muted)' }}>
+                        {keyTakeaways.map((takeaway) => (
+                          <li key={takeaway} className="flex gap-2 leading-relaxed">
+                            <span className="mt-1 inline-block h-2.5 w-2.5 flex-none rounded-full bg-brand-primary" />
+                            <span>{takeaway}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </section>
+              )}
 
               {/* ALL blocks are in the DOM — completely readable and interactive */}
               <div ref={contentRef} className="relative">
@@ -441,7 +650,7 @@ export function ArticlePage() {
           <aside className="w-full lg:w-[320px] xl:w-[360px] 2xl:w-[380px] shrink-0 lg:sticky lg:top-20 space-y-8">
             {sidebarLatest.length > 0 && (
               <div>
-                <h3 className="font-display text-lg text-primary mb-4">Latest Articles</h3>
+                <h2 className="font-display text-lg text-primary mb-4">Latest Articles</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
                   {sidebarLatest.map((a) => (
                     <SidebarItem key={a.id} article={a} />
@@ -452,7 +661,7 @@ export function ArticlePage() {
 
             {sidebarPicks.length > 0 && (
               <div>
-                <h3 className="font-display text-lg text-primary mb-4">Author's Picks</h3>
+                <h2 className="font-display text-lg text-primary mb-4">Author's Picks</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
                   {sidebarPicks.map((a) => (
                     <SidebarItem key={a.id} article={a} />
@@ -493,7 +702,7 @@ export function ArticlePage() {
               cardType="completion"
               username={profile?.display_name || user?.email || 'Reader'}
               articleTitle={article.title}
-              articleId={id}
+              articleId={article.id}
               xpGained={completionCardXp}
               onClose={() => setShowCompletionModal(false)}
             />
@@ -514,7 +723,7 @@ export function ArticlePage() {
               cardType="opinion"
               username={profile?.display_name || user?.email || 'Reader'}
               articleTitle={article.title}
-              articleId={id}
+              articleId={article.id}
               xpGained={opinionModalData.xpGained}
               opinionText={opinionModalData.opinionText}
               onClose={() => setOpinionModalData(null)}
@@ -550,9 +759,9 @@ function SidebarItem({ article }: { article: Article }) {
 
   const handleClick = () => {
     if (user) {
-      navigate(`/article/${article.id}`);
+      navigate(getArticleRoute(article));
     } else {
-      navigate('/auth', { state: { redirect: `/article/${article.id}` } });
+      navigate('/auth', { state: { redirect: getArticleRoute(article) } });
     }
   };
 

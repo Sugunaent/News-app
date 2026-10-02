@@ -149,6 +149,7 @@ def _load_articles(client) -> list[dict]:
             """
             id,
             category_id,
+            status,
             title,
             categories(
                 id,
@@ -542,6 +543,10 @@ def build_dashboard(
     # ---------------------------------------------------------
 
     total_users = len(profiles)
+    total_articles = len(articles)
+    published_articles = sum(1 for article in articles if article.get("status") == "PUBLISHED")
+    draft_articles = sum(1 for article in articles if article.get("status") == "DRAFT")
+    pending_review_articles = sum(1 for article in articles if article.get("status") == "PENDING_REVIEW")
 
     active_users = sum(
         1
@@ -576,6 +581,10 @@ def build_dashboard(
     overview = {
         "total_users": total_users,
         "active_users": active_users,
+        "total_articles": total_articles,
+        "published_articles": published_articles,
+        "draft_articles": draft_articles,
+        "pending_review_articles": pending_review_articles,
         "total_article_views": total_article_views,
         "unique_article_readers": unique_article_readers,
         "articles_completed": len(completions),

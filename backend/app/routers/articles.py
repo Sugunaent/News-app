@@ -1,8 +1,11 @@
 from uuid import UUID
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import RedirectResponse
 from postgrest.exceptions import APIError
 
+from app.core.config import settings
 from app.core.exceptions import NotFoundError
 from app.db.supabase import supabase_admin
 from app.dependencies.auth import AuthContext, get_current_user, get_optional_user
@@ -69,6 +72,35 @@ def _looks_like_uuid(value: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+@router.get(
+    "/redirect/{article_id}",
+    include_in_schema=False,
+)
+def redirect_legacy_article(article_id: str):
+    """Issue an HTTP 301 for legacy UUID article links to their public slug."""
+    if not _looks_like_uuid(article_id):
+        raise NotFoundError("Article not found")
+
+    response = (
+        supabase_admin
+        .table("articles")
+        .select("slug")
+        .eq("id", article_id)
+        .eq("status", "PUBLISHED")
+        .maybe_single()
+        .execute()
+    )
+    data = getattr(response, "data", None) if response else None
+    slug = str((data or {}).get("slug") or "").strip()
+    if not slug:
+        raise NotFoundError("Article not found")
+
+    return RedirectResponse(
+        url=f"{settings.site_url.rstrip('/')}/article/{quote(slug, safe='')}",
+        status_code=301,
+    )
 
 
 @router.get(

@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Disallow: /auth
+Disallow: /profile
+Disallow: /settings
+Disallow: /superadmin
+Disallow: /card
+Disallow: /api/v1/superadmin/
+
+User-agent: OAI-SearchBot
+Allow: /
+
+Sitemap: https://www.themodernstories.in/sitemap.xml

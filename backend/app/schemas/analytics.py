@@ -6,6 +6,10 @@ from pydantic import BaseModel, ConfigDict, Field
 class AnalyticsOverviewResponse(BaseModel):
     total_users: int
     active_users: int
+    total_articles: int = 0
+    published_articles: int = 0
+    draft_articles: int = 0
+    pending_review_articles: int = 0
 
     total_article_views: int
     unique_article_readers: int
