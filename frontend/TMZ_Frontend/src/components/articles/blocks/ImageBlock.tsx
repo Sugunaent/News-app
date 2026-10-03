@@ -2,8 +2,8 @@ export function ImageBlock({ imageUrl, caption }: { imageUrl: string | null; cap
   if (!imageUrl) return null;
   return (
     <figure className="my-8">
-      <div className="rounded-xl overflow-hidden">
-        <img src={imageUrl} alt={caption || ''} className="w-full h-auto" loading="lazy" />
+      <div className="relative aspect-video rounded-xl overflow-hidden bg-surface-secondary">
+        <img src={imageUrl} alt={caption || ''} className="absolute inset-0 h-full w-full object-contain" loading="lazy" />
       </div>
       {caption && (
         <figcaption className="text-sm text-center mt-3" style={{ color: 'var(--article-muted)' }}>
