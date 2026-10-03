@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, Link } from 'react-router-dom';
+import { ExternalImage } from '@/components/articles/ExternalImage';
 import { BookOpen, Sparkles, ArrowRight, Compass } from 'lucide-react';
 import { parseCardShareUrl, PublicCardData } from '@/lib/cardShare';
 import { CompletionCard } from '@/components/articles/CompletionCard';
@@ -101,11 +102,10 @@ export function CardPage() {
             <div className="mt-6 p-3.5 rounded-xl bg-surface-secondary/80 border border-border/60 text-left w-full flex items-center gap-3 text-xs">
               <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-surface">
                 {article.cover_image_url ? (
-                  <img
+                  <ExternalImage
                     src={article.cover_image_url}
                     alt={article.title}
                     className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-muted">

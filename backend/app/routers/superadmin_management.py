@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from postgrest.exceptions import APIError
 
 from app.core.db_utils import extract_single_record
 from app.db.supabase import supabase, supabase_admin
@@ -56,6 +57,28 @@ def _get_active_client(auth: AuthContext):
     are expected to route through the trusted admin connection for persistence.
     """
     return supabase_admin
+
+
+def _ensure_single_active_xp_rule(
+    client,
+    event_type: str,
+    exclude_rule_id: UUID | None = None,
+) -> None:
+    query = (
+        client
+        .table("xp_rules")
+        .select("id")
+        .eq("event_type", event_type)
+        .eq("is_active", True)
+    )
+    if exclude_rule_id is not None:
+        query = query.neq("id", str(exclude_rule_id))
+    response = query.limit(1).execute()
+    if getattr(response, "data", None):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"An active XP rule already exists for {event_type}",
+        )
 
 
 def _extract_single_record(data: list | dict | None, detail: str) -> dict:
@@ -408,16 +431,24 @@ async def create_xp_rule(
     _require_superadmin(auth)
 
     client = _get_active_client(auth)
+    if payload.is_active:
+        _ensure_single_active_xp_rule(client, payload.event_type)
 
-    response = (
-        client
-        .table("xp_rules")
-        .insert(
-            payload.model_dump()
+    try:
+        response = (
+            client
+            .table("xp_rules")
+            .insert(payload.model_dump())
+            .select("id, event_type, amount, description, is_active, created_at, updated_at")
+            .execute()
         )
-        .select("id, event_type, amount, description, is_active, created_at, updated_at")
-        .execute()
-    )
+    except APIError as exc:
+        if exc.code == "23505":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"An active XP rule already exists for {payload.event_type}",
+            ) from exc
+        raise
 
     created_rule = extract_single_record(response.data, "Unable to create XP rule")
 
@@ -461,14 +492,42 @@ async def update_xp_rule(
 
     client = _get_active_client(auth)
 
-    response = (
-        client
-        .table("xp_rules")
-        .update(updates)
-        .eq("id", str(rule_id))
-        .select("id, event_type, amount, description, is_active, created_at, updated_at")
-        .execute()
-    )
+    if "event_type" in updates or updates.get("is_active") is True:
+        current_response = (
+            client
+            .table("xp_rules")
+            .select("event_type, is_active")
+            .eq("id", str(rule_id))
+            .maybe_single()
+            .execute()
+        )
+        current = getattr(current_response, "data", None)
+        if not current:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="XP rule not found",
+            )
+        event_type = updates.get("event_type", current["event_type"])
+        active = updates.get("is_active", current["is_active"])
+        if active:
+            _ensure_single_active_xp_rule(client, event_type, exclude_rule_id=rule_id)
+
+    try:
+        response = (
+            client
+            .table("xp_rules")
+            .update(updates)
+            .eq("id", str(rule_id))
+            .select("id, event_type, amount, description, is_active, created_at, updated_at")
+            .execute()
+        )
+    except APIError as exc:
+        if exc.code == "23505":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An active XP rule already exists for this event",
+            ) from exc
+        raise
 
     updated_rule = extract_single_record(response.data, "XP rule not found")
 

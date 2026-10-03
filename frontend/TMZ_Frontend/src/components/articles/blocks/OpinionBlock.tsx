@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { MessageCircleQuestion, Check, PenLine, Sparkles, Share2 } from 'lucide-react';
 import type { Opinion } from '@/types';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
 import { submitOpinion, hasUserSubmittedOpinion } from '@/lib/api';
 import { useToast } from '@/lib/toast';
 

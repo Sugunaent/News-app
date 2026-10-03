@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { TMSLogo } from '@/components/brand/TMSLogo';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
 import { useToast } from '@/lib/toast';
+import { getLocalRedirectPath } from '@/lib/authRedirect';
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();
@@ -68,8 +69,8 @@ export function AuthCallbackPage() {
           let destination = '/';
           try {
             const savedRedirect = localStorage.getItem('tms_auth_redirect');
-            if (savedRedirect && savedRedirect.startsWith('/')) {
-              destination = savedRedirect;
+            if (savedRedirect) {
+              destination = getLocalRedirectPath(savedRedirect);
               localStorage.removeItem('tms_auth_redirect');
             }
           } catch {
@@ -93,8 +94,8 @@ export function AuthCallbackPage() {
             let destination = '/';
             try {
               const savedRedirect = localStorage.getItem('tms_auth_redirect');
-              if (savedRedirect && savedRedirect.startsWith('/')) {
-                destination = savedRedirect;
+              if (savedRedirect) {
+                destination = getLocalRedirectPath(savedRedirect);
                 localStorage.removeItem('tms_auth_redirect');
               }
             } catch {

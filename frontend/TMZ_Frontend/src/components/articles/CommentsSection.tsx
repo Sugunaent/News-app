@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Send, Trash2, MessageSquare } from 'lucide-react';
 import type { Comment } from '@/types';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
 import { fetchComments, addComment, deleteComment } from '@/lib/api';
 import { useToast } from '@/lib/toast';
 import { LoadingState, EmptyState, ErrorState } from '@/components/ui/States';

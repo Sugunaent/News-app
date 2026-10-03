@@ -7,7 +7,7 @@ import {
   ShieldAlert, Loader2, Home as HomeIcon,
 } from 'lucide-react';
 import { TMSIcon } from '@/components/brand/TMSIcon';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { searchArticles } from '@/lib/admin/api';
 import type { AdminArticle } from '@/lib/admin/adminTypes';

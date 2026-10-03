@@ -9,7 +9,16 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import type { MediaItem } from '@/lib/admin/adminTypes';
 
-const empty = { title: '', description: '', image_media_id: '', external_url: '', date_time: '', active: true };
+const empty = { title: '', description: '', image_source: 'media', image_media_id: '', external_image_url: '', external_url: '', date_time: '', active: true };
+
+function isHttpsImageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
 
 export function PromotionsSection(): JSX.Element {
   const { showToast } = useToast();
@@ -37,7 +46,16 @@ export function PromotionsSection(): JSX.Element {
   const openAdd = () => { setEditing(null); setForm(empty); setModalOpen(true); };
   const openEdit = (p: AdminPromotion) => {
     setEditing(p);
-    setForm({ title: p.title, description: p.description, image_media_id: p.image_media_id || '', external_url: p.external_url, date_time: p.date_time?.slice(0, 16) || '', active: p.active });
+    setForm({
+      title: p.title,
+      description: p.description,
+      image_source: p.external_image_url ? 'url' : 'media',
+      image_media_id: p.image_media_id || '',
+      external_image_url: p.external_image_url || '',
+      external_url: p.external_url,
+      date_time: p.date_time?.slice(0, 16) || '',
+      active: p.active,
+    });
     setModalOpen(true);
   };
 
@@ -46,8 +64,16 @@ export function PromotionsSection(): JSX.Element {
     const description = String(form.description).trim();
     const externalUrl = String(form.external_url).trim();
     const imageMediaId = String(form.image_media_id).trim();
-    if (!title || !description || !externalUrl || !imageMediaId) {
+    const imageSource = String(form.image_source);
+    const externalImageUrl = String(form.external_image_url).trim();
+    if (!title || !description || !externalUrl
+      || (imageSource === 'media' && !imageMediaId)
+      || (imageSource === 'url' && !externalImageUrl)) {
       showToast('Title, description, image, and destination URL are required', 'error');
+      return;
+    }
+    if (imageSource === 'url' && !isHttpsImageUrl(externalImageUrl)) {
+      showToast('Enter a valid HTTPS image URL from any host', 'error');
       return;
     }
     try {
@@ -59,7 +85,8 @@ export function PromotionsSection(): JSX.Element {
     }
     const data = {
       title, description,
-      image_media_id: imageMediaId,
+      image_media_id: imageSource === 'media' ? imageMediaId : null,
+      external_image_url: imageSource === 'url' ? externalImageUrl : null,
       external_url: externalUrl,
       date_time: form.date_time ? String(form.date_time) : null,
       active: Boolean(form.active),
@@ -68,7 +95,10 @@ export function PromotionsSection(): JSX.Element {
       if (editing) {
         await updatePromotion(editing.id, data);
         const selectedImage = media.find((item) => item.id === imageMediaId);
-        setItems((p) => p.map((x) => x.id === editing.id ? { ...x, ...data, image_url: selectedImage?.signed_url || selectedImage?.file_path || x.image_url } as AdminPromotion : x));
+        const updatedImageUrl = imageSource === 'url'
+          ? externalImageUrl
+          : selectedImage?.signed_url || selectedImage?.file_path || '';
+        setItems((p) => p.map((x) => x.id === editing.id ? { ...x, ...data, image_url: updatedImageUrl } as AdminPromotion : x));
       } else {
         const n = await createPromotion(data);
         setItems((p) => [...p, n]);
@@ -154,18 +184,54 @@ export function PromotionsSection(): JSX.Element {
             <Input label="Description" value={String(form.description)} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} />
             <div>
               <label className="mb-1.5 block text-sm text-secondary">Promotion image</label>
-              <select
-                className="input-field w-full"
-                value={String(form.image_media_id)}
-                onChange={(e) => setForm((p) => ({ ...p, image_media_id: e.target.value }))}
-              >
-                <option value="">Select an uploaded image…</option>
-                {media.filter((item) => item.file_type.startsWith('image/')).map((item) => (
-                  <option key={item.id} value={item.id}>{item.filename}</option>
+              <div className="mb-3 flex gap-2">
+                {(['media', 'url'] as const).map((source) => (
+                  <button
+                    key={source}
+                    type="button"
+                    onClick={() => setForm((p) => ({ ...p, image_source: source }))}
+                    className={`rounded-lg px-3 py-1.5 text-sm ${form.image_source === source ? 'bg-brand-primary text-white' : 'bg-surface-secondary text-secondary'}`}
+                  >
+                    {source === 'media' ? 'Uploaded image' : 'Image URL'}
+                  </button>
                 ))}
-              </select>
-              {media.filter((item) => item.file_type.startsWith('image/')).length === 0 && (
-                <p className="mt-1 text-xs text-muted">Upload an image in Media Library before creating a promotion.</p>
+              </div>
+              {form.image_source === 'media' ? (
+                <>
+                  <select
+                    className="input-field w-full"
+                    value={String(form.image_media_id)}
+                    onChange={(e) => setForm((p) => ({ ...p, image_media_id: e.target.value }))}
+                  >
+                    <option value="">Select an uploaded image…</option>
+                    {media.filter((item) => item.file_type.startsWith('image/')).map((item) => (
+                      <option key={item.id} value={item.id}>{item.filename}</option>
+                    ))}
+                  </select>
+                  {media.filter((item) => item.file_type.startsWith('image/')).length === 0 && (
+                    <p className="mt-1 text-xs text-muted">Upload an image in Media Library before creating a promotion.</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Input
+                    label="HTTPS image URL"
+                    value={String(form.external_image_url)}
+                    onChange={(e) => setForm((p) => ({ ...p, external_image_url: e.target.value }))}
+                    placeholder="https://any-image-host.example/banner.jpg"
+                  />
+                  <p className="mt-1 text-xs text-muted">Any HTTPS host is supported. The URL must point directly to an image.</p>
+                  {String(form.external_image_url).trim() && isHttpsImageUrl(String(form.external_image_url).trim()) && (
+                    <img
+                      key={String(form.external_image_url)}
+                      src={String(form.external_image_url)}
+                      alt="Promotion preview"
+                      className="mt-3 max-h-48 w-full rounded-lg object-contain"
+                      referrerPolicy="no-referrer"
+                      onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                    />
+                  )}
+                </>
               )}
             </div>
             <Input label="External URL" value={String(form.external_url)} onChange={(e) => setForm((p) => ({ ...p, external_url: e.target.value }))} />

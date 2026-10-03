@@ -406,12 +406,15 @@ def submit_opinion_response(
         str(payload.selected_option_id) if payload.selected_option_id else None
     )
 
-    # 4. Check for existing response to allow re-submission/update
-    existing_id = None
+    # 4. Make a retry safe if the response was saved before XP failed.
+    existing_data = None
     try:
         existing_res = (
             client.table("opinion_responses")
-            .select("id")
+            .select(
+                "id, opinion_question_id, selected_option_id, "
+                "custom_response, created_at"
+            )
             .eq("user_id", user_id_str)
             .eq("opinion_question_id", question_id_str)
             .maybe_single()
@@ -423,9 +426,26 @@ def submit_opinion_response(
                 if isinstance(existing_res.data, list)
                 else existing_res.data
             )
-            existing_id = existing_data.get("id")
     except APIError:
         pass
+
+    article_id_val = (
+        question.get("article_id")
+        if isinstance(question, dict)
+        else getattr(question, "article_id", None)
+    )
+    if existing_data:
+        award_xp(
+            user_id=auth.user.id,
+            event_type="OPINION_SUBMITTED",
+            source_type="OPINION_RESPONSE",
+            source_id=question_id,
+            article_id=article_id_val,
+        )
+        return OpinionSubmitResponse(
+            response=OpinionResponseData(**existing_data),
+            xp_earned=0,
+        )
 
     insert_payload = {
         "user_id": user_id_str,
@@ -436,19 +456,38 @@ def submit_opinion_response(
 
     # 5. Insert safely
     try:
-        if existing_id:
-            raise HTTPException(
-                status_code=409,
-                detail="Opinion already submitted"
-            )
-        else:
-            response_res = (
+        response_res = (
+            supabase_admin.table("opinion_responses")
+            .insert(insert_payload)
+            .select()
+            .execute()
+        )
+    except APIError as exc:
+        if exc.code == "23505":
+            retry_response = (
                 supabase_admin.table("opinion_responses")
-                .insert(insert_payload)
-                .select()
+                .select(
+                    "id, opinion_question_id, selected_option_id, "
+                    "custom_response, created_at"
+                )
+                .eq("user_id", user_id_str)
+                .eq("opinion_question_id", question_id_str)
+                .maybe_single()
                 .execute()
             )
-    except APIError as exc:
+            retry_data = getattr(retry_response, "data", None)
+            if retry_data:
+                award_xp(
+                    user_id=auth.user.id,
+                    event_type="OPINION_SUBMITTED",
+                    source_type="OPINION_RESPONSE",
+                    source_id=question_id,
+                    article_id=article_id_val,
+                )
+                return OpinionSubmitResponse(
+                    response=OpinionResponseData(**retry_data),
+                    xp_earned=0,
+                )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Database error while saving response: {exc.message}",
@@ -461,28 +500,18 @@ def submit_opinion_response(
         if isinstance(candidate, dict):
             raw_response = candidate
 
-    # 6. Safely execute XP award inside try-except block
-    article_id_val = (
-        question.get("article_id")
-        if isinstance(question, dict)
-        else getattr(question, "article_id", None)
+    # 6. Award XP only after the response is persisted.
+    xp_result = award_xp(
+        user_id=auth.user.id,
+        event_type="OPINION_SUBMITTED",
+        source_type="OPINION_RESPONSE",
+        source_id=question_id,
+        article_id=article_id_val,
     )
-
-    xp_result = None
-    try:
-        xp_result = award_xp(
-            user_id=auth.user.id,
-            event_type="OPINION_SUBMITTED",
-            source_type="OPINION_RESPONSE",
-            source_id=question_id,
-            article_id=article_id_val,
-        )
-    except Exception:
-        pass  # Prevent XP errors from blocking the API response
 
     return OpinionSubmitResponse(
         response=OpinionResponseData(
-            id=raw_response.get("id") or existing_id,
+            id=raw_response["id"],
             opinion_question_id=raw_response.get(
                 "opinion_question_id", question_id_str
             ),

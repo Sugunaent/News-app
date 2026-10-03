@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ============================================================
@@ -94,6 +94,14 @@ class SuperadminXPCreate(BaseModel):
     )
     is_active: bool = True
 
+    @field_validator("event_type")
+    @classmethod
+    def normalize_event_type(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not normalized:
+            raise ValueError("event_type must not be blank")
+        return normalized
+
 
 class SuperadminXPUpdate(BaseModel):
     event_type: str | None = Field(
@@ -110,6 +118,16 @@ class SuperadminXPUpdate(BaseModel):
         max_length=500,
     )
     is_active: bool | None = None
+
+    @field_validator("event_type")
+    @classmethod
+    def normalize_event_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().upper()
+        if not normalized:
+            raise ValueError("event_type must not be blank")
+        return normalized
 
 
 class SuperadminXPResponse(BaseModel):

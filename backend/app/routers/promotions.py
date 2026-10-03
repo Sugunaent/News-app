@@ -39,25 +39,29 @@ def _require_superadmin(current_user: AuthContext | CurrentUser) -> None:
         raise AuthorizationError("Superadmin access required")
 
 
-def _build_select_query():
-    return """
-        id,
-        image_media_id,
-        title,
-        description,
-        external_url,
-        event_date,
-        display_order,
-        is_active,
-        starts_at,
-        ends_at,
-        created_at,
-        updated_at,
-        image:media_assets (
-            id,
-            storage_path
-        )
-    """
+def _build_select_query(include_image_url: bool = True):
+    fields = [
+        "id",
+        "image_media_id",
+        *( ["image_url"] if include_image_url else [] ),
+        "title",
+        "description",
+        "external_url",
+        "event_date",
+        "display_order",
+        "is_active",
+        "starts_at",
+        "ends_at",
+        "created_at",
+        "updated_at",
+        "image:media_assets (\n            id,\n            storage_path\n        )",
+    ]
+    return ",\n        ".join(fields)
+
+
+def _is_missing_image_url_column(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "image_url" in text and "does not exist" in text
 
 
 @router.get(
@@ -71,15 +75,28 @@ def list_promotions():
     This endpoint is public. Promotional items are content displayed
     to all users, so authentication is not required.
     """
-    result = (
-        supabase
-        .table("promotional_items")
-        .select(_build_select_query())
-        .eq("is_active", True)
-        .order("display_order", desc=False)
-        .order("created_at", desc=True)
-        .execute()
-    )
+    try:
+        result = (
+            supabase
+            .table("promotional_items")
+            .select(_build_select_query())
+            .eq("is_active", True)
+            .order("display_order", desc=False)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception as exc:
+        if not _is_missing_image_url_column(exc):
+            raise
+        result = (
+            supabase
+            .table("promotional_items")
+            .select(_build_select_query(include_image_url=False))
+            .eq("is_active", True)
+            .order("display_order", desc=False)
+            .order("created_at", desc=True)
+            .execute()
+        )
 
     items = result.data or []
 
@@ -136,14 +153,26 @@ def list_promotions_admin(
     """
     _require_superadmin(current_user)
 
-    result = (
-        current_user.client
-        .table("promotional_items")
-        .select(_build_select_query())
-        .order("display_order", desc=False)
-        .order("created_at", desc=True)
-        .execute()
-    )
+    try:
+        result = (
+            current_user.client
+            .table("promotional_items")
+            .select(_build_select_query())
+            .order("display_order", desc=False)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception as exc:
+        if not _is_missing_image_url_column(exc):
+            raise
+        result = (
+            current_user.client
+            .table("promotional_items")
+            .select(_build_select_query(include_image_url=False))
+            .order("display_order", desc=False)
+            .order("created_at", desc=True)
+            .execute()
+        )
 
     items = getattr(result, "data", None) or []
     for item in items:
@@ -173,36 +202,51 @@ def create_promotion(
                 detail="ends_at must be later than starts_at",
             )
 
-    try:
-        media_id = UUID(str(payload.image_media_id))
-        media_filter = ("id", str(media_id))
-    except ValueError:
-        media_filter = ("storage_path", str(payload.image_media_id).strip())
-
-    media_result = (
-        supabase_admin.table("media_assets")
-        .select("id, storage_path")
-        .eq(*media_filter)
-        .maybe_single()
-        .execute()
-    )
-
-    media_data = getattr(media_result, "data", None) if media_result else None
-    if not media_data:
-        raise NotFoundError("Promotional image media not found")
-
     data = payload.model_dump(mode="json")
-    data["image_media_id"] = str(media_data["id"])
+    media_data = None
+    if payload.image_media_id is not None:
+        try:
+            media_id = UUID(str(payload.image_media_id))
+            media_filter = ("id", str(media_id))
+        except ValueError:
+            media_filter = ("storage_path", str(payload.image_media_id).strip())
+
+        media_result = (
+            supabase_admin.table("media_assets")
+            .select("id, storage_path")
+            .eq(*media_filter)
+            .maybe_single()
+            .execute()
+        )
+        media_data = getattr(media_result, "data", None) if media_result else None
+        if not media_data:
+            raise NotFoundError("Promotional image media not found")
+        data["image_media_id"] = str(media_data["id"])
+        data["image_url"] = None
+    else:
+        data["image_media_id"] = None
     if payload.external_url is not None:
         data["external_url"] = str(payload.external_url)
 
-    result = (
-        supabase_admin
-        .table("promotional_items")
-        .insert(data)
-        .select(_build_select_query())
-        .execute()
-    )
+    try:
+        result = (
+            supabase_admin
+            .table("promotional_items")
+            .insert(data)
+            .select(_build_select_query())
+            .execute()
+        )
+    except Exception as exc:
+        if not _is_missing_image_url_column(exc):
+            raise
+        fallback_data = {key: value for key, value in data.items() if key != "image_url"}
+        result = (
+            supabase_admin
+            .table("promotional_items")
+            .insert(fallback_data)
+            .select(_build_select_query(include_image_url=False))
+            .execute()
+        )
 
     result_data = getattr(result, "data", None) if result else None
     promotion = extract_single_record(result_data, "Promotional item could not be created")
@@ -286,7 +330,8 @@ def update_promotion(
                 detail="ends_at must be later than starts_at",
             )
 
-    if "image_media_id" in payload.model_fields_set:
+    image_fields = {"image_media_id", "image_url"}
+    if image_fields.intersection(payload.model_fields_set):
         if payload.image_media_id is not None:
             try:
                 media_id = UUID(str(payload.image_media_id))
@@ -306,26 +351,56 @@ def update_promotion(
                 raise NotFoundError(
                     "Promotional image media not found"
                 )
+            payload_image_media_id = str(media_data["id"])
+            payload_image_url = None
+        elif payload.image_url is not None:
+            payload_image_media_id = None
+            payload_image_url = str(payload.image_url)
+        else:
+            payload_image_media_id = None
+            payload_image_url = None
+    else:
+        payload_image_media_id = existing.get("image_media_id")
+        payload_image_url = existing.get("image_url")
+
+    if payload_image_media_id is None and payload_image_url is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="A promotional image is required",
+        )
 
     data = payload.model_dump(
         mode="json",
         exclude_unset=True,
     )
-
-    if data.get("image_media_id") is not None:
-        data["image_media_id"] = str(media_data["id"])
+    if image_fields.intersection(payload.model_fields_set):
+        data["image_media_id"] = payload_image_media_id
+        data["image_url"] = payload_image_url
 
     if "external_url" in data and data["external_url"] is not None:
         data["external_url"] = str(payload.external_url)
 
-    result = (
-        supabase_admin
-        .table("promotional_items")
-        .update(data)
-        .eq("id", str(promotion_id))
-        .select(_build_select_query())
-        .execute()
-    )
+    try:
+        result = (
+            supabase_admin
+            .table("promotional_items")
+            .update(data)
+            .eq("id", str(promotion_id))
+            .select(_build_select_query())
+            .execute()
+        )
+    except Exception as exc:
+        if not _is_missing_image_url_column(exc):
+            raise
+        fallback_data = {key: value for key, value in data.items() if key != "image_url"}
+        result = (
+            supabase_admin
+            .table("promotional_items")
+            .update(fallback_data)
+            .eq("id", str(promotion_id))
+            .select(_build_select_query(include_image_url=False))
+            .execute()
+        )
 
     result_data = getattr(result, "data", None) if result else None
     promotion = extract_single_record(result_data, "Promotional item not found")

@@ -4,7 +4,7 @@ import {
   Settings as SettingsIcon, User, Palette, LogOut,
   Sun, Moon, Upload, Check, AlertCircle, ArrowLeft, Loader2,
 } from 'lucide-react';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
 import { useTheme } from '@/lib/theme';
 import { useToast } from '@/lib/toast';
 import { GlassCard } from '@/components/ui/GlassCard';

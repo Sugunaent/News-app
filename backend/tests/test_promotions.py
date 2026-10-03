@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.dependencies.auth import get_current_user
 from app.main import app
+from app.schemas.promotions import PromotionalItemCreate
 
 client = TestClient(app)
 
@@ -144,6 +145,29 @@ def test_list_promotions_excludes_expired_items():
 def test_list_promotions_is_public():
     app.dependency_overrides.clear()
 
+
+def test_promotion_schema_accepts_external_image_url_from_any_host():
+    item = PromotionalItemCreate(
+        image_url="https://images.example-cdn.test/banner.jpg",
+        title="External image promotion",
+        description="A promotion with a hosted image.",
+        external_url="https://example.com/promotion",
+    )
+
+    assert str(item.image_url).startswith("https://images.example-cdn.test/")
+    assert item.image_media_id is None
+
+
+def test_promotion_schema_requires_exactly_one_image_source():
+    with pytest.raises(ValueError, match="exactly one"):
+        PromotionalItemCreate(
+            image_media_id=MEDIA_ID,
+            image_url="https://images.example-cdn.test/banner.jpg",
+            title="Invalid source",
+            description="Both image sources were supplied.",
+            external_url="https://example.com/promotion",
+        )
+
     query = MagicMock()
     query.select.return_value.eq.return_value.order.return_value.order.return_value.execute.return_value.data = [
         promotion_data(
@@ -225,6 +249,38 @@ def test_create_promotion_accepts_optional_event_date():
 
     data = response.json()
     assert data["event_date"].replace("+00:00", "Z") == "2026-09-15T18:30:00Z"
+
+
+def test_create_promotion_accepts_external_image_url_from_any_host():
+    import app.routers.promotions as promotions_module
+
+    auth = make_auth_context(role="SUPERADMIN")
+    auth.user.role = "SUPERADMIN"
+    db = MagicMock()
+    created = promotion_data()
+    created.update({
+        "image_media_id": None,
+        "image_url": "https://cdn.example.test/banners/promo.webp",
+        "image": None,
+    })
+    db.table.return_value.insert.return_value.select.return_value.execute.return_value.data = [created]
+    auth.client = db
+
+    app.dependency_overrides[get_current_user] = lambda: auth
+    with patch.object(promotions_module, "supabase_admin", db):
+        response = client.post(
+            "/api/v1/promotions",
+            json={
+                "image_url": "https://cdn.example.test/banners/promo.webp",
+                "title": "Hosted image promotion",
+                "description": "A direct URL image.",
+                "external_url": "https://example.com/promotion",
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["image_url"] == "https://cdn.example.test/banners/promo.webp"
+    assert response.json()["image_media_id"] is None
 
 
 def test_create_promotion_allows_null_event_date():

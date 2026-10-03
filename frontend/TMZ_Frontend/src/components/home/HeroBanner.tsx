@@ -1,12 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
+import type { Article } from '@/types';
 import { GlowingEffect } from '@/components/articles/GlowingEffect';
-import { type HeroConfig, DEFAULT_HERO_CONFIG, getStoredHeroConfig, fetchHeroConfig } from '@/lib/api';
+import { type HeroConfig, DEFAULT_HERO_CONFIG, getStoredHeroConfig, fetchHeroConfig, getArticleRoute } from '@/lib/api';
 
-export function HeroBanner() {
+export function HeroBanner({
+  article,
+  loading = false,
+  onArticleClick,
+}: {
+  article?: Article;
+  loading?: boolean;
+  onArticleClick?: (article: Article) => void;
+}) {
   const [config, setConfig] = useState<HeroConfig>(DEFAULT_HERO_CONFIG);
-  const [imageReady, setImageReady] = useState(false);
+  const [imageReady, setImageReady] = useState(true);
 
   const preloadImage = (src: string): Promise<boolean> => new Promise((resolve) => {
     const image = new window.Image();
@@ -58,6 +67,17 @@ export function HeroBanner() {
   const destinationUrl = config.linkUrl || '/about';
   const heroImageUrl = config.imageUrl || DEFAULT_HERO_CONFIG.imageUrl;
 
+  if (loading) {
+    return (
+      <section className="relative w-full overflow-hidden rounded-3xl glass-card border border-border-default shadow-xl">
+        <div className="relative w-full aspect-[16/9] sm:aspect-[21/9] lg:aspect-[2.4/1] min-h-[240px] sm:min-h-[320px] md:min-h-[380px] lg:min-h-[420px] max-h-[520px] overflow-hidden rounded-3xl bg-surface-secondary p-6 sm:p-8 flex flex-col justify-end gap-3">
+          <div className="h-9 w-2/3 max-w-xl animate-pulse rounded-lg bg-brand-primary/10" />
+          <div className="h-5 w-1/2 max-w-md animate-pulse rounded-lg bg-brand-primary/10" />
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="relative w-full overflow-hidden rounded-3xl glass-card border border-border-default shadow-xl group">
       <div className="relative w-full aspect-[16/9] sm:aspect-[21/9] lg:aspect-[2.4/1] min-h-[240px] sm:min-h-[320px] md:min-h-[380px] lg:min-h-[420px] max-h-[520px] overflow-hidden rounded-3xl bg-surface-secondary">
@@ -67,13 +87,17 @@ export function HeroBanner() {
           </div>
         ) : (
         <Link
-          to={destinationUrl}
+          to={article ? getArticleRoute(article) : destinationUrl}
+          onClick={article && onArticleClick ? (event) => {
+            event.preventDefault();
+            onArticleClick(article);
+          } : undefined}
           className="block w-full h-full relative cursor-pointer group/hero rounded-3xl overflow-hidden"
-          aria-label={`${config.title} — ${config.linkText}`}
+          aria-label={article ? `Read ${article.title}` : `${config.title} — ${config.linkText}`}
         >
           <img
-            src={heroImageUrl}
-            alt={config.title || 'The Modern Stories editorial banner'}
+            src={article?.cover_image_url || heroImageUrl}
+            alt={article?.title || config.title || 'The Modern Stories editorial banner'}
             loading="eager"
             fetchPriority="high"
             decoding="async"
@@ -87,21 +111,23 @@ export function HeroBanner() {
 
           <div className="absolute bottom-5 left-5 right-36 z-10 max-w-3xl sm:bottom-8 sm:left-8 sm:right-56">
             <h1 className="font-display text-2xl font-semibold leading-tight text-white drop-shadow-md sm:text-4xl lg:text-5xl">
-              The Modern Stories
+              {article?.title || 'The Modern Stories'}
             </h1>
             <p className="mt-2 max-w-2xl font-display text-base leading-relaxed text-white/95 drop-shadow sm:text-lg">
-              {config.title}
+              {article ? (article.subtitle || article.summary || '') : config.title}
             </p>
-            <p className="mt-1 hidden max-w-2xl text-sm leading-relaxed text-white/90 drop-shadow sm:block md:text-base">
-              {config.subtitle}
-            </p>
+            {!article && (
+              <p className="mt-1 hidden max-w-2xl text-sm leading-relaxed text-white/90 drop-shadow sm:block md:text-base">
+                {config.subtitle}
+              </p>
+            )}
           </div>
 
           <GlowingEffect borderWidth={2} spread={50} glow={true} className="z-20 pointer-events-none" />
 
           <div className="absolute bottom-5 right-5 sm:bottom-7 sm:right-8 z-30 pointer-events-auto">
             <span className="inline-flex items-center gap-2 px-4 py-2 sm:px-5 sm:py-2.5 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md text-white text-xs sm:text-sm font-medium border border-white/25 hover:border-white/50 shadow-2xl transition-all duration-300 group-hover/hero:border-white/60 group-hover/hero:bg-black/80">
-              <span>{config.linkText || 'Know more'}</span>
+              <span>{article ? 'Read story' : config.linkText || 'Know more'}</span>
               <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white transition-transform duration-300 group-hover/hero:translate-x-1" />
             </span>
           </div>
@@ -112,4 +138,3 @@ export function HeroBanner() {
     </section>
   );
 }
-

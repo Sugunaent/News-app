@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
 
 
 class AdvertisementSlotResponse(BaseModel):
@@ -28,8 +28,9 @@ class AdvertisementResponse(BaseModel):
     slot_id: UUID
     slot: AdvertisementSlotResponse
 
-    image_media_id: UUID
-    image: AdvertisementMediaResponse
+    image_media_id: UUID | None
+    image_url: AnyHttpUrl | None = None
+    image: AdvertisementMediaResponse | None = None
 
     title: str
     description: str
@@ -47,7 +48,8 @@ class AdvertisementResponse(BaseModel):
 
 class AdvertisementCreate(BaseModel):
     slot_id: UUID
-    image_media_id: str
+    image_media_id: str | None = None
+    image_url: AnyHttpUrl | None = None
 
     title: str = Field(
         min_length=1,
@@ -71,10 +73,17 @@ class AdvertisementCreate(BaseModel):
         ge=0,
     )
 
+    @model_validator(mode="after")
+    def require_image_source(self):
+        if (self.image_media_id is None) == (self.image_url is None):
+            raise ValueError("Provide exactly one of image_media_id or image_url")
+        return self
+
 
 class AdvertisementUpdate(BaseModel):
     slot_id: UUID | None = None
     image_media_id: str | None = None
+    image_url: AnyHttpUrl | None = None
 
     title: str | None = Field(
         default=None,
@@ -99,6 +108,12 @@ class AdvertisementUpdate(BaseModel):
         default=None,
         ge=0,
     )
+
+    @model_validator(mode="after")
+    def allow_only_one_image_source(self):
+        if self.image_media_id is not None and self.image_url is not None:
+            raise ValueError("Provide only one of image_media_id or image_url")
+        return self
 
 
 class AdvertisementSlotCreate(BaseModel):

@@ -31,6 +31,7 @@ from app.routers.quizzes import router as quizzes_router
 from app.routers.seo import router as seo_router
 from app.routers.sharing import router as sharing_router
 from app.routers.site import router as site_router
+from app.routers.translation import router as translation_router
 from app.routers.superadmin_content import router as superadmin_content_router
 from app.routers.superadmin_interactive import router as superadmin_interactive_router
 from app.routers.superadmin_management import router as superadmin_management_router
@@ -207,6 +208,7 @@ app.include_router(advertisements_router)
 app.include_router(analytics_router)
 app.include_router(bookmarks_router)
 app.include_router(site_router)
+app.include_router(translation_router)
 app.include_router(contact_router)
 app.include_router(superadmin_content_router)
 app.include_router(superadmin_interactive_router)

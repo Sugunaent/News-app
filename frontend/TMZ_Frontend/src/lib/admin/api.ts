@@ -177,9 +177,10 @@ const toAuditLog = (item: any): AuditLog => ({
 const toAdminPromotion = (item: any): AdminPromotion => ({
   id: String(item.id),
   image_media_id: item.image_media_id ?? item.image?.id ?? null,
+  external_image_url: item.image_url ?? null,
   title: item.title ?? 'Promotion',
   description: item.description ?? '',
-  image_url: normalizeStoredUrl(item.image?.signed_url ?? item.image_url ?? item.image?.storage_path) ?? '',
+  image_url: normalizeStoredUrl(item.image_url ?? item.image?.signed_url ?? item.image?.storage_path) ?? '',
   external_url: item.external_url ?? item.link ?? '',
   date_time: item.event_date ?? item.date_time ?? null,
   active: Boolean(item.is_active ?? item.active),
@@ -188,9 +189,11 @@ const toAdminPromotion = (item: any): AdminPromotion => ({
 
 const toAdvertisement = (item: any): Advertisement => ({
   id: String(item.id),
+  image_media_id: item.image_media_id ?? item.image?.id ?? null,
+  external_image_url: item.image_url ?? null,
   title: item.title ?? 'Advertisement',
   description: item.description ?? '',
-  image_url: normalizeStoredUrl(item.image?.signed_url ?? item.image_url ?? item.image?.storage_path) ?? '',
+  image_url: normalizeStoredUrl(item.image_url ?? item.image?.signed_url ?? item.image?.storage_path) ?? '',
   target_url: item.destination_url ?? item.target_url ?? '',
   ad_slot_id: item.slot_id ?? item.ad_slot_id ?? null,
   status: item.is_active ? 'ACTIVE' : 'INACTIVE',
@@ -922,7 +925,8 @@ export async function createPromotion(data: Partial<AdminPromotion>): Promise<Ad
   const row = await apiFetchJson<any>('/api/v1/promotions', {
     method: 'POST',
     body: JSON.stringify({
-      image_media_id: data.image_media_id ?? data.image_url ?? '',
+      image_media_id: data.image_media_id ?? null,
+      image_url: data.external_image_url ?? null,
       title: data.title ?? 'New Promotion',
       description: data.description ?? '',
       external_url: data.external_url ?? 'https://example.com',
@@ -940,7 +944,8 @@ export async function updatePromotion(id: string, updates: Partial<AdminPromotio
     body: JSON.stringify({
       title: updates.title,
       description: updates.description,
-      image_media_id: updates.image_media_id ?? updates.image_url,
+      image_media_id: updates.image_media_id ?? null,
+      image_url: updates.external_image_url ?? null,
       external_url: updates.external_url,
       event_date: updates.date_time,
       is_active: updates.active,
@@ -964,7 +969,8 @@ export async function createAdvertisement(data: Partial<Advertisement>): Promise
     method: 'POST',
     body: JSON.stringify({
       slot_id: data.ad_slot_id ?? null,
-      image_media_id: data.image_url ?? '',
+      image_media_id: data.image_media_id ?? null,
+      image_url: data.external_image_url ?? null,
       title: data.title ?? 'New Ad',
       description: data.description ?? data.title ?? 'Advertisement',
       destination_url: data.target_url ?? 'https://example.com',
@@ -983,7 +989,8 @@ export async function updateAdvertisement(id: string, updates: Partial<Advertise
     body: JSON.stringify({
       title: updates.title,
       description: updates.description,
-      image_media_id: updates.image_url,
+      image_media_id: updates.image_media_id ?? null,
+      image_url: updates.external_image_url ?? null,
       destination_url: updates.target_url,
       starts_at: updates.starts_at,
       ends_at: updates.ends_at,

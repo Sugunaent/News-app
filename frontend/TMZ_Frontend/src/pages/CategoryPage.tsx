@@ -8,9 +8,11 @@ import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
 import { Input } from '@/components/ui/Input';
 import { Breadcrumbs } from '@/components/common/Breadcrumbs';
 import { canonicalUrl, setPageMetadata, upsertJsonLd } from '@/lib/seo';
+import { useLanguage } from '@/lib/language';
 
 export function CategoryPage() {
   const { slug } = useParams<{ slug: string }>();
+  const { currentLang } = useLanguage();
   const [category, setCategory] = useState<Category | null>(null);
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +38,7 @@ export function CategoryPage() {
           return;
         }
         setCategory(cat);
-        const arts = await fetchArticlesByCategory(cat.id, debouncedQuery);
+        const arts = await fetchArticlesByCategory(cat.id, debouncedQuery, currentLang);
         setArticles(arts);
       } catch {
         setError(true);
@@ -44,7 +46,7 @@ export function CategoryPage() {
         setLoading(false);
       }
     })();
-  }, [slug, debouncedQuery]);
+  }, [slug, debouncedQuery, currentLang]);
 
   useEffect(() => {
     if (error && slug) {
@@ -78,9 +80,9 @@ export function CategoryPage() {
   return (
     <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 sm:py-8">
       <Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: category.name }]} />
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-5 mb-8">
         <div className="flex-1">
-          <h1 className="font-display text-4xl md:text-5xl text-primary mb-4">{category.name}</h1>
+          <h1 className="font-display text-4xl md:text-5xl text-primary mb-3">{category.name}</h1>
           {category.description && (
             <p className="text-lg text-secondary max-w-2xl leading-relaxed">{category.description}</p>
           )}

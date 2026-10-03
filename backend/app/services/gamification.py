@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 from postgrest.exceptions import APIError
@@ -9,25 +10,43 @@ from app.db.supabase import supabase, supabase_admin
 # and downstream service calls that expect a module-level `supabase` handle.
 supabase = supabase_admin
 
+logger = logging.getLogger("app.gamification")
+
 
 def _get_active_xp_rule(event_type: str) -> dict | None:
-    try:
-        response = (
-            supabase_admin
-            .table("xp_rules")
-            .select("id, event_type, amount")
-            .eq("is_active", True)
-            .execute()
+    response = (
+        supabase_admin
+        .table("xp_rules")
+        .select("id, event_type, amount")
+        .eq("event_type", event_type.strip())
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+    )
+    rules = getattr(response, "data", None) or []
+    return rules[0] if rules else None
+
+
+def _find_xp_transaction(
+    *,
+    user_id: UUID,
+    source_type: str,
+    source_id: UUID,
+) -> dict | None:
+    response = (
+        supabase_admin
+        .table("xp_transactions")
+        .select(
+            "id, xp_rule_id, article_id, source_type, "
+            "source_id, amount, created_at"
         )
-        rules = getattr(response, "data", None) or []
-
-        for rule in rules:
-            if str(rule.get("event_type", "")).strip() == str(event_type).strip():
-                return rule
-
-        return None
-    except APIError:
-        return None
+        .eq("user_id", str(user_id))
+        .eq("source_type", source_type)
+        .eq("source_id", str(source_id))
+        .maybe_single()
+        .execute()
+    )
+    return getattr(response, "data", None)
 
 
 def get_active_xp_amount(event_type: str, default: int = 0) -> int:
@@ -43,25 +62,13 @@ def award_xp(
     source_id: UUID,
     article_id: UUID | None = None,
 ) -> dict | None:
-    try:
-        existing_response = (
-            supabase_admin
-            .table("xp_transactions")
-            .select(
-                "id, xp_rule_id, article_id, source_type, "
-                "source_id, amount, created_at"
-            )
-            .eq("user_id", str(user_id))
-            .eq("source_type", source_type)
-            .eq("source_id", str(source_id))
-            .maybe_single()
-            .execute()
-        )
-        existing_data = getattr(existing_response, "data", None)
-        if existing_data:
-            return existing_data
-    except APIError:
-        pass
+    existing_data = _find_xp_transaction(
+        user_id=user_id,
+        source_type=source_type,
+        source_id=source_id,
+    )
+    if existing_data:
+        return existing_data
 
     rule = _get_active_xp_rule(event_type)
 
@@ -77,16 +84,35 @@ def award_xp(
         "amount": rule["amount"],
     }
 
-    response = (
-        supabase_admin
-        .table("xp_transactions")
-        .insert(transaction)
-        .select(
-            "id, xp_rule_id, article_id, source_type, "
-            "source_id, amount, created_at"
+    try:
+        response = (
+            supabase_admin
+            .table("xp_transactions")
+            .insert(transaction)
+            .select(
+                "id, xp_rule_id, article_id, source_type, "
+                "source_id, amount, created_at"
+            )
+            .execute()
         )
-        .execute()
-    )
+    except APIError as error:
+        if error.code != "23505":
+            raise
+        existing_data = _find_xp_transaction(
+            user_id=user_id,
+            source_type=source_type,
+            source_id=source_id,
+        )
+        if existing_data:
+            return existing_data
+        logger.exception(
+            "XP transaction conflicted but could not be reloaded "
+            "(user_id=%s, source_type=%s, source_id=%s)",
+            user_id,
+            source_type,
+            source_id,
+        )
+        raise
 
     response_data = getattr(response, "data", None)
     if not response_data:
@@ -97,7 +123,7 @@ def award_xp(
     try:
         award_badges_for_user(user_id)
     except Exception:
-        pass
+        logger.exception("Could not award badges after XP transaction for user %s", user_id)
 
     return record
 
@@ -106,7 +132,7 @@ def get_gamification_status(user_id: UUID) -> dict:
     try:
         award_badges_for_user(user_id)
     except Exception:
-        pass
+        logger.exception("Could not evaluate badge rules for user %s", user_id)
 
     transactions_response = (
         supabase_admin
@@ -144,7 +170,7 @@ def get_gamification_status(user_id: UUID) -> dict:
                 level = lvl
                 break
     except Exception:
-        pass
+        logger.exception("Could not load level configuration for user %s", user_id)
 
     badges_response = (
         supabase_admin
@@ -195,7 +221,12 @@ def _has_user_badge(*, user_id: UUID, badge_id: UUID) -> bool:
         )
         return getattr(response, "data", None) is not None
     except APIError:
-        return False
+        logger.exception(
+            "Could not check badge assignment (user_id=%s, badge_id=%s)",
+            user_id,
+            badge_id,
+        )
+        raise
 
 
 def _award_badge(*, user_id: UUID, badge: dict) -> dict | None:
@@ -221,8 +252,15 @@ def _award_badge(*, user_id: UUID, badge: dict) -> dict | None:
         if response_data:
             return extract_single_record(response_data)
         return None
-    except APIError:
-        return None
+    except APIError as error:
+        if error.code == "23505":
+            return None
+        logger.exception(
+            "Could not assign badge (user_id=%s, badge_id=%s)",
+            user_id,
+            badge_id,
+        )
+        raise
 
 
 def award_badges_for_user(user_id: UUID) -> list[dict]:
@@ -236,7 +274,8 @@ def award_badges_for_user(user_id: UUID) -> list[dict]:
         )
         active_badges = getattr(active_badges_res, "data", None) or []
     except Exception:
-        return []
+        logger.exception("Could not load active badge rules")
+        raise
 
     if not active_badges:
         return []
@@ -251,7 +290,8 @@ def award_badges_for_user(user_id: UUID) -> list[dict]:
         )
         completed_articles_count = len(getattr(completion_res, "data", None) or [])
     except Exception:
-        completed_articles_count = 0
+        logger.exception("Could not load article completions for user %s", user_id)
+        raise
 
     try:
         xp_res = (
@@ -263,7 +303,8 @@ def award_badges_for_user(user_id: UUID) -> list[dict]:
         )
         total_xp = sum(item.get("amount", 0) for item in (getattr(xp_res, "data", None) or []))
     except Exception:
-        total_xp = 0
+        logger.exception("Could not load XP transactions for user %s", user_id)
+        raise
 
     try:
         quiz_res = (
@@ -276,7 +317,8 @@ def award_badges_for_user(user_id: UUID) -> list[dict]:
         )
         quiz_correct_count = len(getattr(quiz_res, "data", None) or [])
     except Exception:
-        quiz_correct_count = 0
+        logger.exception("Could not load quiz attempts for user %s", user_id)
+        raise
 
     newly_awarded = []
 

@@ -415,6 +415,8 @@ def test_submit_quiz_attempt_returns_correct_result(mock_award_xp):
     )
 
     def table(name):
+        if name == "profiles":
+            return make_query({"id": auth.user.id})
         if name == "quiz_questions":
             return question_query
         if name == "quiz_options":
@@ -566,6 +568,55 @@ def test_submit_quiz_attempt_returns_404_when_option_not_found():
 
         assert response.json() == {"detail": "Quiz option not found"}
 
+    finally:
+        clear_auth_override()
+
+
+@patch("app.routers.quizzes.award_xp")
+def test_retry_of_correct_quiz_attempt_repairs_missing_xp(mock_award_xp):
+    auth = make_auth_mock()
+    question_query = make_query({"id": QUESTION_ID, "quiz_id": QUIZ_ID})
+    option_query = make_query({
+        "id": OPTION_1_ID,
+        "question_id": QUESTION_ID,
+        "is_correct": True,
+    })
+    existing_attempt = {
+        "question_id": QUESTION_ID,
+        "selected_option_id": OPTION_1_ID,
+        "is_correct": True,
+        "created_at": "2026-08-24T00:00:00Z",
+    }
+    attempts_query = make_query(existing_attempt)
+
+    def table(name):
+        if name == "profiles":
+            return make_query({"id": auth.user.id})
+        if name == "quiz_questions":
+            return question_query
+        if name == "quiz_options":
+            return option_query
+        if name == "quiz_attempts":
+            return attempts_query
+        return make_query([])
+
+    auth.client.table.side_effect = table
+    app.dependency_overrides[get_current_user] = lambda: auth
+
+    try:
+        response = client.post(
+            f"/api/v1/quizzes/{QUIZ_ID}/attempts",
+            json={
+                "question_id": QUESTION_ID,
+                "selected_option_id": OPTION_1_ID,
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["attempt"]["is_correct"] is True
+        assert response.json()["xp_earned"] == 0
+        attempts_query.insert.assert_not_called()
+        mock_award_xp.assert_called_once()
     finally:
         clear_auth_override()
 

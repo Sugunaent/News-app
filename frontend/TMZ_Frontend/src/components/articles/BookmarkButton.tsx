@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Bookmark, BookmarkCheck } from 'lucide-react';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
 import { isBookmarked, addBookmark, removeBookmark } from '@/lib/api';
 import { useToast } from '@/lib/toast';
 import { useNavigate } from 'react-router-dom';

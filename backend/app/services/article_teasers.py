@@ -6,6 +6,7 @@ TEASER_SELECT = """
     slug,
     title,
     subtitle,
+    summary,
     article_type,
     published_at,
     created_at,
@@ -43,6 +44,7 @@ def map_article_teaser(article: dict) -> dict:
         "slug": article.get("slug") or "",
         "title": article.get("title") or "",
         "subtitle": article.get("subtitle"),
+        "summary": article.get("summary"),
         "article_type": article.get("article_type", ""),
         "category": category,
         "category_id": article.get("category_id") or (category or {}).get("id"),
@@ -61,6 +63,7 @@ def map_article_teaser(article: dict) -> dict:
 def fetch_published_teasers(
     *,
     search_term: str | None = None,
+    article_id: str | None = None,
     author_picks: bool = False,
     featured: bool = False,
     category_id: str | None = None,
@@ -75,6 +78,9 @@ def fetch_published_teasers(
 
     if category_id is not None:
         query = query.eq("category_id", category_id)
+
+    if article_id is not None:
+        query = query.eq("id", article_id)
 
     if search_term:
         query = query.or_(

@@ -187,8 +187,21 @@ export function CategoriesSection() {
             label="Image URL"
             value={form.image_url}
             onChange={(e) => setForm({ ...form, image_url: e.target.value })}
-            placeholder="https://..."
+            placeholder="https://any-image-host.example/image.jpg"
           />
+          <p className="text-xs font-body" style={{ color: 'var(--text-muted)' }}>
+            Use an HTTPS image URL from any host.
+          </p>
+          {form.image_url && (
+            <img
+              key={form.image_url}
+              src={form.image_url}
+              alt="Category image preview"
+              className="max-h-48 w-full rounded-lg border object-contain"
+              referrerPolicy="no-referrer"
+              onError={(event) => { event.currentTarget.style.display = 'none'; }}
+            />
+          )}
         </div>
         <div className="flex justify-end gap-3 mt-6">
           <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>

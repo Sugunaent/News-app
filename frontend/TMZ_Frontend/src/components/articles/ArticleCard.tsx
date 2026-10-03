@@ -3,7 +3,11 @@ import type { Article } from '@/types';
 import { getArticleRoute } from '@/lib/api';
 import { BookmarkButton } from './BookmarkButton';
 import { GlowingEffect } from './GlowingEffect';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
+import { ExternalImage } from './ExternalImage';
+import { useLanguage } from '@/lib/language';
+import { getLocalizedArticleFields, useTranslatedArticle } from '@/lib/translations';
+import { Loader2 } from 'lucide-react';
 
 interface ArticleCardProps {
   article: Article;
@@ -14,6 +18,19 @@ interface ArticleCardProps {
 export function ArticleCard({ article, showType = true, variant = 'default' }: ArticleCardProps) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { currentLang } = useLanguage();
+  const { title: availableTitle, description: availableDescription } =
+    getLocalizedArticleFields(article, currentLang);
+  const sourceDescription = article.subtitle || article.summary || '';
+  const translated = useTranslatedArticle(
+    article.id,
+    availableTitle ? '' : article.title,
+    availableDescription ? '' : sourceDescription,
+    {},
+    { enabled: currentLang !== 'EN', lazy: true },
+  );
+  const title = availableTitle || translated.title || article.title;
+  const description = availableDescription || translated.content || sourceDescription;
 
   const handleClick = () => {
     if (user) {
@@ -34,17 +51,17 @@ export function ArticleCard({ article, showType = true, variant = 'default' }: A
       <div
         onClick={handleClick}
         className="relative glass-card overflow-hidden cursor-pointer group flex flex-col"
+        lang={currentLang.toLowerCase()}
+        ref={translated.ref}
+        aria-busy={translated.isLoading}
       >
         <GlowingEffect borderWidth={1.5} spread={40} glow={true} />
         <div className="relative h-44 overflow-hidden flex-shrink-0">
-          {article.cover_image_url && (
-            <img
-              src={article.cover_image_url}
-              alt={article.title}
-              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-              loading="lazy"
-            />
-          )}
+          <ExternalImage
+            src={article.cover_image_url}
+            alt={title}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          />
           <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
           <div className="absolute top-3 right-3 z-20">
             <BookmarkButton articleId={article.id} size="sm" />
@@ -56,8 +73,12 @@ export function ArticleCard({ article, showType = true, variant = 'default' }: A
           )}
         </div>
         <div className="p-3.5 relative z-20 flex flex-col justify-center">
-          <h3 className="font-display text-sm sm:text-base font-semibold text-primary leading-snug mb-1 line-clamp-2">{article.title}</h3>
-          <p className="text-xs text-muted line-clamp-1">{article.subtitle}</p>
+          <div className="flex items-start gap-1.5">
+            <h3 className="font-display text-sm sm:text-base font-semibold text-primary leading-relaxed mb-1 line-clamp-2">{title}</h3>
+            {translated.isLoading && <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted" aria-label="Translating article" />}
+          </div>
+          <p className="text-xs text-muted line-clamp-1 leading-relaxed">{description}</p>
+          {translated.error && <span className="text-[10px] text-amber-600 dark:text-amber-400" role="status">Translation unavailable</span>}
         </div>
       </div>
     );
@@ -67,17 +88,17 @@ export function ArticleCard({ article, showType = true, variant = 'default' }: A
     <div
       onClick={handleClick}
       className="relative glass-card overflow-hidden cursor-pointer group h-full flex flex-col"
+      lang={currentLang.toLowerCase()}
+      ref={translated.ref}
+      aria-busy={translated.isLoading}
     >
       <GlowingEffect borderWidth={1.5} spread={40} glow={true} />
       <div className="relative h-64 sm:h-72 md:h-80 overflow-hidden flex-shrink-0">
-        {article.cover_image_url && (
-          <img
-            src={article.cover_image_url}
-            alt={article.title}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-            loading="lazy"
-          />
-        )}
+        <ExternalImage
+          src={article.cover_image_url}
+          alt={title}
+          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+        />
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
         <div className="absolute top-3 right-3 z-20">
           <BookmarkButton articleId={article.id} size="sm" />
@@ -89,8 +110,12 @@ export function ArticleCard({ article, showType = true, variant = 'default' }: A
         )}
       </div>
       <div className="p-4 flex-1 flex flex-col justify-center relative z-20">
-        <h3 className="font-display text-base sm:text-lg font-semibold text-primary leading-snug mb-1 line-clamp-2">{article.title}</h3>
-        <p className="text-xs sm:text-sm text-muted line-clamp-2">{article.subtitle}</p>
+        <div className="flex items-start gap-1.5">
+          <h3 className="font-display text-base sm:text-lg font-semibold text-primary leading-relaxed mb-1 line-clamp-2">{title}</h3>
+          {translated.isLoading && <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin text-muted" aria-label="Translating article" />}
+        </div>
+        <p className="text-xs sm:text-sm text-muted line-clamp-2 leading-relaxed">{description}</p>
+        {translated.error && <span className="mt-1 text-[10px] text-amber-600 dark:text-amber-400" role="status">Translation unavailable</span>}
       </div>
     </div>
   );

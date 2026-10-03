@@ -11,6 +11,7 @@ from app.dependencies.auth import (
     get_current_user,
 )
 from app.main import app
+from app.schemas.advertisements import AdvertisementCreate
 
 
 client = TestClient(app)
@@ -45,6 +46,19 @@ MEDIA_ID = (
 )
 
 TIMESTAMP = "2026-03-01T12:00:00Z"
+
+
+def test_advertisement_schema_accepts_external_image_url_from_any_host():
+    ad = AdvertisementCreate(
+        slot_id=SLOT_ID,
+        image_url="https://images.example-cdn.test/ad.jpg",
+        title="External image advertisement",
+        description="An advertisement with a hosted image.",
+        destination_url="https://example.com",
+    )
+
+    assert str(ad.image_url).startswith("https://images.example-cdn.test/")
+    assert ad.image_media_id is None
 
 
 def _make_auth(role="SUPERADMIN"):
@@ -367,6 +381,40 @@ def test_superadmin_can_create_advertisement():
 
     finally:
         app.dependency_overrides.clear()
+
+
+def test_superadmin_can_create_advertisement_with_external_image_url():
+    auth, mock_client = _make_auth("SUPERADMIN")
+    table_queries = defaultdict(MagicMock)
+    mock_client.table.side_effect = lambda table_name: table_queries[table_name]
+    table_queries["advertisement_slots"].select.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = {
+        "id": SLOT_ID,
+    }
+
+    created = _advertisement()
+    created.update({
+        "image_media_id": None,
+        "image_url": "https://cdn.example.test/ads/ad.webp",
+        "image": None,
+    })
+    created["slot"]["placement"] = "hero"
+    table_queries["advertisements"].insert.return_value.select.return_value.execute.return_value.data = [created]
+
+    app.dependency_overrides[get_current_user] = lambda: auth
+    response = client.post(
+        "/api/v1/advertisements",
+        json={
+            "slot_id": SLOT_ID,
+            "image_url": "https://cdn.example.test/ads/ad.webp",
+            "title": "Hosted image ad",
+            "description": "An advertisement with an external image.",
+            "destination_url": "https://example.com",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["image_url"] == "https://cdn.example.test/ads/ad.webp"
+    assert response.json()["image_media_id"] is None
 
 
 def test_create_advertisement_rejects_invalid_url():

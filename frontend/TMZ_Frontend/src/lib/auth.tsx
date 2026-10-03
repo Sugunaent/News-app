@@ -1,23 +1,12 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
 import type { UserProfile } from '@/types';
 import { fetchProfile } from './api';
 import { DEFAULT_PROFILE } from './mock/data';
 import { supabase, isSupabaseConfigured } from './supabase';
-
-/* ---- Universal User type (compatible with Supabase User and standard User) ---- */
-export interface AppUser {
-  id: string;
-  email?: string;
-  user_metadata?: Record<string, unknown>;
-  app_metadata?: Record<string, unknown>;
-}
-
-/* ---- Universal Session type ---- */
-export interface AppSession {
-  user: AppUser;
-  access_token?: string;
-}
+import { getAuthCallbackUrl, getLocalRedirectPath } from './authRedirect';
+import { AuthContext } from './authContext';
+import type { AppSession, AppUser } from './authTypes';
 
 const STORAGE_KEY = 'tms_auth_session';
 
@@ -62,21 +51,6 @@ function mapUserToProfile(appUser: AppUser): UserProfile {
     bio: (typeof meta.bio === 'string' && meta.bio) || DEFAULT_PROFILE.bio,
   };
 }
-
-interface AuthContextValue {
-  session: Session | AppSession | null;
-  user: User | AppUser | null;
-  profile: UserProfile | null;
-  loading: boolean;
-  isConfigured: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
-  signInWithGoogle: (redirectToPath?: string) => Promise<void>;
-  signOut: () => Promise<void>;
-  refreshProfile: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | AppSession | null>(null);
@@ -212,7 +186,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: cleanEmail,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          emailRedirectTo: getAuthCallbackUrl(),
         },
       });
       if (error) throw error;
@@ -234,9 +208,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signInWithGoogle = async (redirectToPath?: string) => {
-    if (redirectToPath) {
+    const localRedirectPath = getLocalRedirectPath(redirectToPath, '');
+    if (localRedirectPath) {
       try {
-        localStorage.setItem('tms_auth_redirect', redirectToPath);
+        localStorage.setItem('tms_auth_redirect', localRedirectPath);
       } catch {
         /* ignore */
       }
@@ -245,7 +220,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: getAuthCallbackUrl(),
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
@@ -303,10 +278,3 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     </AuthContext.Provider>
   );
 }
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
-}
-

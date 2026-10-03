@@ -1,14 +1,17 @@
+import logging
+from typing import Literal
 from uuid import UUID
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from postgrest.exceptions import APIError
 
 from app.core.config import settings
 from app.core.exceptions import NotFoundError
 from app.db.supabase import supabase_admin
-from app.dependencies.auth import AuthContext, get_current_user, get_optional_user
+from app.dependencies.auth import get_current_user
+from app.routers.translation import generate_translation
 from app.schemas.articles import (
     ArticleDetailResponse,
     ArticleListResponse,
@@ -23,28 +26,214 @@ router = APIRouter(
     tags=["Articles"],
 )
 
+logger = logging.getLogger("app.articles")
+
+
+def _translation_table_missing(error: APIError) -> bool:
+    return getattr(error, "code", None) in {"42P01", "PGRST205"}
+
+
+def _load_article_translation(article_id: str, lang: Literal["te", "hi"]) -> dict | None:
+    try:
+        response = (
+            supabase_admin
+            .table("article_translations")
+            .select("title, subtitle, summary, segments")
+            .eq("article_id", article_id)
+            .eq("language_code", lang)
+            .maybe_single()
+            .execute()
+        )
+    except APIError as error:
+        if not _translation_table_missing(error):
+            raise
+        logger.warning(
+            "article_translations is not available; serving source article %s in English",
+            article_id,
+        )
+        return None
+    return response.data if response and isinstance(response.data, dict) else None
+
+
+async def _get_or_create_article_translation(
+    article: dict,
+    lang: Literal["te", "hi"],
+    source_segments: dict[str, str] | None = None,
+) -> dict:
+    source_segments = {
+        key: value
+        for key, value in (source_segments or {}).items()
+        if isinstance(value, str) and value.strip()
+    }
+    saved = _load_article_translation(str(article["id"]), lang) or {}
+    saved_segments = saved.get("segments")
+    if not isinstance(saved_segments, dict):
+        saved_segments = {}
+
+    title = str(article.get("title") or "")
+    subtitle = article.get("subtitle")
+    summary = article.get("summary")
+    title_missing = not saved.get("title")
+    missing_segments = {
+        key: value
+        for key, value in source_segments.items()
+        if not isinstance(saved_segments.get(key), str) or not saved_segments[key].strip()
+    }
+
+    if title_missing or missing_segments:
+        if not settings.gemini_api_key:
+            logger.warning(
+                "No saved %s translation or Gemini API key for article %s; "
+                "serving source content so the client can translate it",
+                lang,
+                article["id"],
+            )
+            return {
+                "title": title,
+                "subtitle": subtitle,
+                "summary": summary,
+                "segments": {},
+                "content_language": "en",
+            }
+
+        try:
+            translated = await generate_translation(
+                title=title if title_missing else "",
+                segments=missing_segments,
+                target_lang="Telugu" if lang == "te" else "Hindi",
+            )
+        except HTTPException as error:
+            logger.warning(
+                "Could not translate article %s to %s (%s); serving source content",
+                article["id"],
+                lang,
+                error.detail,
+            )
+            return {
+                "title": title,
+                "subtitle": subtitle,
+                "summary": summary,
+                "segments": {},
+                "content_language": "en",
+            }
+
+        saved_segments = {**saved_segments, **translated.segments}
+        translated_title = translated.title.strip() if translated.title else ""
+        saved = {
+            **saved,
+            "title": translated_title or saved.get("title") or title,
+            "subtitle": saved_segments.get("subtitle") or saved.get("subtitle"),
+            "summary": saved_segments.get("summary") or saved.get("summary"),
+            "segments": saved_segments,
+        }
+        try:
+            supabase_admin.table("article_translations").upsert(
+                {
+                    "article_id": str(article["id"]),
+                    "language_code": lang,
+                    "title": saved["title"],
+                    "subtitle": saved.get("subtitle"),
+                    "summary": saved.get("summary"),
+                    "segments": saved_segments,
+                },
+                on_conflict="article_id,language_code",
+            ).execute()
+        except APIError as error:
+            if not _translation_table_missing(error):
+                raise
+            logger.warning(
+                "Translation for article %s was generated but could not be saved "
+                "because article_translations is not available",
+                article["id"],
+            )
+
+    translation_complete = (
+        bool(saved.get("title"))
+        and all(
+            isinstance(saved_segments.get(key), str) and saved_segments[key].strip()
+            for key in source_segments
+        )
+    )
+    if not translation_complete and source_segments:
+        return {
+            "title": title,
+            "subtitle": subtitle,
+            "summary": summary,
+            "segments": {},
+            "content_language": "en",
+        }
+
+    return {
+        "title": saved.get("title") or title,
+        "subtitle": saved.get("subtitle") or subtitle,
+        "summary": saved.get("summary") or summary,
+        "segments": saved_segments,
+        "content_language": lang,
+    }
+
 
 @router.get(
     "",
     response_model=ArticleListResponse,
 )
-def list_articles(
+async def list_articles(
     q: str | None = Query(default=None),
+    article_id: UUID | None = Query(default=None),
     category_id: str | None = Query(default=None),
     featured: bool = Query(default=False),
     author_picks: bool = Query(default=False),
-    limit: int | None = Query(default=None, ge=1, le=100),
+    limit: int | None = Query(default=None, ge=1, le=200),
+    lang: Literal["en", "te", "hi"] = Query(default="en"),
 ):
     search_term = q.strip() if q else None
-    return {
-        "items": fetch_published_teasers(
-            search_term=search_term,
-            category_id=category_id,
-            featured=featured,
-            author_picks=author_picks,
-            limit=limit,
-        )
-    }
+    return await _list_articles(
+        search_term=search_term,
+        article_id=str(article_id) if article_id else None,
+        category_id=category_id,
+        featured=featured,
+        author_picks=author_picks,
+        limit=limit,
+        lang=lang,
+    )
+
+
+async def _list_articles(
+    *,
+    search_term: str | None,
+    article_id: str | None = None,
+    category_id: str | None,
+    featured: bool,
+    author_picks: bool,
+    limit: int | None,
+    lang: Literal["en", "te", "hi"],
+) -> dict:
+    items = fetch_published_teasers(
+        search_term=search_term,
+        article_id=article_id,
+        category_id=category_id,
+        featured=featured,
+        author_picks=author_picks,
+        limit=limit,
+    )
+    if lang != "en":
+        for item in items:
+            source_segments = {
+                key: item[key]
+                for key in ("subtitle", "summary")
+                if isinstance(item.get(key), str) and item[key].strip()
+            }
+            translated = await _get_or_create_article_translation(
+                item,
+                lang,
+                source_segments,
+            )
+            item.update({
+                "title": translated["title"],
+                "subtitle": translated["subtitle"],
+                "summary": translated["summary"],
+                "content_language": translated["content_language"],
+            })
+    return {"items": items}
 
 
 @router.get(
@@ -106,10 +295,11 @@ def redirect_legacy_article(article_id: str):
 @router.get(
     "/{slug}",
     response_model=ArticleDetailResponse,
+    dependencies=[Depends(get_current_user)],
 )
-def get_article(
+async def get_article(
     slug: str,
-    auth: AuthContext = Depends(get_current_user),
+    lang: Literal["en", "te", "hi"] = Query(default="en"),
 ):
     client = supabase_admin
     query = (
@@ -150,7 +340,7 @@ def get_article(
     if _looks_like_uuid(slug):
         query = query.eq("id", slug)
     else:
-        query = query.ilike("slug", slug)
+        query = query.eq("slug", slug)
 
     response = query.maybe_single().execute()
 
@@ -379,12 +569,111 @@ def get_article(
         cover_url = cover.get("signed_url")
     category = article.get("categories")
 
-    return {
-        "id": article["id"],
-        "slug": article.get("slug") or "",
+    translated = {
         "title": article.get("title"),
         "subtitle": article.get("subtitle"),
         "summary": article.get("summary"),
+        "segments": {},
+        "content_language": "en",
+    }
+    if lang != "en":
+        source_segments: dict[str, str] = {
+            key: article[key]
+            for key in ("subtitle", "summary")
+            if isinstance(article.get(key), str) and article[key].strip()
+        }
+        for block in blocks:
+            if block["type"] == "TEXT" and block.get("text"):
+                source_segments[f"block-{block['id']}"] = block["text"]
+            if block["type"] == "IMAGE" and block.get("caption"):
+                source_segments[f"caption-{block['id']}"] = block["caption"]
+            if block["type"] == "PODCAST" and isinstance(block.get("podcast"), dict):
+                podcast = block["podcast"]
+                if podcast.get("title"):
+                    source_segments[f"podcast-title-{block['id']}"] = podcast["title"]
+                if podcast.get("description"):
+                    source_segments[f"podcast-description-{block['id']}"] = podcast["description"]
+            if block["type"] == "QUIZ" and isinstance(block.get("quiz"), dict):
+                for question_index, question in enumerate(block["quiz"].get("questions", [])):
+                    if question.get("question"):
+                        source_segments[f"quiz-question-{question['id']}"] = question["question"]
+                        if question_index == 0:
+                            source_segments[f"quiz-question-{block['id']}"] = question["question"]
+                    for option in question.get("options", []):
+                        if option.get("option_text"):
+                            source_segments[f"quiz-option-{option['id']}"] = option["option_text"]
+                        if option.get("explanation"):
+                            source_segments[f"quiz-explanation-{option['id']}"] = option["explanation"]
+            if block["type"] == "OPINION" and isinstance(block.get("opinion"), dict):
+                opinion = block["opinion"]
+                if opinion.get("question"):
+                    source_segments[f"opinion-question-{block['id']}"] = opinion["question"]
+                for option in opinion.get("options", []):
+                    if option.get("option_text"):
+                        source_segments[f"opinion-option-{option['id']}"] = option["option_text"]
+        translated = await _get_or_create_article_translation(article, lang, source_segments)
+        if translated["content_language"] == lang:
+            for block in blocks:
+                segment_key = (
+                    f"block-{block['id']}"
+                    if block["type"] == "TEXT"
+                    else f"caption-{block['id']}"
+                    if block["type"] == "IMAGE"
+                    else None
+                )
+                if segment_key:
+                    block_value = translated["segments"].get(segment_key)
+                    if block_value:
+                        if block["type"] == "TEXT":
+                            block["text"] = block_value
+                        else:
+                            block["caption"] = block_value
+                if block["type"] == "PODCAST" and isinstance(block.get("podcast"), dict):
+                    podcast = block["podcast"]
+                    for field in ("title", "description"):
+                        block_value = translated["segments"].get(f"podcast-{field}-{block['id']}")
+                        if block_value:
+                            podcast[field] = block_value
+                if block["type"] == "QUIZ" and isinstance(block.get("quiz"), dict):
+                    questions = block["quiz"].get("questions", [])
+                    for question_index, question in enumerate(questions):
+                        block_value = translated["segments"].get(f"quiz-question-{question['id']}")
+                        if not block_value and question_index == 0:
+                            block_value = translated["segments"].get(
+                                f"quiz-question-{block['id']}"
+                            )
+                        if block_value:
+                            question["question"] = block_value
+                        for option in question.get("options", []):
+                            for field, key_prefix in (
+                                ("option_text", "quiz-option"),
+                                ("explanation", "quiz-explanation"),
+                            ):
+                                block_value = translated["segments"].get(
+                                    f"{key_prefix}-{option['id']}"
+                                )
+                                if block_value:
+                                    option[field] = block_value
+                if block["type"] == "OPINION" and isinstance(block.get("opinion"), dict):
+                    opinion = block["opinion"]
+                    block_value = translated["segments"].get(
+                        f"opinion-question-{block['id']}"
+                    )
+                    if block_value:
+                        opinion["question"] = block_value
+                    for option in opinion.get("options", []):
+                        block_value = translated["segments"].get(
+                            f"opinion-option-{option['id']}"
+                        )
+                        if block_value:
+                            option["option_text"] = block_value
+
+    return {
+        "id": article["id"],
+        "slug": article.get("slug") or "",
+        "title": translated["title"],
+        "subtitle": translated["subtitle"],
+        "summary": translated["summary"],
         "article_type": article["article_type"],
         "category": category,
         "category_id": article.get("category_id") or (category or {}).get("id"),
@@ -395,5 +684,6 @@ def get_article(
         "reading_time_minutes": article.get("reading_time_minutes"),
         "author_name": article.get("author_name"),
         "is_published": True,
+        "content_language": translated["content_language"],
         "blocks": blocks,
     }

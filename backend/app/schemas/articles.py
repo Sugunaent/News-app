@@ -31,6 +31,7 @@ class ArticleListItem(BaseModel):
     slug: str
     title: str
     subtitle: str | None = None
+    summary: str | None = None
     article_type: str
     category: ArticleCategory | None = None
     category_id: UUID | None = None
@@ -43,6 +44,7 @@ class ArticleListItem(BaseModel):
     reading_time_minutes: int | None = None
     author_name: str | None = None
     is_published: bool = True
+    content_language: Literal["en", "te", "hi"] = "en"
 
 
 class ArticleListResponse(BaseModel):
@@ -175,4 +177,5 @@ class ArticleDetailResponse(BaseModel):
     reading_time_minutes: int | None = None
     author_name: str | None = None
     is_published: bool = True
+    content_language: Literal["en", "te", "hi"] = "en"
     blocks: list[ArticleBlock]

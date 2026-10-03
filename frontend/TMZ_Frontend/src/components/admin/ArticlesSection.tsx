@@ -352,7 +352,8 @@ function isSafeMediaUrl(value: string): boolean {
   if (value.startsWith('/') && !value.startsWith('//')) return true;
   if (value.startsWith('media/')) return true;
   try {
-    return new URL(value).protocol === 'https:';
+    const url = new URL(value);
+    return url.protocol === 'https:' && Boolean(url.hostname);
   } catch {
     return false;
   }
@@ -498,6 +499,10 @@ function ArticleEditor({
       showToast('Category is required', 'error');
       return;
     }
+    if (coverImage.trim() && !isSafeMediaUrl(coverImage.trim())) {
+      showToast('Cover image must be a valid HTTPS URL or media storage path', 'error');
+      return;
+    }
     setSaving(true);
     try {
       const data: Partial<AdminArticle> = {
@@ -521,7 +526,7 @@ function ArticleEditor({
           const imageUrl = block.image_url.trim();
           if (!imageUrl) throw new Error(`Image block ${index + 1} needs an image URL`);
           if (!isSafeMediaUrl(imageUrl)) {
-            throw new Error(`Image block ${index + 1} needs a valid HTTPS URL or media storage path`);
+            throw new Error(`Image block ${index + 1} needs a valid HTTPS URL from any host or media storage path`);
           }
         }
         if (block.block_type === 'PODCAST' && (!block.podcast_audio_url.trim() || !block.podcast_description.trim())) {
@@ -755,7 +760,20 @@ function ArticleEditor({
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4">
-          <Input label="Cover Image URL" value={coverImage} onChange={(e) => setCoverImage(e.target.value)} placeholder="https://..." />
+          <div className="space-y-2">
+            <Input label="Cover Image URL" value={coverImage} onChange={(e) => setCoverImage(e.target.value)} placeholder="https://any-image-host.example/image.jpg" />
+            <p className="text-xs text-muted">Use an HTTPS image URL from any host, or a media storage path.</p>
+            {coverImage && (
+              <img
+                key={coverImage}
+                src={coverImage}
+                alt="Cover image preview"
+                className="max-h-48 w-full rounded-lg border border-subtle object-contain"
+                referrerPolicy="no-referrer"
+                onError={(event) => { event.currentTarget.style.display = 'none'; }}
+              />
+            )}
+          </div>
           <Input label="Scheduled Publish Date & Time" type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
         </div>
       </GlassCard>
@@ -892,7 +910,18 @@ function BlockEditor({
 
       {block.block_type === 'IMAGE' && (
         <div className="space-y-3">
-          <Input label="Image URL" value={block.image_url} onChange={(e) => onUpdate({ image_url: e.target.value })} placeholder="https://..." />
+          <Input label="Image URL" value={block.image_url} onChange={(e) => onUpdate({ image_url: e.target.value })} placeholder="https://any-image-host.example/image.jpg" />
+          <p className="text-xs text-muted">Use an HTTPS image URL from any host, or a media storage path.</p>
+          {block.image_url && (
+            <img
+              key={block.image_url}
+              src={block.image_url}
+              alt={block.image_caption || 'Article image preview'}
+              className="max-h-56 w-full rounded-lg border border-subtle object-contain"
+              referrerPolicy="no-referrer"
+              onError={(event) => { event.currentTarget.style.display = 'none'; }}
+            />
+          )}
           <Input label="Caption" value={block.image_caption} onChange={(e) => onUpdate({ image_caption: e.target.value })} placeholder="Image caption (optional)" />
         </div>
       )}

@@ -95,6 +95,13 @@ async def complete_article(
 
     if existing_response and getattr(existing_response, "data", None):
         data = existing_response.data
+        award_xp(
+            user_id=auth.user.id,
+            event_type="ARTICLE_COMPLETED",
+            source_type="ARTICLE_COMPLETION",
+            source_id=article_id,
+            article_id=article_id,
+        )
         gamification = get_gamification_status(auth.user.id)
 
         return ArticleCompletionResponse(

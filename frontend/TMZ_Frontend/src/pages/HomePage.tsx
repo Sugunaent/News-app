@@ -1,30 +1,63 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Category, Promotion, Article } from '@/types';
+import { ConnectedCarousel, type CarouselItem } from '@/components/ui/connected-carousel';
+import { StackedPromotionsCarousel } from '@/components/ui/stacked-promotions-carousel';
+import { TestimonialMarquee } from '@/components/ui/testimonial-marquee';
 import {
   fetchPromotions,
-  fetchHomeDiscovery,
+  fetchLatestArticles,
+  fetchCategories,
   getArticleRoute,
 } from '@/lib/api';
 import { SectionHeader, LoadingState, ErrorState } from '@/components/ui/States';
 import { BookmarkButton } from '@/components/articles/BookmarkButton';
 import { GlowingEffect } from '@/components/articles/GlowingEffect';
-import { HeroBanner } from '@/components/home/HeroBanner';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
 import { ContactSection } from '@/components/common/ContactSection';
 import { canonicalUrl, removeJsonLd, upsertJsonLd } from '@/lib/seo';
+import { ExternalImage } from '@/components/articles/ExternalImage';
+import { useLanguage } from '@/lib/language';
+import { getLocalizedArticleFields, useTranslatedArticle } from '@/lib/translations';
+import { Loader2 } from 'lucide-react';
 
 export function HomePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { currentLang } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [latest, setLatest] = useState<Article[]>([]);
+  const [featuredArticles, setFeaturedArticles] = useState<Article[]>([]);
   const [authorsPicks, setAuthorsPicks] = useState<Article[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryArticles, setCategoryArticles] = useState<Record<string, Article[]>>({});
+
+  const featuredTranslationSource = useMemo(() => {
+    const segments: Record<string, string> = {};
+    for (const promotion of promotions) {
+      segments[`promotion-title-${promotion.id}`] = promotion.title;
+      if (promotion.description) {
+        segments[`promotion-description-${promotion.id}`] = promotion.description;
+      }
+    }
+    for (const article of featuredArticles) {
+      const localized = getLocalizedArticleFields(article, currentLang);
+      const description = article.subtitle || article.summary || '';
+      if (!localized.title) segments[`title-${article.id}`] = article.title;
+      if (!localized.description && description) segments[`description-${article.id}`] = description;
+    }
+    return segments;
+  }, [featuredArticles, promotions, currentLang]);
+  const featuredTranslation = useTranslatedArticle(
+    'homepage-featured-carousel',
+    '',
+    '',
+    featuredTranslationSource,
+    { enabled: currentLang !== 'EN' },
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -32,28 +65,42 @@ export function HomePage() {
     const load = async () => {
       try {
         setLoading(true);
-        const [promosRes, discoveryRes] = await Promise.allSettled([
+        setError(false);
+
+        const [promosRes, categoriesRes, articlesRes] = await Promise.allSettled([
           fetchPromotions(),
-          fetchHomeDiscovery(),
+          fetchCategories(),
+          fetchLatestArticles(200, undefined, currentLang),
         ]);
 
         if (!mounted) return;
 
+        if (promosRes.status === 'rejected') {
+          console.error('[HomePage] Could not load promotional banners:', promosRes.reason);
+        }
         const promos = promosRes.status === 'fulfilled' ? promosRes.value : [];
-        const discovery = discoveryRes.status === 'fulfilled' ? discoveryRes.value : null;
+        const liveCategories = categoriesRes.status === 'fulfilled' ? categoriesRes.value : null;
+        const articles = articlesRes.status === 'fulfilled' ? articlesRes.value : null;
 
-        if (!discovery) {
-          setError(true);
-          return;
+        if (!liveCategories || !articles) {
+          if (categoriesRes.status === 'rejected') throw categoriesRes.reason;
+          if (articlesRes.status === 'rejected') throw articlesRes.reason;
+          throw new Error('Could not load homepage content from Supabase.');
         }
 
-        setCategories(discovery.categories);
+        const liveCategoryArticles = Object.fromEntries(
+          liveCategories.map((category) => [
+            category.id,
+            articles.filter((article) => article.category_id === category.id).slice(0, 4),
+          ]),
+        );
+
+        setCategories(liveCategories);
         setPromotions(promos);
-        setLatest(discovery.trending);
-        setAuthorsPicks(discovery.authors_picks);
-        setCategoryArticles(Object.fromEntries(
-          discovery.category_sections.map((section) => [section.category.id, section.articles]),
-        ));
+        setLatest(articles.slice(0, 10));
+        setFeaturedArticles(articles.filter((article) => article.is_featured && article.cover_image_url).slice(0, 6));
+        setAuthorsPicks(articles.filter((article) => article.is_authors_pick).slice(0, 6));
+        setCategoryArticles(liveCategoryArticles);
         setError(false);
       } catch (err) {
         console.error('[HomePage] Load error:', err);
@@ -68,7 +115,7 @@ export function HomePage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [currentLang]);
 
   useEffect(() => {
     const listedCategories = categories.filter((category) => (categoryArticles[category.id]?.length ?? 0) > 0);
@@ -90,16 +137,19 @@ export function HomePage() {
     return () => removeJsonLd('home-itemlist-jsonld');
   }, [categories, categoryArticles]);
 
-  if (loading) return <LoadingState message="Loading stories..." />;
+  if (loading) {
+    return (
+      <div className="relative z-10 mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8 xl:px-10 2xl:max-w-[1536px]">
+        <section className="w-full pt-4 pb-5 md:pt-6 md:pb-8">
+          <LoadingState message="Loading stories..." />
+        </section>
+      </div>
+    );
+  }
   if (error) return <ErrorState message="Could not load content. Please try again." onRetry={() => window.location.reload()} />;
 
   const featuredCategory = categories[0];
   const remainingCategories = categories.slice(1);
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '';
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  };
 
   const handleArticleClick = (article: Article) => {
     const route = getArticleRoute(article);
@@ -110,154 +160,124 @@ export function HomePage() {
     }
   };
 
-  return (
-    <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 sm:py-8 space-y-8 sm:space-y-10 lg:space-y-12">
-      {/* 0. EDITORIAL HERO BANNER — Static Image Card with Know More -> link */}
-      <HeroBanner />
-
-      {/* 1. PROMOTIONS CAROUSEL — top, 3s auto-slideshow */}
-      {promotions.length > 0 && (
-        <section id="promotions-section">
-          <SectionHeader title="Promotions" />
-          <PromotionCarousel promotions={promotions} intervalMs={3000} formatDate={formatDate} />
-        </section>
-      )}
-
-      {/* 2. LATEST — continuous marquee with LARGE vertical cards matching CategoryPage ArticleCard */}
-      {latest.length > 0 && (
-        <section id="latest-section">
-          <SectionHeader title="Latest" action="View All" onAction={() => navigate('/latest')} />
-          <LatestMarquee articles={latest} onArticleClick={handleArticleClick} />
-        </section>
-      )}
-
-      {/* 3. FEATURED CATEGORY — smaller vertical cards in a single-row horizontal carousel */}
-      {featuredCategory && (categoryArticles[featuredCategory.id]?.length ?? 0) > 0 && (
-        <ArticleCarouselRow
-          title={featuredCategory.name}
-          action="See all"
-          onAction={() => navigate(`/category/${featuredCategory.slug}`)}
-          articles={categoryArticles[featuredCategory.id]}
-          onArticleClick={handleArticleClick}
-        />
-      )}
-
-      {/* 4. AUTHOR'S PICKS — smaller vertical cards in a single-row horizontal carousel */}
-      {authorsPicks.length > 0 && (
-        <ArticleCarouselRow
-          title="Author's Picks"
-          action="See all"
-          onAction={() => navigate('/authors-picks')}
-          articles={authorsPicks}
-          onArticleClick={handleArticleClick}
-        />
-      )}
-
-      {/* 5. PROMOTIONS CAROUSEL #2 — after Author's Picks, 5s */}
-      {promotions.length > 0 && (
-        <section>
-          <SectionHeader title="Featured Promotions" />
-          <PromotionCarousel promotions={promotions} intervalMs={5000} formatDate={formatDate} />
-        </section>
-      )}
-
-      {/* 6. REMAINING CATEGORIES — smaller vertical cards in single-row horizontal carousels */}
-      {remainingCategories.map((cat) => (
-        <CategorySection
-          key={cat.id}
-          category={cat}
-          articles={categoryArticles[cat.id] ?? []}
-          onSeeAll={() => navigate(`/category/${cat.slug}`)}
-          onArticleClick={handleArticleClick}
-        />
-      ))}
-
-      {/* 7. CONTACT — Business Enquiry & Feedback Forms */}
-      <ContactSection />
-    </div>
-  );
-}
-
-/* ===== Promotion Carousel (auto-slideshow, wide cards with glowing border) ===== */
-
-function PromotionCarousel({ promotions, intervalMs, formatDate }: { promotions: Promotion[]; intervalMs: number; formatDate: (d: string | null) => string }) {
-  const [index, setIndex] = useState(0);
-  const trackRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (promotions.length <= 1) return;
-    const timer = setInterval(() => {
-      setIndex((prev) => (prev + 1) % promotions.length);
-    }, intervalMs);
-    return () => clearInterval(timer);
-  }, [promotions.length, intervalMs]);
-
-  const scrollTo = useCallback((i: number) => {
-    setIndex(i);
-  }, []);
+  const carouselItems: CarouselItem[] = [
+    ...promotions.map((promotion) => ({
+      tag: '#Promotion',
+      titleLine1: featuredTranslation.segments[`promotion-title-${promotion.id}`] || promotion.title,
+      desc: featuredTranslation.segments[`promotion-description-${promotion.id}`] || promotion.description,
+      img: promotion.image_url,
+      ctaText: currentLang === 'EN' ? 'Learn More' : currentLang === 'TE' ? 'మరింత తెలుసుకోండి' : 'और जानें',
+      ctaUrl: promotion.external_url || '#',
+    })),
+    ...featuredArticles.map((article) => {
+      const localized = getLocalizedArticleFields(article, currentLang);
+      return {
+        tag: '#FeaturedStory',
+        titleLine1: localized.title || featuredTranslation.segments[`title-${article.id}`] || article.title,
+        desc: localized.description
+          || featuredTranslation.segments[`description-${article.id}`]
+          || article.subtitle
+          || article.summary
+          || '',
+        img: article.cover_image_url || '',
+        ctaText: currentLang === 'EN' ? 'Read Story' : currentLang === 'TE' ? 'కథ చదవండి' : 'लेख पढ़ें',
+        ctaUrl: getArticleRoute(article),
+      };
+    }),
+  ];
+  const promotionCarouselItems: CarouselItem[] = promotions.map((promotion) => ({
+    tag: '#Promotion',
+    titleLine1: featuredTranslation.segments[`promotion-title-${promotion.id}`] || promotion.title,
+    desc: featuredTranslation.segments[`promotion-description-${promotion.id}`] || promotion.description,
+    img: promotion.image_url,
+    ctaText: currentLang === 'EN' ? 'Learn More' : currentLang === 'TE' ? 'మరింత తెలుసుకోండి' : 'और जानें',
+    ctaUrl: promotion.external_url || '#',
+  }));
+  const handleCarouselCta = (item: CarouselItem) => {
+    const article = featuredArticles.find((candidate) => getArticleRoute(candidate) === item.ctaUrl);
+    if (article) {
+      handleArticleClick(article);
+    } else if (item.ctaUrl && item.ctaUrl !== '#') {
+      window.open(item.ctaUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
 
   return (
-    <div className="relative">
-      <div ref={trackRef} className="overflow-hidden rounded-2xl">
-        <div
-          className="flex transition-transform duration-700 ease-out"
-          style={{ transform: `translateX(-${index * 100}%)` }}
-        >
-          {promotions.map((promo) => (
-            <div key={promo.id} className="min-w-full">
-              <a
-                href={promo.external_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="relative block glass-card overflow-hidden group"
-              >
-                <GlowingEffect borderWidth={1.5} spread={40} glow={true} />
-                <div className="relative h-64 md:h-72 overflow-hidden">
-                  {promo.image_url && (
-                    <img
-                      src={promo.image_url}
-                      alt={promo.title}
-                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                      loading="lazy"
-                    />
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                  <div className="absolute bottom-0 left-0 right-0 p-6 md:p-8 z-20">
-                    <div className="flex items-center gap-3 mb-3">
-                      {promo.date_time && (
-                        <div className="glass rounded-full px-3 py-1.5 flex items-center gap-2">
-                          <Calendar className="w-3.5 h-3.5 text-brand-accent" />
-                          <span className="text-xs text-primary">{formatDate(promo.date_time)}</span>
-                        </div>
-                      )}
-                      <ExternalLink className="w-4 h-4 text-white/70" />
-                    </div>
-                    <h3 className="font-display text-2xl md:text-3xl text-white mb-2">{promo.title}</h3>
-                    <p className="text-sm text-white/80 line-clamp-2 max-w-2xl">{promo.description}</p>
-                  </div>
-                </div>
-              </a>
-            </div>
-          ))}
-        </div>
+    <div lang={currentLang.toLowerCase()} className="relative z-10 mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8 xl:px-10 2xl:max-w-[1536px]">
+      {/* Dynamic promotional banners and featured published articles */}
+      {carouselItems.length > 0 && (
+        <section className="w-full py-8 md:py-12">
+          <ConnectedCarousel
+            items={carouselItems}
+            autoplay
+            autoplayDelay={5000}
+            onCtaClick={handleCarouselCta}
+          />
+        </section>
+      )}
+
+      <div className="space-y-8 md:space-y-12">
+        {/* Latest articles */}
+        {latest.length > 0 && (
+          <section id="latest-section">
+            <SectionHeader title="Latest" action="View All" onAction={() => navigate('/latest')} />
+            <LatestMarquee articles={latest} onArticleClick={handleArticleClick} />
+          </section>
+        )}
+
+        {/* Featured category */}
+        {featuredCategory && (categoryArticles[featuredCategory.id]?.length ?? 0) > 0 && (
+          <ArticleCarouselRow
+            title={featuredCategory.name}
+            action="See all"
+            onAction={() => navigate(`/category/${featuredCategory.slug}`)}
+            articles={categoryArticles[featuredCategory.id]}
+            onArticleClick={handleArticleClick}
+          />
+        )}
+
+        {/* Author's picks */}
+        {authorsPicks.length > 0 && (
+          <ArticleCarouselRow
+            title="Author's Picks"
+            action="See all"
+            onAction={() => navigate('/authors-picks')}
+            articles={authorsPicks}
+            onArticleClick={handleArticleClick}
+          />
+        )}
+
+        {/* Remaining categories */}
+        {remainingCategories.map((cat) => (
+          <CategorySection
+            key={cat.id}
+            category={cat}
+            articles={categoryArticles[cat.id] ?? []}
+            onSeeAll={() => navigate(`/category/${cat.slug}`)}
+            onArticleClick={handleArticleClick}
+          />
+        ))}
       </div>
 
-      {/* Dots */}
-      {promotions.length > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-4">
-          {promotions.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => scrollTo(i)}
-              className={`h-2 rounded-full transition-all duration-300 ${i === index ? 'w-8' : 'w-2'}`}
-              style={{
-                background: i === index ? 'var(--brand-primary)' : 'var(--border-strong)',
-              }}
-              aria-label={`Go to slide ${i + 1}`}
-            />
-          ))}
-        </div>
+      {promotionCarouselItems.length > 0 && (
+        <section className="w-full py-6 md:py-10">
+          <StackedPromotionsCarousel
+            items={promotionCarouselItems}
+            autoplay
+            autoplayDelay={5000}
+            onCtaClick={handleCarouselCta}
+          />
+        </section>
       )}
+
+      <section className="w-full py-6 md:py-10">
+        <TestimonialMarquee />
+      </section>
+
+      {/* Contact */}
+      <section className="w-full py-6 md:py-10">
+        <ContactSection />
+      </section>
     </div>
   );
 }
@@ -265,6 +285,19 @@ function PromotionCarousel({ promotions, intervalMs, formatDate }: { promotions:
 /* ===== Author's Pick & Category Card (SMALLER vertical card structure, image-dominant & sleek) ===== */
 
 function AuthorsPickCard({ article, onClick }: { article: Article; onClick: () => void }) {
+  const { currentLang } = useLanguage();
+  const { title: availableTitle, description: availableDescription } =
+    getLocalizedArticleFields(article, currentLang);
+  const sourceDescription = article.subtitle || article.summary || '';
+  const translated = useTranslatedArticle(
+    article.id,
+    availableTitle ? '' : article.title,
+    availableDescription ? '' : sourceDescription,
+    {},
+    { enabled: currentLang !== 'EN', lazy: true },
+  );
+  const title = availableTitle || translated.title || article.title;
+  const description = availableDescription || translated.content || sourceDescription;
   const typeLabel = article.article_type === 'PODCAST' ? 'Podcast'
     : article.article_type === 'QUIZ' ? 'Quiz'
     : article.article_type === 'OPINION' ? 'Opinion'
@@ -274,18 +307,18 @@ function AuthorsPickCard({ article, onClick }: { article: Article; onClick: () =
   return (
     <div
       onClick={onClick}
+      lang={currentLang.toLowerCase()}
       className="relative glass-card overflow-hidden cursor-pointer group flex-shrink-0 snap-start w-[280px] sm:w-[310px] md:w-[330px] h-[340px] flex flex-col transition-transform duration-300 hover:scale-[1.03]"
+      ref={translated.ref}
+      aria-busy={translated.isLoading}
     >
       <GlowingEffect borderWidth={1.5} spread={40} glow={true} />
       <div className="relative h-[235px] overflow-hidden flex-shrink-0">
-        {article.cover_image_url && (
-          <img
-            src={article.cover_image_url}
-            alt={article.title}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-            loading="lazy"
-          />
-        )}
+        <ExternalImage
+          src={article.cover_image_url}
+          alt={title}
+          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+        />
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
         <span className="absolute top-3 left-3 z-20 px-2.5 py-1 rounded-full glass text-xs text-primary font-body">
           {typeLabel}
@@ -295,12 +328,16 @@ function AuthorsPickCard({ article, onClick }: { article: Article; onClick: () =
         </div>
       </div>
       <div className="p-3.5 flex-1 flex flex-col justify-center relative z-20">
-        <h3 className="font-display text-sm sm:text-[15px] font-semibold text-primary leading-snug mb-1 line-clamp-2">
-          {article.title}
-        </h3>
+        <div className="flex items-start gap-1.5">
+          <h3 className="font-display text-sm sm:text-[15px] font-semibold text-primary leading-relaxed mb-1 line-clamp-2">
+            {title}
+          </h3>
+          {translated.isLoading && <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted" aria-label="Translating article" />}
+        </div>
         <p className="text-xs text-muted line-clamp-1 leading-normal">
-          {article.subtitle}
+          {description}
         </p>
+        {translated.error && <span className="text-[10px] text-amber-600 dark:text-amber-400" role="status">Translation unavailable</span>}
       </div>
     </div>
   );
@@ -414,45 +451,84 @@ function LatestMarquee({ articles, onArticleClick }: { articles: Article[]; onAr
     <div className="relative overflow-hidden py-4 sm:py-5 -my-2 sm:-my-3">
       <div className="marquee-track gap-5 py-1">
         {items.map((article, i) => (
-          <div
+          <LatestMarqueeCard
             key={`${article.id}-${i}`}
+            article={article}
+            index={i}
             onClick={() => onArticleClick(article)}
-            className="relative glass-card overflow-hidden cursor-pointer group w-[275px] sm:w-[295px] md:w-[310px] h-[385px] flex flex-col transition-transform duration-300 hover:scale-105 flex-shrink-0"
-            style={{ transformOrigin: 'center' }}
-          >
-            <GlowingEffect borderWidth={1.5} spread={40} glow={true} className="z-30" />
-            <div className="relative z-0 h-[270px] min-h-0 overflow-hidden rounded-t-[inherit] flex-shrink-0">
-              {article.cover_image_url && (
-                <img
-                  src={article.cover_image_url}
-                  alt={article.title}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                  loading="lazy"
-                />
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
-              <span className="absolute top-3 left-3 z-20 px-2.5 py-1 rounded-full glass text-xs text-primary font-body">
-                {typeLabel(article.article_type)}
-              </span>
-              <div className="absolute top-3 right-3 z-20">
-                <BookmarkButton articleId={article.id} size="sm" />
-              </div>
-            </div>
-            <div className="p-3.5 flex-1 flex flex-col justify-center relative z-20">
-              <h3 className="font-display text-sm sm:text-[15px] font-semibold text-primary leading-snug mb-1 line-clamp-2">
-                {article.title}
-              </h3>
-              <p className="text-xs text-muted line-clamp-2 leading-relaxed">
-                {article.subtitle}
-              </p>
-            </div>
-          </div>
+            typeLabel={typeLabel(article.article_type)}
+          />
         ))}
       </div>
     </div>
   );
 }
 
+function LatestMarqueeCard({
+  article,
+  index,
+  onClick,
+  typeLabel,
+}: {
+  article: Article;
+  index: number;
+  onClick: () => void;
+  typeLabel: string;
+}) {
+  const { currentLang } = useLanguage();
+  const { title: localizedTitle, description: localizedDescription } =
+    getLocalizedArticleFields(article, currentLang);
+  const sourceDescription = article.subtitle || article.summary || '';
+  const translated = useTranslatedArticle(
+    article.id,
+    localizedTitle ? '' : article.title,
+    localizedDescription ? '' : sourceDescription,
+    {},
+    { enabled: currentLang !== 'EN', lazy: true },
+  );
+  const title = localizedTitle || translated.title || article.title;
+  const description = localizedDescription || translated.content || sourceDescription;
+
+  return (
+    <div
+      onClick={onClick}
+      lang={currentLang.toLowerCase()}
+      ref={translated.ref}
+      className="relative glass-card overflow-hidden cursor-pointer group w-[275px] sm:w-[295px] md:w-[310px] h-[385px] flex flex-col transition-transform duration-300 hover:scale-105 flex-shrink-0"
+      style={{ transformOrigin: 'center' }}
+      aria-busy={translated.isLoading}
+    >
+      <GlowingEffect borderWidth={1.5} spread={40} glow={true} className="z-30" />
+      <div className="relative z-0 h-[270px] min-h-0 overflow-hidden rounded-t-[inherit] flex-shrink-0">
+        <ExternalImage
+          src={article.cover_image_url}
+          alt={title}
+          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+          fallbackSrc="/modern_stories_hero.jpg"
+          loading={index === 0 ? 'eager' : 'lazy'}
+          fetchPriority={index === 0 ? 'high' : 'auto'}
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+        <span className="absolute top-3 left-3 z-20 px-2.5 py-1 rounded-full glass text-xs text-primary font-body">
+          {typeLabel}
+        </span>
+        <div className="absolute top-3 right-3 z-20">
+          <BookmarkButton articleId={article.id} size="sm" />
+        </div>
+      </div>
+      <div className="p-3.5 flex-1 flex flex-col justify-center relative z-20">
+        <div className="flex items-start gap-1.5">
+          <h3 className="font-display text-sm sm:text-[15px] font-semibold text-primary leading-relaxed mb-1 line-clamp-2">
+            {title}
+          </h3>
+          {translated.isLoading && <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted" aria-label="Translating article" />}
+        </div>
+        <p className="text-xs text-muted line-clamp-2 leading-relaxed">{description}</p>
+        {translated.error && <span className="text-[10px] text-amber-600 dark:text-amber-400" role="status">Translation unavailable</span>}
+      </div>
+    </div>
+  );
+}
 /* ===== Category Section (uses ArticleCarouselRow) ===== */
 
 function CategorySection({
@@ -478,4 +554,3 @@ function CategorySection({
     />
   );
 }
-

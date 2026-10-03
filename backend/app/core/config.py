@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     supabase_url: str = "http://localhost:54321"
     supabase_anon_key: str = "local-anon-key"
     supabase_service_role_key: str = ""
+    gemini_api_key: str = ""
     site_url: str = "https://www.themodernstories.in"
     sitemap_articles_indexable: bool = False
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"

@@ -154,6 +154,7 @@ export interface AdminBadge {
 export interface AdminPromotion {
   id: string;
   image_media_id?: string | null;
+  external_image_url?: string | null;
   title: string;
   description: string;
   image_url: string;
@@ -165,6 +166,8 @@ export interface AdminPromotion {
 
 export interface Advertisement {
   id: string;
+  image_media_id?: string | null;
+  external_image_url?: string | null;
   title: string;
   description?: string;
   image_url: string;

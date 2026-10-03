@@ -8,6 +8,7 @@ import {
 import { useToast } from '@/lib/toast';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/Button';
+import { ExternalImage } from '@/components/articles/ExternalImage';
 import {
   fetchAuthorsPicksManagement,
   updateAuthorsPicksOrder,
@@ -394,17 +395,11 @@ export function HomeSection({ openArticleEditor }: HomeSectionProps) {
 
                       {/* Cover Image Thumbnail */}
                       <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0 bg-surface-secondary border border-border relative">
-                        {article.cover_image_url ? (
-                          <img
-                            src={article.cover_image_url}
-                            alt={article.title}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-xs text-muted">
-                            No img
-                          </div>
-                        )}
+                        <ExternalImage
+                          src={article.cover_image_url}
+                          alt={article.title}
+                          className="w-full h-full object-cover"
+                        />
                       </div>
 
                       {/* Article Info */}
@@ -536,17 +531,11 @@ export function HomeSection({ openArticleEditor }: HomeSectionProps) {
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div className="w-10 h-10 rounded overflow-hidden shrink-0 bg-surface-primary border border-border">
-                            {article.cover_image_url ? (
-                              <img
-                                src={article.cover_image_url}
-                                alt={article.title}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-[9px] text-muted">
-                                No img
-                              </div>
-                            )}
+                            <ExternalImage
+                              src={article.cover_image_url}
+                              alt={article.title}
+                              className="w-full h-full object-cover"
+                            />
                           </div>
                           <div className="min-w-0">
                             <h4 className="font-display text-xs font-semibold text-primary truncate">

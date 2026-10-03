@@ -2,20 +2,38 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ChevronDown, LogIn } from 'lucide-react';
 import { TMSLogo } from '@/components/brand/TMSLogo';
+import { LanguageToggle } from '@/components/common/LanguageToggle';
 import { ThemeToggle } from './ThemeToggle';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
+import { useLanguage } from '@/lib/language';
 import type { Category } from '@/types';
 import { fetchCategories } from '@/lib/api';
 
 export function Header() {
   const location = useLocation();
   const { user, profile } = useAuth();
+  const { currentLang, setLanguage } = useLanguage();
   const [categories, setCategories] = useState<Category[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [catOpen, setCatOpen] = useState(false);
   const catRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchCategories().then(setCategories).catch(() => {});
+    let mounted = true;
+    fetchCategories()
+      .then((items) => {
+        if (mounted) setCategories(items);
+      })
+      .catch((error: unknown) => {
+        console.error('[Header] Could not load categories:', error);
+        if (mounted) setCategories([]);
+      })
+      .finally(() => {
+        if (mounted) setCategoriesLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -28,9 +46,42 @@ export function Header() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  const navLabels = {
+    EN: {
+      home: 'Home',
+      about: 'About',
+      categories: 'Categories',
+      loading: 'Loading categories...',
+      empty: 'No categories available',
+      profile: 'Profile',
+      viewProfile: 'View Profile',
+      login: 'Login',
+    },
+    TE: {
+      home: 'హోమ్',
+      about: 'మా గురించి',
+      categories: 'వర్గాలు',
+      loading: 'వర్గాలు లోడ్ అవుతున్నాయి...',
+      empty: 'వర్గాలు అందుబాటులో లేవు',
+      profile: 'ప్రొఫైల్',
+      viewProfile: 'ప్రొఫైల్ చూడండి',
+      login: 'లాగిన్',
+    },
+    HI: {
+      home: 'होम',
+      about: 'हमारे बारे में',
+      categories: 'श्रेणियाँ',
+      loading: 'श्रेणियाँ लोड हो रही हैं...',
+      empty: 'कोई श्रेणी उपलब्ध नहीं है',
+      profile: 'प्रोफ़ाइल',
+      viewProfile: 'प्रोफ़ाइल देखें',
+      login: 'लॉगिन',
+    },
+  }[currentLang];
+
   const navItems = [
-    { label: 'Home', path: '/' },
-    { label: 'About', path: '/about' },
+    { label: navLabels.home, path: '/' },
+    { label: navLabels.about, path: '/about' },
   ];
 
   const isActive = (path: string) => {
@@ -48,7 +99,7 @@ export function Header() {
         borderBottom: '1px solid var(--nav-border)',
       }}
     >
-      <div className="max-w-7xl mx-auto px-2 sm:px-6 md:px-8 h-14 sm:h-16 flex items-center justify-between gap-1 sm:gap-4">
+      <div className="max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-2 sm:px-6 lg:px-8 xl:px-10 h-14 sm:h-16 flex items-center justify-between gap-1 sm:gap-4">
         {/* Logo */}
         <Link to="/" className="flex items-center group shrink-0" aria-label="The Modern Stories">
           <TMSLogo size="md" hideSubtitleOnMobile={true} className="group-hover:opacity-90 transition-opacity" />
@@ -77,7 +128,7 @@ export function Header() {
               aria-expanded={catOpen}
               aria-haspopup="true"
             >
-              <span>Categories</span>
+              <span>{navLabels.categories}</span>
               <ChevronDown className={`w-3 h-3 sm:w-3.5 sm:h-3.5 transition-transform shrink-0 ${catOpen ? 'rotate-180' : ''}`} />
             </button>
             {catOpen && (
@@ -99,9 +150,11 @@ export function Header() {
                     {cat.name}
                   </Link>
                 ))}
-                {categories.length === 0 && (
-                  <p className="px-3 py-2 text-xs text-muted">No categories yet</p>
-                )}
+                {categoriesLoading ? (
+                  <p className="px-3 py-2 text-xs text-muted">{navLabels.loading}</p>
+                ) : categories.length === 0 ? (
+                  <p className="px-3 py-2 text-xs text-muted">{navLabels.empty}</p>
+                ) : null}
               </div>
             )}
           </div>
@@ -111,8 +164,8 @@ export function Header() {
             <Link
               to="/profile"
               className={`nav-link flex items-center gap-1.5 p-0.5 sm:px-2.5 sm:py-1.5 rounded-full sm:rounded-lg shrink-0 ${isActive('/profile') ? 'active font-semibold text-brand-primary' : 'text-secondary hover:text-primary'}`}
-              title={profile?.display_name || 'Your Profile'}
-              aria-label="View Profile"
+              title={profile?.display_name || navLabels.viewProfile}
+              aria-label={navLabels.viewProfile}
             >
               {profile?.avatar_url ? (
                 <img
@@ -126,18 +179,20 @@ export function Header() {
                   {profile?.display_name?.[0]?.toUpperCase() || 'U'}
                 </div>
               )}
-              <span className="hidden md:inline text-xs sm:text-sm">Profile</span>
+              <span className="hidden md:inline text-xs sm:text-sm">{navLabels.profile}</span>
             </Link>
           ) : (
             <Link
-              to="/auth"
-              className={`nav-link flex items-center gap-1 px-1.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm font-medium whitespace-nowrap shrink-0 ${isActive('/auth') ? 'active' : ''}`}
-              aria-label="Login"
+              to="/login"
+              className={`nav-link flex items-center gap-1 px-1.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm font-medium whitespace-nowrap shrink-0 ${isActive('/login') || isActive('/auth') ? 'active' : ''}`}
+              aria-label={navLabels.login}
             >
               <LogIn className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-              <span className="hidden sm:inline">Login</span>
+              <span className="hidden sm:inline">{navLabels.login}</span>
             </Link>
           )}
+
+          <LanguageToggle currentLang={currentLang} onLanguageChange={setLanguage} />
 
           {/* Theme Toggle Button */}
           <div className="shrink-0 ml-0.5 sm:ml-1">

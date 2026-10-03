@@ -1,18 +1,19 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL ?? '').trim();
+const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim();
 
 /**
  * Checks whether Supabase environment variables are properly configured.
  */
 export const isSupabaseConfigured = (): boolean => {
-  return Boolean(
-    supabaseUrl &&
-    supabaseAnonKey &&
-    typeof supabaseUrl === 'string' &&
-    supabaseUrl.startsWith('http')
-  );
+  if (!supabaseUrl || !supabaseAnonKey) return false;
+  try {
+    const url = new URL(supabaseUrl);
+    return url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname));
+  } catch {
+    return false;
+  }
 };
 
 /**
@@ -20,7 +21,7 @@ export const isSupabaseConfigured = (): boolean => {
  * Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env / .env.local file.
  */
 export const supabase: SupabaseClient | null = isSupabaseConfigured()
-  ? createClient(supabaseUrl!, supabaseAnonKey!, {
+  ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         autoRefreshToken: true,
         persistSession: true,

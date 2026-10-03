@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, Loader2, X } from 'lucide-react';
-import type { Advertisement, AdSlot, AdStatus } from '@/lib/admin/adminTypes';
+import type { Advertisement, AdSlot, AdStatus, MediaItem } from '@/lib/admin/adminTypes';
 import {
   fetchAdvertisements, createAdvertisement, updateAdvertisement, deleteAdvertisement,
-  fetchAdSlots, createAdSlot, updateAdSlot, deleteAdSlot,
+  fetchAdSlots, createAdSlot, updateAdSlot, deleteAdSlot, fetchMedia,
 } from '@/lib/admin/api';
 import { useToast } from '@/lib/toast';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -14,11 +14,21 @@ import { Input } from '@/components/ui/Input';
 type Tab = 'ads' | 'slots';
 const AD_STATUSES: AdStatus[] = ['ACTIVE', 'INACTIVE', 'SCHEDULED'];
 
+function isHttpsImageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function AdvertisementsSection(): JSX.Element {
   const { showToast } = useToast();
   const [tab, setTab] = useState<Tab>('ads');
   const [ads, setAds] = useState<Advertisement[]>([]);
   const [slots, setSlots] = useState<AdSlot[]>([]);
+  const [media, setMedia] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Advertisement | AdSlot | null>(null);
@@ -33,19 +43,48 @@ export function AdvertisementsSection(): JSX.Element {
   }, [showToast]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { fetchMedia().then(setMedia).catch(() => setMedia([])); }, []);
 
-  const openAdd = () => { setEditing(null); setForm(tab === 'ads' ? { title: '', description: '', image_url: '', target_url: '', ad_slot_id: '', status: 'ACTIVE', starts_at: '', ends_at: '' } : { name: '', slug: '', placement: '', description: '', is_active: true }); setModalOpen(true); };
+  const openAdd = () => { setEditing(null); setForm(tab === 'ads' ? { title: '', description: '', image_source: 'url', image_media_id: '', external_image_url: '', target_url: '', ad_slot_id: '', status: 'ACTIVE', starts_at: '', ends_at: '' } : { name: '', slug: '', placement: '', description: '', is_active: true }); setModalOpen(true); };
   const openEdit = (item: Advertisement | AdSlot) => {
     setEditing(item);
-    setForm(Object.fromEntries(Object.entries(item).map(([k, v]) => [k, v === null ? '' : v])));
+    const values = Object.fromEntries(Object.entries(item).map(([k, v]) => [k, v === null ? '' : v]));
+    if ('target_url' in item) {
+      setForm({
+        ...values,
+        image_source: item.external_image_url ? 'url' : 'media',
+        image_media_id: item.image_media_id || '',
+        external_image_url: item.external_image_url || '',
+      });
+    } else {
+      setForm(values);
+    }
     setModalOpen(true);
   };
 
   const save = async () => {
     try {
       if (tab === 'ads') {
-        const data = { title: String(form.title), description: String(form.description || form.title), image_url: String(form.image_url), target_url: String(form.target_url), ad_slot_id: form.ad_slot_id ? String(form.ad_slot_id) : null, status: String(form.status) as AdStatus, starts_at: form.starts_at ? String(form.starts_at) : null, ends_at: form.ends_at ? String(form.ends_at) : null };
-        if (editing) { await updateAdvertisement(editing.id, data); setAds((p) => p.map((x) => x.id === editing.id ? { ...x, ...data } : x)); }
+        const imageSource = String(form.image_source);
+        const externalImageUrl = String(form.external_image_url || '').trim();
+        const imageMediaId = String(form.image_media_id || '').trim();
+        if ((imageSource === 'url' && !isHttpsImageUrl(externalImageUrl)) || (imageSource === 'media' && !imageMediaId)) {
+          showToast(imageSource === 'url' ? 'Enter a valid HTTPS image URL from any host' : 'Choose an uploaded image', 'error');
+          return;
+        }
+        const data = {
+          title: String(form.title),
+          description: String(form.description || form.title),
+          image_media_id: imageSource === 'media' ? imageMediaId : null,
+          external_image_url: imageSource === 'url' ? externalImageUrl : null,
+          image_url: imageSource === 'url' ? externalImageUrl : '',
+          target_url: String(form.target_url),
+          ad_slot_id: form.ad_slot_id ? String(form.ad_slot_id) : null,
+          status: String(form.status) as AdStatus,
+          starts_at: form.starts_at ? String(form.starts_at) : null,
+          ends_at: form.ends_at ? String(form.ends_at) : null,
+        };
+        if (editing) { await updateAdvertisement(editing.id, data); await load(); }
         else { const n = await createAdvertisement(data); setAds((p) => [...p, n]); }
       } else {
         const data = { name: String(form.name), slug: String(form.slug), placement: String(form.placement), description: form.description ? String(form.description) : null, is_active: Boolean(form.is_active) };
@@ -67,6 +106,7 @@ export function AdvertisementsSection(): JSX.Element {
   };
 
   const slotName = (id: string | null) => slots.find((s) => s.id === id)?.name || '—';
+  const mediaImageOptions = media.filter((item) => item.file_type.startsWith('image/'));
 
   return (
     <div className="space-y-6">
@@ -139,7 +179,51 @@ export function AdvertisementsSection(): JSX.Element {
             <div className="space-y-3.5 pt-1">
               <Input label="Title" value={String(form.title || '')} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} />
               <Input label="Description" value={String(form.description || '')} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} />
-              <Input label="Image URL" value={String(form.image_url || '')} onChange={(e) => setForm((p) => ({ ...p, image_url: e.target.value }))} />
+              <div className="space-y-2">
+                <label className="block text-sm font-body" style={{ color: 'var(--text-secondary)' }}>Advertisement image</label>
+                <div className="flex gap-2">
+                  {(['url', 'media'] as const).map((source) => (
+                    <button
+                      key={source}
+                      type="button"
+                      onClick={() => setForm((p) => ({ ...p, image_source: source }))}
+                      className={`rounded-lg px-3 py-1.5 text-sm ${form.image_source === source ? 'bg-brand-primary text-white' : 'bg-surface-secondary text-secondary'}`}
+                    >
+                      {source === 'url' ? 'Image URL' : 'Uploaded image'}
+                    </button>
+                  ))}
+                </div>
+                {form.image_source === 'media' ? (
+                  <select
+                    className="input-field w-full"
+                    value={String(form.image_media_id || '')}
+                    onChange={(e) => setForm((p) => ({ ...p, image_media_id: e.target.value }))}
+                  >
+                    <option value="">Select an uploaded image…</option>
+                    {mediaImageOptions.map((item) => <option key={item.id} value={item.id}>{item.filename}</option>)}
+                  </select>
+                ) : (
+                  <>
+                    <Input
+                      label="HTTPS image URL"
+                      value={String(form.external_image_url || '')}
+                      onChange={(e) => setForm((p) => ({ ...p, external_image_url: e.target.value }))}
+                      placeholder="https://any-image-host.example/ad.jpg"
+                    />
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Any HTTPS host is supported; the URL must point directly to an image.</p>
+                    {String(form.external_image_url || '').trim() && isHttpsImageUrl(String(form.external_image_url).trim()) && (
+                      <img
+                        key={String(form.external_image_url)}
+                        src={String(form.external_image_url)}
+                        alt="Advertisement preview"
+                        className="max-h-40 w-full rounded-lg object-contain"
+                        referrerPolicy="no-referrer"
+                        onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
               <Input label="Target URL" value={String(form.target_url || '')} onChange={(e) => setForm((p) => ({ ...p, target_url: e.target.value }))} />
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -1,4 +1,5 @@
 import React from 'react';
+import { ExternalImage } from '../ExternalImage';
 
 /**
  * Safely parses inline markdown syntax into React elements:
@@ -22,7 +23,7 @@ function safeLinkUrl(rawUrl: string): string | null {
 function safeImageUrl(rawUrl: string): string | null {
   try {
     const url = new URL(rawUrl.trim(), window.location.href);
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+    return url.protocol === 'https:' || url.origin === window.location.origin ? url.href : null;
   } catch {
     return null;
   }
@@ -81,15 +82,13 @@ function formatInlineText(text: string): React.ReactNode {
       const [, alt, rawUrl] = imageMatch;
       const url = safeImageUrl(rawUrl);
       return url ? (
-        <img
-          key={index}
-          src={url}
-          alt={alt}
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          onError={() => console.warn('Failed to load embedded article image', { src: url })}
-          className="my-5 max-h-[640px] w-full rounded-2xl object-contain"
-        />
+        <span key={index} className="my-5 block aspect-video overflow-hidden rounded-2xl bg-surface-secondary">
+          <ExternalImage
+            src={url}
+            alt={alt}
+            className="h-full w-full object-contain"
+          />
+        </span>
       ) : <span key={index}>{part}</span>;
     }
 

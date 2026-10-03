@@ -66,6 +66,7 @@ def _build_ad_select_query() -> str:
         id,
         slot_id,
         image_media_id,
+        image_url,
         title,
         description,
         destination_url,
@@ -485,10 +486,14 @@ def create_advertisement(
     )
 
     data = payload.model_dump(mode="json")
-    data["image_media_id"] = _resolve_media_id(
-        current_user.client,
-        payload.image_media_id,
-    )
+    if payload.image_media_id is not None:
+        data["image_media_id"] = _resolve_media_id(
+            current_user.client,
+            payload.image_media_id,
+        )
+        data["image_url"] = None
+    else:
+        data["image_media_id"] = None
 
     data["destination_url"] = str(
         payload.destination_url
@@ -590,11 +595,22 @@ def update_advertisement(
         exclude_unset=True,
     )
 
-    if data.get("image_media_id") is not None:
-        data["image_media_id"] = _resolve_media_id(
-            current_user.client,
-            data["image_media_id"],
-        )
+    image_fields = {"image_media_id", "image_url"}
+    if image_fields.intersection(payload.model_fields_set):
+        if payload.image_media_id is not None:
+            data["image_media_id"] = _resolve_media_id(
+                current_user.client,
+                payload.image_media_id,
+            )
+            data["image_url"] = None
+        elif payload.image_url is not None:
+            data["image_media_id"] = None
+            data["image_url"] = str(payload.image_url)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="An advertisement image is required",
+            )
 
     if (
         "destination_url" in data

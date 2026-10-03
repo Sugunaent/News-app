@@ -212,7 +212,7 @@ def test_get_my_gamification_requires_authentication():
     assert response.status_code == 401
 
 
-def test_award_xp_uses_server_side_rule_amount():
+def test_award_xp_uses_server_side_rule_amount(monkeypatch):
     import app.services.gamification as gamification_service
 
     supabase_mock = MagicMock()
@@ -234,24 +234,21 @@ def test_award_xp_uses_server_side_rule_amount():
         .select.return_value
         .eq.return_value
         .eq.return_value
-        .order.return_value
         .limit.return_value
-        .maybe_single.return_value
         .execute.return_value.data
-    ) = {
+    ) = [{
         "id": str(RULE_ID),
         "event_type": "ARTICLE_COMPLETED",
         "amount": 20,
-    }
+    }]
 
     insert_query = MagicMock()
     (
         insert_query
         .insert.return_value
         .select.return_value
-        .single.return_value
         .execute.return_value.data
-    ) = {
+    ) = [{
         "id": str(TRANSACTION_ID),
         "xp_rule_id": str(RULE_ID),
         "article_id": str(ARTICLE_ID),
@@ -259,7 +256,7 @@ def test_award_xp_uses_server_side_rule_amount():
         "source_id": str(SOURCE_ID),
         "amount": 20,
         "created_at": "2026-08-27T10:00:00+00:00",
-    }
+    }]
 
     def table(name):
         if name == "xp_transactions":
@@ -271,7 +268,7 @@ def test_award_xp_uses_server_side_rule_amount():
 
         raise AssertionError(f"Unexpected table: {name}")
 
-    # We need xp_transactions twice, so use a call counter.
+    # The first XP query checks for a duplicate; the second inserts the award.
     xp_transaction_calls = 0
 
     def table_with_insert(name):
@@ -292,31 +289,25 @@ def test_award_xp_uses_server_side_rule_amount():
 
     supabase_mock.table.side_effect = table_with_insert
 
-    original_supabase = gamification_service.supabase
-    gamification_service.supabase = supabase_mock
+    monkeypatch.setattr(gamification_service, "supabase_admin", supabase_mock)
+    monkeypatch.setattr(gamification_service, "award_badges_for_user", lambda user_id: [])
 
-    try:
-        result = gamification_service.award_xp(
-            user_id=USER_ID,
-            event_type="ARTICLE_COMPLETED",
-            source_type="ARTICLE_COMPLETION",
-            source_id=SOURCE_ID,
-            article_id=ARTICLE_ID,
-        )
+    result = gamification_service.award_xp(
+        user_id=USER_ID,
+        event_type="ARTICLE_COMPLETED",
+        source_type="ARTICLE_COMPLETION",
+        source_id=SOURCE_ID,
+        article_id=ARTICLE_ID,
+    )
 
-        assert result["amount"] == 20
-
-        inserted_payload = insert_query.insert.call_args.args[0]
-
-        assert inserted_payload["amount"] == 20
-        assert inserted_payload["xp_rule_id"] == str(RULE_ID)
-        assert inserted_payload["user_id"] == str(USER_ID)
-
-    finally:
-        gamification_service.supabase = original_supabase
+    assert result["amount"] == 20
+    inserted_payload = insert_query.insert.call_args.args[0]
+    assert inserted_payload["amount"] == 20
+    assert inserted_payload["xp_rule_id"] == str(RULE_ID)
+    assert inserted_payload["user_id"] == str(USER_ID)
 
 
-def test_award_xp_does_not_create_duplicate_transaction():
+def test_award_xp_does_not_create_duplicate_transaction(monkeypatch):
     import app.services.gamification as gamification_service
 
     supabase_mock = MagicMock()
@@ -342,26 +333,20 @@ def test_award_xp_does_not_create_duplicate_transaction():
 
     supabase_mock.table.return_value = existing_query
 
-    original_supabase = gamification_service.supabase
-    gamification_service.supabase = supabase_mock
+    monkeypatch.setattr(gamification_service, "supabase_admin", supabase_mock)
+    result = gamification_service.award_xp(
+        user_id=USER_ID,
+        event_type="ARTICLE_COMPLETED",
+        source_type="ARTICLE_COMPLETION",
+        source_id=SOURCE_ID,
+        article_id=ARTICLE_ID,
+    )
 
-    try:
-        result = gamification_service.award_xp(
-            user_id=USER_ID,
-            event_type="ARTICLE_COMPLETED",
-            source_type="ARTICLE_COMPLETION",
-            source_id=SOURCE_ID,
-            article_id=ARTICLE_ID,
-        )
+    assert result["id"] == str(TRANSACTION_ID)
+    assert result["amount"] == 20
 
-        assert result["id"] == str(TRANSACTION_ID)
-        assert result["amount"] == 20
-
-        # No INSERT should occur when the transaction already exists.
-        existing_query.insert.assert_not_called()
-
-    finally:
-        gamification_service.supabase = original_supabase
+    # No INSERT should occur when the transaction already exists.
+    existing_query.insert.assert_not_called()
 
 def test_article_completion_awards_xp(monkeypatch):
     from app.routers import completions

@@ -3,6 +3,8 @@ import { ContactSection } from '@/components/common/ContactSection';
 import { GlowingEffect } from '@/components/articles/GlowingEffect';
 import { Breadcrumbs } from '@/components/common/Breadcrumbs';
 import { removeJsonLd, upsertJsonLd } from '@/lib/seo';
+import { useLanguage } from '@/lib/language';
+import { useTranslatedArticle } from '@/lib/translations';
 
 interface TeamMemberItem {
   id: string;
@@ -63,7 +65,70 @@ const FAQ_ITEMS = [
   },
 ];
 
+const ABOUT_COPY: Record<string, string> = {
+  home: 'Home',
+  about: 'About',
+  heading: 'About The Modern Stories',
+  quote: '“We are drowning in information, but starving for truth.”',
+  introduction: 'Let’s be completely honest for a second. Every single day, we’re handed dry, robotic “news” that tells us what to think instead of helping us understand why it matters. Headlines are weaponized for clicks. Algorithms feed us echo chambers. Education is often treated like memorizing someone else’s script, and the media prefers taking sides over telling the truth.',
+  founded: 'We got tired of it. That’s why we built The Modern Stories.',
+  mottoLabel: 'Our Motto',
+  motto: '“Break through the Bias.”',
+  mottoCaption: '(Because the truth shouldn’t come with an agenda.)',
+  whereWeStand: 'Where We Stand',
+  opinionsHeading: 'Opinions over robotic news',
+  opinionsText: 'Dry stats don’t build understanding; real, lived experiences do. When people share perspectives openly, echo chambers break and the actual truth emerges.',
+  freedomHeading: 'Freedom to think, not just consume',
+  freedomText: 'True learning isn’t memorizing someone else’s script—it’s the freedom to question narratives and find your own voice.',
+  respectHeading: 'Respecting your intelligence',
+  respectText: 'No manufactured outrage, no hidden PR agendas, and no sugarcoating. Just honest, grounded realities.',
+  whatDrivesUs: 'What Drives Us',
+  honestyHeading: 'Radical Honesty',
+  honestyText: 'Nuance matters more than viral hype.',
+  humanHeading: 'Human First',
+  humanText: 'Real struggles and authentic growth over algorithmic trends.',
+  disagreementHeading: 'Open Disagreement',
+  disagreementText: 'We believe healthy minds don’t always agree, but they talk like adults.',
+  echoHeading: 'You Don’t Belong in an Echo Chamber.',
+  echoText: 'Whether you’re here to unlearn, share an unconventional thought, or read without being manipulated:',
+  welcome: 'Welcome to The Modern Stories.',
+  thinkFreely: 'Think freely',
+  speakHonestly: 'Speak honestly',
+  breakBias: 'Break through the bias',
+  company: 'Our Company',
+  companyTextOne: 'We believe reading should be an experience, not a chore. Our team of editors, engineers, and designers have built a platform that transforms articles into interactive journeys — with quizzes, opinions, podcasts, and progressive reading unlocks that reward curiosity.',
+  companyTextTwo: 'Every article on The Modern Stories is crafted to inform, challenge, and inspire. We combine editorial rigor with modern technology to create a reading experience that feels alive.',
+  team: 'Meet the Team',
+  faq: 'Frequently asked questions',
+};
+
+const ABOUT_TRANSLATION_SEGMENTS = {
+  ...ABOUT_COPY,
+  ...Object.fromEntries(
+    TEAM_MEMBERS.flatMap((member) => [
+      [`team-role-${member.id}`, member.role],
+      [`team-bio-${member.id}`, member.bio],
+    ]),
+  ),
+  ...Object.fromEntries(
+    FAQ_ITEMS.flatMap((item, index) => [
+      [`faq-question-${index}`, item.question],
+      [`faq-answer-${index}`, item.answer],
+    ]),
+  ),
+};
+
 export function AboutPage() {
+  const { currentLang } = useLanguage();
+  const translation = useTranslatedArticle(
+    'about-page-static',
+    '',
+    '',
+    ABOUT_TRANSLATION_SEGMENTS,
+    { enabled: currentLang !== 'EN' },
+  );
+  const t = (key: string) => translation.segments[key] || ABOUT_COPY[key] || key;
+
   useEffect(() => {
     upsertJsonLd('about-faq-jsonld', {
       '@context': 'https://schema.org',
@@ -78,34 +143,30 @@ export function AboutPage() {
   }, []);
 
   return (
-    <div className="relative z-10 max-w-7xl mx-auto px-4 md:px-8 py-12 space-y-24">
-      <Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: 'About' }]} />
+    <div lang={currentLang.toLowerCase()} className="relative z-10 max-w-7xl mx-auto px-4 md:px-8 py-12 space-y-24">
+      <Breadcrumbs items={[{ label: t('home'), href: '/' }, { label: t('about') }]} />
       {/* About The Modern Stories */}
       <section className="w-full space-y-16">
         {/* Main Heading & Lead */}
         <div className="text-center w-full max-w-4xl mx-auto">
-          <h1 className="font-display text-4xl md:text-5xl text-primary mb-6">About The Modern Stories</h1>
+          <h1 className="font-display text-4xl md:text-5xl text-primary mb-6 leading-relaxed">{t('heading')}</h1>
           <p className="font-display text-2xl md:text-3xl text-brand-primary mb-6 leading-snug">
-            “We are drowning in information, but starving for truth.”
+            {t('quote')}
           </p>
           <div className="space-y-4 text-secondary text-base md:text-lg leading-relaxed text-left md:text-center">
-            <p>
-              Let’s be completely honest for a second. Every single day, we’re handed dry, robotic &ldquo;news&rdquo; that tells us what to think instead of helping us understand why it matters. Headlines are weaponized for clicks. Algorithms feed us echo chambers. Education is often treated like memorizing someone else&apos;s script, and the media prefers taking sides over telling the truth.
-            </p>
-            <p className="font-medium text-primary text-lg md:text-xl">
-              We got tired of it. That’s why we built The Modern Stories.
-            </p>
+            <p>{t('introduction')}</p>
+            <p className="font-medium text-primary text-lg md:text-xl">{t('founded')}</p>
           </div>
         </div>
 
         {/* Our Motto Banner */}
         <div className="glass-card p-8 md:p-10 text-center w-full max-w-3xl mx-auto border-brand-primary/30">
-          <span className="text-xs uppercase tracking-widest text-brand-primary font-semibold block mb-2">Our Motto</span>
+          <span className="text-xs uppercase tracking-widest text-brand-primary font-semibold block mb-2">{t('mottoLabel')}</span>
           <h2 className="font-display text-3xl md:text-4xl text-primary mb-3">
-            &ldquo;Break through the Bias.&rdquo;
+            {t('motto')}
           </h2>
           <p className="text-sm md:text-base text-muted italic">
-            (Because the truth shouldn’t come with an agenda.)
+            {t('mottoCaption')}
           </p>
         </div>
 
@@ -115,26 +176,20 @@ export function AboutPage() {
           <div className="glass-card p-8 md:p-10 space-y-6">
             <h2 className="font-display text-2xl text-primary flex items-center gap-3">
               <span className="w-2 h-6 bg-brand-primary rounded-full inline-block"></span>
-              Where We Stand
+              {t('whereWeStand')}
             </h2>
             <div className="space-y-5">
               <div className="space-y-1.5">
-                <h3 className="text-base font-semibold text-primary">Opinions over robotic news</h3>
-                <p className="text-sm md:text-base text-secondary leading-relaxed">
-                  Dry stats don’t build understanding; real, lived experiences do. When people share perspectives openly, echo chambers break and the actual truth emerges.
-                </p>
+                <h3 className="text-base font-semibold text-primary">{t('opinionsHeading')}</h3>
+                <p className="text-sm md:text-base text-secondary leading-relaxed">{t('opinionsText')}</p>
               </div>
               <div className="space-y-1.5">
-                <h3 className="text-base font-semibold text-primary">Freedom to think, not just consume</h3>
-                <p className="text-sm md:text-base text-secondary leading-relaxed">
-                  True learning isn&apos;t memorizing someone else&apos;s script—it’s the freedom to question narratives and find your own voice.
-                </p>
+                <h3 className="text-base font-semibold text-primary">{t('freedomHeading')}</h3>
+                <p className="text-sm md:text-base text-secondary leading-relaxed">{t('freedomText')}</p>
               </div>
               <div className="space-y-1.5">
-                <h3 className="text-base font-semibold text-primary">Respecting your intelligence</h3>
-                <p className="text-sm md:text-base text-secondary leading-relaxed">
-                  No manufactured outrage, no hidden PR agendas, and no sugarcoating. Just honest, grounded realities.
-                </p>
+                <h3 className="text-base font-semibold text-primary">{t('respectHeading')}</h3>
+                <p className="text-sm md:text-base text-secondary leading-relaxed">{t('respectText')}</p>
               </div>
             </div>
           </div>
@@ -143,26 +198,20 @@ export function AboutPage() {
           <div className="glass-card p-8 md:p-10 space-y-6">
             <h2 className="font-display text-2xl text-primary flex items-center gap-3">
               <span className="w-2 h-6 bg-brand-accent rounded-full inline-block"></span>
-              What Drives Us
+              {t('whatDrivesUs')}
             </h2>
             <div className="space-y-5">
               <div className="space-y-1.5">
-                <h3 className="text-base font-semibold text-primary">Radical Honesty</h3>
-                <p className="text-sm md:text-base text-secondary leading-relaxed">
-                  Nuance matters more than viral hype.
-                </p>
+                <h3 className="text-base font-semibold text-primary">{t('honestyHeading')}</h3>
+                <p className="text-sm md:text-base text-secondary leading-relaxed">{t('honestyText')}</p>
               </div>
               <div className="space-y-1.5">
-                <h3 className="text-base font-semibold text-primary">Human First</h3>
-                <p className="text-sm md:text-base text-secondary leading-relaxed">
-                  Real struggles and authentic growth over algorithmic trends.
-                </p>
+                <h3 className="text-base font-semibold text-primary">{t('humanHeading')}</h3>
+                <p className="text-sm md:text-base text-secondary leading-relaxed">{t('humanText')}</p>
               </div>
               <div className="space-y-1.5">
-                <h3 className="text-base font-semibold text-primary">Open Disagreement</h3>
-                <p className="text-sm md:text-base text-secondary leading-relaxed">
-                  We believe healthy minds don&apos;t always agree, but they talk like adults.
-                </p>
+                <h3 className="text-base font-semibold text-primary">{t('disagreementHeading')}</h3>
+                <p className="text-sm md:text-base text-secondary leading-relaxed">{t('disagreementText')}</p>
               </div>
             </div>
           </div>
@@ -170,21 +219,15 @@ export function AboutPage() {
 
         {/* You Don't Belong in an Echo Chamber */}
         <div className="glass-card p-8 md:p-12 text-center w-full">
-          <h2 className="font-display text-2xl md:text-3xl text-primary mb-4">
-            You Don’t Belong in an Echo Chamber.
-          </h2>
-          <p className="text-secondary text-base md:text-lg max-w-2xl mx-auto mb-6 leading-relaxed">
-            Whether you&apos;re here to unlearn, share an unconventional thought, or read without being manipulated:
-          </p>
-          <p className="font-display text-xl md:text-2xl text-brand-primary mb-4">
-            Welcome to The Modern Stories.
-          </p>
+          <h2 className="font-display text-2xl md:text-3xl text-primary mb-4 leading-relaxed">{t('echoHeading')}</h2>
+          <p className="text-secondary text-base md:text-lg max-w-2xl mx-auto mb-6 leading-relaxed">{t('echoText')}</p>
+          <p className="font-display text-xl md:text-2xl text-brand-primary mb-4">{t('welcome')}</p>
           <div className="flex flex-wrap justify-center items-center gap-3 text-sm md:text-base font-medium text-primary">
-            <span className="px-4 py-1.5 rounded-full bg-surface-secondary border border-border">Think freely</span>
+            <span className="px-4 py-1.5 rounded-full bg-surface-secondary border border-border">{t('thinkFreely')}</span>
             <span className="text-muted">•</span>
-            <span className="px-4 py-1.5 rounded-full bg-surface-secondary border border-border">Speak honestly</span>
+            <span className="px-4 py-1.5 rounded-full bg-surface-secondary border border-border">{t('speakHonestly')}</span>
             <span className="text-muted">•</span>
-            <span className="px-4 py-1.5 rounded-full bg-brand-primary/10 text-brand-primary border border-brand-primary/30">Break through the bias</span>
+            <span className="px-4 py-1.5 rounded-full bg-brand-primary/10 text-brand-primary border border-brand-primary/30">{t('breakBias')}</span>
           </div>
         </div>
       </section>
@@ -192,24 +235,17 @@ export function AboutPage() {
       {/* About the Company */}
       <section className="w-full">
         <div className="glass-card p-8 md:p-12 w-full">
-          <h2 className="font-display text-3xl text-primary mb-6">Our Company</h2>
+          <h2 className="font-display text-3xl text-primary mb-6">{t('company')}</h2>
           <div className="space-y-5 text-secondary text-base md:text-lg leading-relaxed">
-            <p>
-              We believe reading should be an experience, not a chore. Our team of editors, engineers,
-              and designers have built a platform that transforms articles into interactive journeys —
-              with quizzes, opinions, podcasts, and progressive reading unlocks that reward curiosity.
-            </p>
-            <p>
-              Every article on The Modern Stories is crafted to inform, challenge, and inspire. We combine
-              editorial rigor with modern technology to create a reading experience that feels alive.
-            </p>
+            <p>{t('companyTextOne')}</p>
+            <p>{t('companyTextTwo')}</p>
           </div>
         </div>
       </section>
 
       {/* Meet the Team */}
       <section>
-        <h2 className="font-display text-3xl text-primary text-center mb-10">Meet the Team</h2>
+        <h2 className="font-display text-3xl text-primary text-center mb-10">{t('team')}</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {TEAM_MEMBERS.map((member) => (
             <div key={member.id} className="relative glass-card overflow-hidden group flex flex-col h-full">
@@ -230,8 +266,8 @@ export function AboutPage() {
               
               <div className="p-5 flex flex-col flex-1">
                 <h3 className="font-display text-lg text-primary">{member.name}</h3>
-                <p className="text-sm text-brand-primary mb-2 font-medium">{member.role}</p>
-                <p className="text-xs text-muted leading-relaxed flex-1">{member.bio}</p>
+                <p className="text-sm text-brand-primary mb-2 font-medium">{translation.segments[`team-role-${member.id}`] || member.role}</p>
+                <p className="text-xs text-muted leading-relaxed flex-1">{translation.segments[`team-bio-${member.id}`] || member.bio}</p>
               </div>
             </div>
           ))}
@@ -239,12 +275,16 @@ export function AboutPage() {
       </section>
 
       <section aria-labelledby="about-faq-heading" className="w-full max-w-4xl mx-auto">
-        <h2 id="about-faq-heading" className="font-display text-3xl text-primary mb-6">Frequently asked questions</h2>
+        <h2 id="about-faq-heading" className="font-display text-3xl text-primary mb-6">{t('faq')}</h2>
         <div className="space-y-4">
-          {FAQ_ITEMS.map(({ question, answer }) => (
+          {FAQ_ITEMS.map(({ question, answer }, index) => (
             <details key={question} className="glass-card p-5">
-              <summary className="cursor-pointer font-semibold text-primary">{question}</summary>
-              <p className="mt-3 leading-relaxed text-secondary">{answer}</p>
+              <summary className="cursor-pointer font-semibold text-primary">
+                {translation.segments[`faq-question-${index}`] || question}
+              </summary>
+              <p className="mt-3 leading-relaxed text-secondary">
+                {translation.segments[`faq-answer-${index}`] || answer}
+              </p>
             </details>
           ))}
         </div>

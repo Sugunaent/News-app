@@ -4,10 +4,11 @@ import {
   ArrowLeft, CheckCircle2, Award, Trophy, Share2, MessageSquare,
   BookOpen, Target, Lock, Sparkles,
 } from 'lucide-react';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { LoadingState, ErrorState, Modal } from '@/components/ui/States';
 import { CompletionCard as CompletionCardComponent } from '@/components/articles/CompletionCard';
+import { ExternalImage } from '@/components/articles/ExternalImage';
 import {
   fetchCompletedArticles,
   fetchAllBadges,
@@ -400,11 +401,9 @@ function SavedList({ userId }: { userId: string }) {
         return (
           <GlassCard key={item.id} className="overflow-hidden cursor-pointer">
             <div onClick={() => navigate(getArticleRoute(article))}>
-              {article.cover_image_url && (
-                <div className="h-32 overflow-hidden">
-                  <img src={article.cover_image_url} alt={article.title} className="w-full h-full object-cover" loading="lazy" />
-                </div>
-              )}
+              <div className="h-32 overflow-hidden">
+                <ExternalImage src={article.cover_image_url} alt={article.title} className="w-full h-full object-cover" />
+              </div>
               <div className="p-4">
                 <h3 className="font-display text-sm text-primary line-clamp-2">{article.title}</h3>
                 <p className="text-xs text-muted mt-1 line-clamp-1">{article.subtitle}</p>

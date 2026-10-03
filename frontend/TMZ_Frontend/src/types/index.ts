@@ -25,6 +25,21 @@ export interface Article {
   slug?: string;
   title: string;
   subtitle: string;
+  title_te?: string | null;
+  subtitle_te?: string | null;
+  summary_te?: string | null;
+  title_hi?: string | null;
+  subtitle_hi?: string | null;
+  summary_hi?: string | null;
+  translations?: Partial<Record<'te' | 'hi', {
+    title?: string | null;
+    subtitle?: string | null;
+    summary?: string | null;
+    key_takeaways?: string[];
+  }>>;
+  key_takeaways_te?: string[];
+  key_takeaways_hi?: string[];
+  content_language?: 'EN' | 'TE' | 'HI';
   summary?: string | null;
   key_takeaways?: string[];
   category_id: string;
@@ -34,6 +49,7 @@ export interface Article {
   author_id: string | null;
   author_name: string | null;
   published_at: string | null;
+  created_at?: string | null;
   is_published: boolean;
   is_featured: boolean;
   is_authors_pick: boolean;

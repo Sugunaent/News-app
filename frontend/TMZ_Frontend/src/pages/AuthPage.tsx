@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { ArrowRight, ArrowLeft } from 'lucide-react';
 import { TMSLogo } from '@/components/brand/TMSLogo';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
 import { useToast } from '@/lib/toast';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { getLocalRedirectPath } from '@/lib/authRedirect';
 
 export function AuthPage() {
   const navigate = useNavigate();
@@ -18,7 +19,9 @@ export function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const redirect = (location.state as { redirect?: string })?.redirect || '/';
+  const redirect = getLocalRedirectPath(
+    (location.state as { redirect?: unknown } | null)?.redirect,
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

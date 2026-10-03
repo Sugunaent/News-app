@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Alata&family=Momo+Trust+Display:wght@400&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -53,7 +51,7 @@
     --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.06);
     --shadow-elevated: 0 12px 48px rgba(0, 0, 0, 0.12);
     --shadow-glow: 0 0 32px rgba(0, 119, 182, 0.12);
-    --dot-pattern: rgba(0, 0, 0, 0.11);
+    --dot-pattern: #000000;
   }
 
   .dark {
@@ -96,7 +94,7 @@
     --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.3);
     --shadow-elevated: 0 12px 48px rgba(0, 0, 0, 0.5);
     --shadow-glow: 0 0 32px rgba(0, 119, 182, 0.2);
-    --dot-pattern: rgba(255, 255, 255, 0.15);
+    --dot-pattern: #ffffff;
   }
 
   * {
@@ -121,6 +119,20 @@
 
   .font-body {
     font-family: 'Alata', sans-serif;
+  }
+
+  :lang(te) .font-display,
+  .font-display:lang(te) {
+    font-family: 'Noto Sans Telugu', 'Nirmala UI', sans-serif;
+    letter-spacing: normal;
+    line-height: 1.45;
+  }
+
+  :lang(hi) .font-display,
+  .font-display:lang(hi) {
+    font-family: 'Noto Sans Devanagari', 'Nirmala UI', sans-serif;
+    letter-spacing: normal;
+    line-height: 1.45;
   }
 
   ::selection {
@@ -557,6 +569,38 @@
 
 .marquee-track>* {
   flex-shrink: 0;
+}
+
+.testimonial-marquee-viewport {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+}
+
+.testimonial-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marqueeScroll 70s linear infinite;
+}
+
+.testimonial-marquee-track:hover {
+  animation-play-state: paused;
+}
+
+.testimonial-marquee-track-reverse {
+  animation-direction: reverse;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .testimonial-marquee-viewport {
+    overflow-x: auto;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .testimonial-marquee-track {
+    animation: none;
+  }
 }
 
 @keyframes fadeInUp {

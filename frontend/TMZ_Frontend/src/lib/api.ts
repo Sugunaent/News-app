@@ -1,8 +1,4 @@
-/**
- * Mock API service layer.
- * All function signatures match the real backend API interface.
- * Replace each function body with your actual backend calls when ready.
- */
+/** Frontend data service layer for live Supabase content and backend APIs. */
 
 import type {
   Category, Promotion, Article, ArticleWithBlocks, Comment,
@@ -11,11 +7,13 @@ import type {
   ReadingHistoryItem, SavedArticleItem, QuizStats, OpinionWithArticle,
   AchievementItem, CompletionResult, QuizAttemptResult,
 } from '@/types';
+import type { Language } from '@/lib/language';
 
 import { apiFetchJson } from './backendClient';
+import { supabase } from './supabase';
 
 import {
-  CATEGORIES, PROMOTIONS, ARTICLES, ARTICLES_WITH_BLOCKS,
+  ARTICLES, ARTICLES_WITH_BLOCKS,
   COMMENTS, LEVELS, BADGES, TEAM_MEMBERS,
   DEFAULT_PROFILE, DEFAULT_USER_BADGES, DEFAULT_COMPLETION_CARDS,
   DEFAULT_READING_HISTORY, DEFAULT_SAVED_ARTICLES, DEFAULT_OPINIONS,
@@ -27,12 +25,19 @@ const delay = (ms = 150) => new Promise((r) => setTimeout(r, ms));
 
 const asArray = <T>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
 
-async function withMockFallback<T>(request: Promise<T>, fallback: T, label = 'request'): Promise<T> {
+async function withEnglishFallback<T>(
+  request: Promise<T>,
+  language: Language,
+  fetchEnglish: () => Promise<T>,
+  mockFallback: T,
+  label: string,
+): Promise<T> {
   try {
     return await request;
   } catch (error) {
-    console.warn(`[api] Falling back to mock ${label}:`, error);
-    return fallback;
+    console.warn(`[api] Could not load ${label} in ${language}; using English content:`, error);
+    if (language !== 'EN') return fetchEnglish();
+    return mockFallback;
   }
 }
 
@@ -46,10 +51,28 @@ function normalizeCategory(item: any): Category {
   };
 }
 
-function normalizeArticle(item: any): Article {
-  const summaryText = item.summary ?? item.subtitle ?? '';
-  const baseTakeaways = Array.isArray(item.key_takeaways)
-    ? item.key_takeaways.filter((value: unknown) => typeof value === 'string' && value.trim())
+function normalizeArticle(item: any, language: Language = 'EN'): Article {
+  const languageKey = language.toLowerCase() as 'te' | 'hi';
+  const contentLanguage = typeof item.content_language === 'string'
+    ? item.content_language.toUpperCase()
+    : language;
+  const normalizedContentLanguage: Language = contentLanguage === 'EN'
+    || contentLanguage === 'TE'
+    || contentLanguage === 'HI'
+    ? contentLanguage
+    : language;
+  const languageTranslation = item.translations?.[languageKey];
+  const localizedTitle = languageTranslation?.title ?? item[`title_${languageKey}`];
+  const localizedSubtitle = languageTranslation?.subtitle ?? item[`subtitle_${languageKey}`];
+  const localizedSummary = languageTranslation?.summary ?? item[`summary_${languageKey}`];
+  const summaryText = localizedSummary || localizedSubtitle || item.summary || item.subtitle || '';
+  const hasLocalizedSummary = Boolean(localizedSummary || localizedSubtitle || item.content_language === language);
+  const localizedTakeaways = language === 'EN'
+    ? undefined
+    : languageTranslation?.key_takeaways ?? item[`key_takeaways_${languageKey}`];
+  const takeaways = hasLocalizedSummary ? localizedTakeaways : item.key_takeaways;
+  const baseTakeaways = Array.isArray(takeaways)
+    ? takeaways.filter((value: unknown) => typeof value === 'string' && value.trim())
     : [];
   const derivedTakeaways = baseTakeaways.length > 0
     ? baseTakeaways
@@ -62,17 +85,26 @@ function normalizeArticle(item: any): Article {
   return {
     id: item.id,
     slug: item.slug ?? '',
-    title: item.title,
-    subtitle: item.subtitle ?? '',
-    summary: summaryText || null,
+    title: localizedTitle || item.title,
+    subtitle: localizedSubtitle || item.subtitle || '',
+    summary: localizedSummary || summaryText || null,
+    title_te: item.title_te ?? item.translations?.te?.title ?? null,
+    subtitle_te: item.subtitle_te ?? item.translations?.te?.subtitle ?? null,
+    summary_te: item.summary_te ?? item.translations?.te?.summary ?? null,
+    title_hi: item.title_hi ?? item.translations?.hi?.title ?? null,
+    subtitle_hi: item.subtitle_hi ?? item.translations?.hi?.subtitle ?? null,
+    summary_hi: item.summary_hi ?? item.translations?.hi?.summary ?? null,
+    translations: item.translations,
+    content_language: normalizedContentLanguage,
     key_takeaways: derivedTakeaways.slice(0, 3),
     category_id: item.category_id ?? item.category?.id ?? '',
     category: item.category ? normalizeCategory(item.category) : undefined,
-    article_type: item.article_type ?? 'ARTICLE',
+    article_type: item.article_type === 'STANDARD' ? 'ARTICLE' : item.article_type ?? 'ARTICLE',
     cover_image_url: item.cover_image_url ?? item.cover?.signed_url ?? item.cover?.url ?? null,
     author_id: null,
     author_name: item.author_name ?? null,
     published_at: item.published_at ?? item.created_at ?? null,
+    created_at: item.created_at ?? null,
     is_published: item.is_published ?? true,
     is_featured: Boolean(item.is_featured),
     is_authors_pick: Boolean(item.is_author_pick),
@@ -201,20 +233,24 @@ let categoriesRequest: Promise<Category[]> | null = null;
 export async function fetchCategories(): Promise<Category[]> {
   if (categoriesCache && categoriesCache.expiresAt > Date.now()) return categoriesCache.items;
   if (categoriesRequest) return categoriesRequest;
+  if (!supabase) throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
 
-  categoriesRequest = withMockFallback(
-    apiFetchJson<{ items?: any[] }>('/api/v1/categories')
-      .then((data) => {
-        const items = asArray<any>(data?.items).map(normalizeCategory);
-        categoriesCache = { items, expiresAt: Date.now() + 60_000 };
-        return items;
-      })
-      .finally(() => {
-        categoriesRequest = null;
-      }),
-    CATEGORIES,
-    'categories',
-  );
+  const client = supabase;
+  categoriesRequest = (async () => {
+    try {
+      const { data, error } = await client
+        .from('categories')
+        .select('id, name, slug, description, image_url')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+      if (error) throw error;
+      const items = asArray<any>(data).map(normalizeCategory);
+      categoriesCache = { items, expiresAt: Date.now() + 60_000 };
+      return items;
+    } finally {
+      categoriesRequest = null;
+    }
+  })();
   return categoriesRequest;
 }
 
@@ -298,21 +334,69 @@ export async function fetchHeroConfig(): Promise<HeroConfig> {
 /* ===================== PROMOTIONS ===================== */
 
 export async function fetchPromotions(): Promise<Promotion[]> {
-  return withMockFallback(
-    apiFetchJson<any[]>('/api/v1/promotions').then((data) =>
-      (Array.isArray(data) ? data : []).map((item) => ({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        image_url: item.image_url ?? item.image?.signed_url ?? '',
-        external_url: item.external_url,
-        date_time: item.event_date ?? item.date_time ?? null,
-        active: item.is_active ?? item.active ?? true,
-      })),
-    ),
-    PROMOTIONS,
-    'promotions',
-  );
+  try {
+    const rows = await apiFetchJson<any[]>('/api/v1/promotions', { cache: 'no-store' });
+    return asArray<any>(rows).map((item) => ({
+      id: String(item.id),
+      title: item.title ?? 'Promotion',
+      description: item.description ?? '',
+      image_url: typeof item.image_url === 'string' ? item.image_url : item.image?.signed_url ?? item.image?.url ?? '',
+      external_url: item.external_url ?? '',
+      date_time: item.event_date ?? null,
+      active: Boolean(item.is_active ?? item.active),
+    }));
+  } catch (backendError) {
+    console.warn('[api] Falling back to Supabase for promotions:', backendError);
+  }
+
+  if (!supabase) throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+
+  const { data, error } = await supabase
+    .from('promotional_items')
+    .select(`
+      id, title, description, image_url, external_url, event_date, display_order,
+      is_active, starts_at, ends_at,
+      image:media_assets(storage_path)
+    `)
+    .eq('is_active', true)
+    .order('display_order', { ascending: true })
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+
+  const now = Date.now();
+  const visibleItems = asArray<any>(data).filter((item) => {
+    const startsAt = item.starts_at ? Date.parse(item.starts_at) : null;
+    const endsAt = item.ends_at ? Date.parse(item.ends_at) : null;
+    return (startsAt === null || startsAt <= now) && (endsAt === null || endsAt > now);
+  });
+  const imagePaths = [...new Set(visibleItems
+    .map((item) => (Array.isArray(item.image) ? item.image[0]?.storage_path : item.image?.storage_path))
+    .filter((path): path is string => typeof path === 'string' && path.length > 0))];
+  const signedImages = new Map<string, string>();
+
+  if (imagePaths.length > 0) {
+    const { data: signedRows, error: signedError } = await supabase.storage
+      .from('article-media')
+      .createSignedUrls(imagePaths, 60 * 60 * 24 * 7);
+    if (signedError) throw signedError;
+    for (const signed of signedRows ?? []) {
+      if (signed.path && signed.signedUrl) signedImages.set(signed.path, signed.signedUrl);
+    }
+  }
+
+  return visibleItems.map((item) => {
+    const image = Array.isArray(item.image) ? item.image[0] : item.image;
+    return {
+      id: item.id,
+      title: item.title,
+      description: item.description ?? '',
+      image_url: item.image_url || (image?.storage_path && signedImages.get(image.storage_path)) || '',
+      external_url: item.external_url ?? '',
+      date_time: item.event_date ?? null,
+      active: Boolean(item.is_active),
+    };
+  });
 }
 
 export interface HomeDiscoveryData {
@@ -322,28 +406,43 @@ export interface HomeDiscoveryData {
   authors_picks: Article[];
 }
 
+let homeDiscoveryCache: { value: HomeDiscoveryData; expiresAt: number } | null = null;
+let homeDiscoveryRequest: Promise<HomeDiscoveryData> | null = null;
+
 export async function fetchHomeDiscovery(): Promise<HomeDiscoveryData> {
-  return withMockFallback(
-    apiFetchJson<any>('/api/v1/home/discovery').then((data) => ({
-      categories: asArray<any>(data?.categories).map(normalizeCategory),
-      trending: asArray<any>(data?.trending).map(normalizeArticle),
-      category_sections: asArray<any>(data?.category_sections).map((section) => ({
-        category: normalizeCategory(section.category),
-        articles: asArray<any>(section.articles).map(normalizeArticle),
-      })),
-      authors_picks: asArray<any>(data?.authors_picks).map(normalizeArticle),
-    })),
-    {
-      categories: CATEGORIES,
-      trending: ARTICLES.slice(0, 5),
-      category_sections: CATEGORIES.map((category) => ({
-        category,
-        articles: ARTICLES.filter((article) => article.category_id === category.id).slice(0, 4),
-      })),
-      authors_picks: ARTICLES.filter((article) => article.is_authors_pick).slice(0, 5),
-    },
-    'home discovery',
-  );
+  if (!supabase) throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+  if (homeDiscoveryCache && homeDiscoveryCache.expiresAt > Date.now()) return homeDiscoveryCache.value;
+  if (homeDiscoveryRequest) return homeDiscoveryRequest;
+
+  homeDiscoveryRequest = (async () => {
+    const [{ data: categoryRows, error: categoryError }, articles] = await Promise.all([
+      supabase
+        .from('categories')
+        .select('id, name, slug, description, image_url')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true }),
+      fetchLatestArticles(200),
+    ]);
+    if (categoryError) throw categoryError;
+
+    const categories = asArray<any>(categoryRows).map(normalizeCategory);
+    const value: HomeDiscoveryData = {
+      categories,
+      trending: articles.slice(0, 10),
+      category_sections: categories
+        .map((category) => ({
+          category,
+          articles: articles.filter((article) => article.category_id === category.id).slice(0, 4),
+        }))
+        .filter((section) => section.articles.length > 0),
+      authors_picks: articles.filter((article) => article.is_authors_pick).slice(0, 6),
+    };
+    homeDiscoveryCache = { value, expiresAt: Date.now() + 60_000 };
+    return value;
+  })().finally(() => {
+    homeDiscoveryRequest = null;
+  });
+  return homeDiscoveryRequest;
 }
 
 /* ===================== ARTICLES ===================== */
@@ -371,15 +470,11 @@ export function saveStoredAuthorsPicksOrder(orderedIds: string[]): void {
   }
 }
 
-/**
- * Sorts articles by published date descending (latest posted first).
- */
+/** Sorts articles strictly by creation date descending. */
 export function sortArticlesByDate<T extends { published_at?: string | null; created_at?: string | null }>(articles: T[]): T[] {
   return [...articles].sort((a, b) => {
-    const dateA = a.published_at || a.created_at;
-    const dateB = b.published_at || b.created_at;
-    const timeA = dateA ? new Date(dateA).getTime() : 0;
-    const timeB = dateB ? new Date(dateB).getTime() : 0;
+    const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
     return timeB - timeA;
   });
 }
@@ -389,80 +484,162 @@ const articleListRequests = new Map<string, Promise<Article[]>>();
 let levelsCache: { items: Level[]; expiresAt: number } | null = null;
 let levelsRequest: Promise<Level[]> | null = null;
 
-export async function fetchLatestArticles(limit = 10, searchQuery?: string): Promise<Article[]> {
-  const cacheKey = `latest:${limit}:${searchQuery || ''}`;
+const ARTICLE_TEASER_SELECT = `
+  id, slug, title, subtitle, summary, article_type, published_at, created_at,
+  is_author_pick, is_featured, cover_image_url, reading_time_minutes, author_name,
+  category_id, categories(id, name, slug, description, image_url),
+  cover:media_assets!articles_cover_media_fkey(storage_path)
+`;
+
+async function fetchPublishedArticles(limit: number, searchQuery?: string, language: Language = 'EN'): Promise<Article[]> {
+  if (language !== 'EN') {
+    let url = `/api/v1/articles?limit=${limit}&lang=${language.toLowerCase()}`;
+    if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
+    return withEnglishFallback(
+      apiFetchJson<{ items?: any[] }>(url)
+        .then((data) => asArray<any>(data?.items).map((item) => normalizeArticle(item, language))),
+      language,
+      () => fetchPublishedArticles(limit, searchQuery, 'EN'),
+      [],
+      'latest articles',
+    );
+  }
+
+  if (!supabase) throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+
+  let query = supabase
+    .from('articles')
+    .select(ARTICLE_TEASER_SELECT)
+    .eq('status', 'PUBLISHED')
+    .not('published_at', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  const term = searchQuery?.trim().replace(/[(),]/g, ' ');
+  if (term) query = query.or(`title.ilike.%${term}%,subtitle.ilike.%${term}%,slug.ilike.%${term}%`);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  const rows = asArray<any>(data);
+  const coverPaths = [...new Set(rows
+    .map((row) => row.cover?.storage_path)
+    .filter((path): path is string => typeof path === 'string' && path.length > 0))];
+  const signedCovers = new Map<string, string>();
+
+  if (coverPaths.length > 0) {
+    const { data: signedRows, error: signedError } = await supabase.storage
+      .from('article-media')
+      .createSignedUrls(coverPaths, 60 * 60 * 24 * 7);
+    if (!signedError) {
+      for (const signed of signedRows ?? []) {
+        if (signed.path && signed.signedUrl) signedCovers.set(signed.path, signed.signedUrl);
+      }
+    }
+  }
+
+  return rows.map((row) => normalizeArticle({
+    ...row,
+    category: row.categories,
+    cover_image_url: row.cover_image_url || signedCovers.get(row.cover?.storage_path) || null,
+  }));
+}
+
+export async function fetchLatestArticles(limit = 10, searchQuery?: string, language: Language = 'EN'): Promise<Article[]> {
+  const cacheKey = `latest:${language}:${limit}:${searchQuery || ''}`;
   const cached = articleListCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.items as Article[];
   const request = articleListRequests.get(cacheKey);
   if (request) return request as Promise<Article[]>;
-  let url = '/api/v1/articles?limit=' + limit;
-  if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
-  const next = withMockFallback(
-    apiFetchJson<{ items?: any[] }>(url)
-      .then((data) => asArray<any>(data?.items).map(normalizeArticle).slice(0, limit))
-      .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
-      .finally(() => articleListRequests.delete(cacheKey)),
-    ARTICLES.slice(0, limit),
-    'latest articles',
-  );
+  const next = fetchPublishedArticles(limit, searchQuery, language)
+    .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
+    .finally(() => articleListRequests.delete(cacheKey));
   articleListRequests.set(cacheKey, next);
   return next;
 }
 
-export async function fetchArticlesByCategory(categoryId: string, searchQuery?: string): Promise<Article[]> {
-  const cacheKey = `category:${categoryId}:${searchQuery || ''}`;
+export async function fetchAllArticles(language: Language = 'EN'): Promise<Article[]> {
+  const cacheKey = `all:${language}`;
+  const cached = articleListCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.items;
+  const existingRequest = articleListRequests.get(cacheKey);
+  if (existingRequest) return existingRequest;
+
+  const request = apiFetchJson<{ items?: any[] }>(
+    `/api/v1/articles?lang=${language.toLowerCase()}`,
+  )
+    .then((data) => asArray<any>(data?.items).map((item) => normalizeArticle(item, language)))
+    .then((items) => {
+      articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 });
+      return items;
+    })
+    .finally(() => articleListRequests.delete(cacheKey));
+  articleListRequests.set(cacheKey, request);
+  return request;
+}
+
+export async function fetchArticlesByCategory(categoryId: string, searchQuery?: string, language: Language = 'EN'): Promise<Article[]> {
+  const cacheKey = `category:${language}:${categoryId}:${searchQuery || ''}`;
   const cached = articleListCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.items as Article[];
   const request = articleListRequests.get(cacheKey);
   if (request) return request as Promise<Article[]>;
-  let url = `/api/v1/articles?category_id=${encodeURIComponent(categoryId)}`;
+  let url = `/api/v1/articles?category_id=${encodeURIComponent(categoryId)}&lang=${language.toLowerCase()}`;
   if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
-  const next = withMockFallback(
-    apiFetchJson<{ items?: any[] }>(url)
-      .then((data) => asArray<any>(data?.items).map(normalizeArticle))
-      .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
-      .finally(() => articleListRequests.delete(cacheKey)),
+  const remote = apiFetchJson<{ items?: any[] }>(url)
+    .then((data) => asArray<any>(data?.items).map((item) => normalizeArticle(item, language)));
+  const next = withEnglishFallback(
+    remote,
+    language,
+    () => fetchArticlesByCategory(categoryId, searchQuery, 'EN'),
     ARTICLES.filter((article) => article.category_id === categoryId),
     `category ${categoryId} articles`,
-  );
+  )
+    .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
+    .finally(() => articleListRequests.delete(cacheKey));
   articleListRequests.set(cacheKey, next);
   return next;
 }
 
-export async function fetchAuthorsPicks(limit = 10, searchQuery?: string): Promise<Article[]> {
-  const cacheKey = `authors:${limit}:${searchQuery || ''}`;
+export async function fetchAuthorsPicks(limit = 10, searchQuery?: string, language: Language = 'EN'): Promise<Article[]> {
+  const cacheKey = `authors:${language}:${limit}:${searchQuery || ''}`;
   const cached = articleListCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.items as Article[];
   const request = articleListRequests.get(cacheKey);
   if (request) return request as Promise<Article[]>;
-  let url = '/api/v1/articles?author_picks=true&limit=' + limit;
+  let url = `/api/v1/articles?author_picks=true&limit=${limit}&lang=${language.toLowerCase()}`;
   if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
-  const next = withMockFallback(
-    apiFetchJson<{ items?: any[] }>(url)
-      .then((data) => asArray<any>(data?.items).map(normalizeArticle).slice(0, limit))
-      .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
-      .finally(() => articleListRequests.delete(cacheKey)),
+  const remote = apiFetchJson<{ items?: any[] }>(url)
+    .then((data) => asArray<any>(data?.items).map((item) => normalizeArticle(item, language)).slice(0, limit));
+  const next = withEnglishFallback(
+    remote,
+    language,
+    () => fetchAuthorsPicks(limit, searchQuery, 'EN'),
     ARTICLES.filter((article) => article.is_authors_pick).slice(0, limit),
     'authors picks',
-  );
+  )
+    .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
+    .finally(() => articleListRequests.delete(cacheKey));
   articleListRequests.set(cacheKey, next);
   return next;
 }
 
-export async function fetchFeaturedArticles(limit = 5): Promise<Article[]> {
-  const cacheKey = `featured:${limit}`;
+export async function fetchFeaturedArticles(limit = 5, language: Language = 'EN'): Promise<Article[]> {
+  const cacheKey = `featured:${language}:${limit}`;
   const cached = articleListCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.items as Article[];
   const request = articleListRequests.get(cacheKey);
   if (request) return request as Promise<Article[]>;
-  const next = withMockFallback(
-    apiFetchJson<{ items?: any[] }>('/api/v1/articles?featured=true&limit=' + limit)
-      .then((data) => asArray<any>(data?.items).map(normalizeArticle).slice(0, limit))
-      .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
-      .finally(() => articleListRequests.delete(cacheKey)),
+  const remote = apiFetchJson<{ items?: any[] }>(`/api/v1/articles?featured=true&limit=${limit}&lang=${language.toLowerCase()}`)
+    .then((data) => asArray<any>(data?.items).map((item) => normalizeArticle(item, language)).slice(0, limit));
+  const next = withEnglishFallback(
+    remote,
+    language,
+    () => fetchFeaturedArticles(limit, 'EN'),
     ARTICLES.filter((article) => article.is_featured).slice(0, limit),
     'featured articles',
-  );
+  )
+    .then((items) => { articleListCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 }); return items; })
+    .finally(() => articleListRequests.delete(cacheKey));
   articleListRequests.set(cacheKey, next);
   return next;
 }
@@ -470,18 +647,23 @@ export async function fetchFeaturedArticles(limit = 5): Promise<Article[]> {
 const articleDetailCache = new Map<string, { item: ArticleWithBlocks | null; expiresAt: number }>();
 const articleDetailRequests = new Map<string, Promise<ArticleWithBlocks | null>>();
 
-export async function fetchArticleById(id: string): Promise<ArticleWithBlocks | null> {
-  const cached = articleDetailCache.get(id);
+export async function fetchArticleById(id: string, language: Language = 'EN'): Promise<ArticleWithBlocks | null> {
+  const cacheKey = `${language}:${id}`;
+  const cached = articleDetailCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.item;
-  const existingRequest = articleDetailRequests.get(id);
+  const existingRequest = articleDetailRequests.get(cacheKey);
   if (existingRequest) return existingRequest;
-  const request = withMockFallback(
-    apiFetchJson<any>(`/api/v1/articles/${encodeURIComponent(id)}`)
+  const mockArticle = ARTICLES.find((article) => article.id === id || article.slug === id);
+  const englishFallback = mockArticle
+    ? ARTICLES_WITH_BLOCKS[mockArticle.id] ?? generateArticleWithBlocks(mockArticle)
+    : null;
+  const request = withEnglishFallback(
+    apiFetchJson<any>(`/api/v1/articles/${encodeURIComponent(id)}?lang=${language.toLowerCase()}`)
       .then((item) => {
         if (!item) return null;
 
         const article: ArticleWithBlocks = {
-          ...normalizeArticle(item),
+          ...normalizeArticle(item, language),
           blocks: (item.blocks ?? []).map((block: any) => {
             const baseBlock = {
               id: block.id,
@@ -540,14 +722,16 @@ export async function fetchArticleById(id: string): Promise<ArticleWithBlocks | 
           }),
         };
 
-        articleDetailCache.set(id, { item: article, expiresAt: Date.now() + 60_000 });
+        articleDetailCache.set(cacheKey, { item: article, expiresAt: Date.now() + 60_000 });
         return article;
       })
-      .finally(() => articleDetailRequests.delete(id)),
-    ARTICLES_WITH_BLOCKS[id] ?? generateArticleWithBlocks(ARTICLES.find((article) => article.id === id) ?? ARTICLES[0]),
+      .finally(() => articleDetailRequests.delete(cacheKey)),
+    language,
+    () => fetchArticleById(id, 'EN'),
+    englishFallback,
     `article ${id}`,
   );
-  articleDetailRequests.set(id, request);
+  articleDetailRequests.set(cacheKey, request);
   return request;
 }
 

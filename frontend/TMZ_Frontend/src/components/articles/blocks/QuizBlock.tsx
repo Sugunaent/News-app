@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle, XCircle, HelpCircle, Award } from 'lucide-react';
 import type { Quiz } from '@/types';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
 import { submitQuizAttempt, hasUserAttemptedQuiz } from '@/lib/api';
 import { useToast } from '@/lib/toast';
 

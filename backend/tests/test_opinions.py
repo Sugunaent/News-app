@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -459,6 +459,54 @@ def test_submit_custom_opinion(monkeypatch):
 
         assert data["response"]["selected_option_id"] is None
 
+    finally:
+        clear_auth_override()
+
+
+@patch("app.routers.opinions.award_xp")
+def test_retry_of_saved_opinion_repairs_missing_xp(mock_award_xp):
+    auth = make_auth_mock()
+    question_query = make_query({
+        "id": QUESTION_ID,
+        "article_id": ARTICLE_ID,
+        "allow_custom_response": True,
+    })
+    option_query = make_query({
+        "id": OPTION_1_ID,
+        "question_id": QUESTION_ID,
+    })
+    existing_response = {
+        "id": RESPONSE_ID,
+        "opinion_question_id": QUESTION_ID,
+        "selected_option_id": OPTION_1_ID,
+        "custom_response": None,
+        "created_at": "2026-08-25T00:00:00Z",
+    }
+    response_query = make_query(existing_response)
+
+    def table(name):
+        if name == "opinion_questions":
+            return question_query
+        if name == "opinion_options":
+            return option_query
+        if name == "opinion_responses":
+            return response_query
+        return make_query([])
+
+    auth.client.table.side_effect = table
+    app.dependency_overrides[get_current_user] = lambda: auth
+
+    try:
+        response = client.post(
+            f"/api/v1/opinions/{QUESTION_ID}/responses",
+            json={"selected_option_id": OPTION_1_ID},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["response"]["id"] == RESPONSE_ID
+        assert response.json()["xp_earned"] == 0
+        response_query.insert.assert_not_called()
+        mock_award_xp.assert_called_once()
     finally:
         clear_auth_override()
 

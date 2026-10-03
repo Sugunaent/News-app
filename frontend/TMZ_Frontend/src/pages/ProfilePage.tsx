@@ -5,11 +5,12 @@ import {
   Clock, TrendingUp, CheckCircle2, Lock, ChevronRight, Settings,
   Zap, Star, BarChart3, Sparkles,
 } from 'lucide-react';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
 import { useToast } from '@/lib/toast';
 import { Modal } from '@/components/ui/States';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { CompletionCard as CompletionCardComponent } from '@/components/articles/CompletionCard';
+import { ExternalImage } from '@/components/articles/ExternalImage';
 import {
   fetchLevels, fetchSavedArticles, fetchAllBadges,
   fetchProfileAggregate,
@@ -631,11 +632,9 @@ function SavedArticleCard({ item }: { item: SavedArticleItem }) {
   return (
     <GlassCard className="overflow-hidden cursor-pointer" >
       <div onClick={() => navigate(getArticleRoute(article))}>
-        {article.cover_image_url && (
-          <div className="h-32 overflow-hidden">
-            <img src={article.cover_image_url} alt={article.title} className="w-full h-full object-cover" loading="lazy" />
-          </div>
-        )}
+        <div className="h-32 overflow-hidden">
+          <ExternalImage src={article.cover_image_url} alt={article.title} className="w-full h-full object-cover" />
+        </div>
         <div className="p-4">
           <h3 className="font-display text-sm text-primary line-clamp-2">{article.title}</h3>
           <p className="text-xs text-muted mt-1 line-clamp-1">{article.subtitle}</p>

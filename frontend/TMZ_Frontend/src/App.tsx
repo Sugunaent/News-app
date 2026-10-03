@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useEffect } from 'react';
 import { canonicalUrl, setPageMetadata, upsertJsonLd } from '@/lib/seo';
 import { ThemeProvider } from '@/lib/theme';
+import { LanguageProvider } from '@/lib/language';
 import { AuthProvider } from '@/lib/auth';
 import { ToastProvider } from '@/lib/toast';
 import { DotPattern } from '@/components/layout/DotPattern';
@@ -28,7 +29,7 @@ const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((module) => 
 
 function AppLayout() {
   const location = useLocation();
-  const isAuthPage = location.pathname === '/auth' || location.pathname === '/auth/callback';
+  const isAuthPage = ['/auth', '/login', '/auth/callback'].includes(location.pathname);
 
   useEffect(() => {
     const pageMeta: Record<string, { title: string; description: string; ogTitle?: string; ogDescription?: string }> = {
@@ -58,7 +59,7 @@ function AppLayout() {
       : null;
     const isArticleRoute = /^\/article\/[^/]+\/?$/.test(location.pathname);
     const isKnownRoute = Boolean(pageMeta[location.pathname] || categoryMeta || isArticleRoute);
-    const isPrivateRoute = /^\/(auth|profile|settings|superadmin|card)(\/|$)/.test(location.pathname);
+    const isPrivateRoute = /^\/(auth|login|profile|settings|superadmin|card)(\/|$)/.test(location.pathname);
     const routeMeta = pageMeta[location.pathname] ?? categoryMeta ?? (isArticleRoute
       ? { title: 'Story | The Modern Stories', description: 'Read an interactive story from The Modern Stories.' }
       : { title: 'Page not found | The Modern Stories', description: 'The requested page could not be found.' });
@@ -94,6 +95,7 @@ function AppLayout() {
             <Route path="/latest" element={<LatestPage />} />
             <Route path="/authors-picks" element={<AuthorsPicksPage />} />
             <Route path="/auth" element={<AuthPage />} />
+            <Route path="/login" element={<AuthPage />} />
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
             <Route path="/article/:slug" element={<ArticlePage />} />
             <Route path="/profile" element={<ProfilePage />} />
@@ -115,16 +117,18 @@ function AppLayout() {
 function App() {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <ToastProvider>
-          <BrowserRouter>
-            <ScrollToTop />
-            <DotPattern />
-            <CursorFollower />
-            <AppLayout />
-          </BrowserRouter>
-        </ToastProvider>
-      </AuthProvider>
+      <LanguageProvider>
+        <AuthProvider>
+          <ToastProvider>
+            <BrowserRouter>
+              <ScrollToTop />
+              <DotPattern />
+              <CursorFollower />
+              <AppLayout />
+            </BrowserRouter>
+          </ToastProvider>
+        </AuthProvider>
+      </LanguageProvider>
     </ThemeProvider>
   );
 }

@@ -6,8 +6,10 @@ import { fetchLatestArticles } from '@/lib/api';
 import { ArticleCard } from '@/components/articles/ArticleCard';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States';
 import { Input } from '@/components/ui/Input';
+import { useLanguage } from '@/lib/language';
 
 export function LatestPage() {
+  const { currentLang } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlQuery = searchParams.get('q') ?? '';
   const [articles, setArticles] = useState<Article[]>([]);
@@ -40,7 +42,7 @@ export function LatestPage() {
     setError(false);
     (async () => {
       try {
-        const arts = await fetchLatestArticles(50, debouncedQuery);
+        const arts = await fetchLatestArticles(50, debouncedQuery, currentLang);
         setArticles(arts);
       } catch {
         setError(true);
@@ -48,16 +50,16 @@ export function LatestPage() {
         setLoading(false);
       }
     })();
-  }, [debouncedQuery]);
+  }, [debouncedQuery, currentLang]);
 
   if (loading && articles.length === 0) return <LoadingState message="Loading latest articles..." />;
   if (error && articles.length === 0) return <ErrorState message="Could not load latest articles." />;
 
   return (
     <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 sm:py-8">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-5 mb-8">
         <div className="flex-1">
-          <h1 className="font-display text-4xl md:text-5xl text-primary mb-4">Latest Articles</h1>
+          <h1 className="font-display text-4xl md:text-5xl text-primary mb-3">Latest Articles</h1>
           <p className="text-lg text-secondary max-w-2xl leading-relaxed">
             Stay up to date with our most recently published stories across all categories.
           </p>

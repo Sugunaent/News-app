@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useParams, Navigate } from 'react-router-dom';
-import { ArrowLeft, Home, Layers, User } from 'lucide-react';
+import { ArrowLeft, Home, Layers, Loader2, User } from 'lucide-react';
 import type { ArticleWithBlocks, Level, Badge, Article } from '@/types';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/useAuth';
 import { fireCelebrationConfetti } from '@/lib/confetti';
 import {
   fetchArticleById,
@@ -14,6 +14,7 @@ import {
   createOpinionCard,
   fetchLevels,
   fetchUserBadges,
+  fetchAllArticles,
   fetchLatestArticles,
   fetchAuthorsPicks,
 } from '@/lib/api';
@@ -29,15 +30,33 @@ import { ReadingUnlockOverlay } from '@/components/articles/ReadingUnlockOverlay
 import { ConditionalAdSlot } from '@/components/articles/AdSlot';
 import { canonicalUrl, removeJsonLd, setPageMetadata, SITE_NAME, upsertJsonLd } from '@/lib/seo';
 import { Breadcrumbs } from '@/components/common/Breadcrumbs';
+import { ExternalImage } from '@/components/articles/ExternalImage';
+import { useLanguage } from '@/lib/language';
+import {
+  getLocalizedArticleFields,
+  getLocalizedArticleText,
+  getLocalizedTakeaways,
+  useTranslatedArticle,
+} from '@/lib/translations';
 
 export function ArticlePage() {
-  const { slug: slugOrId } = useParams<{ slug: string }>();
+  const { slug = '' } = useParams<{ slug: string }>();
+  const slugOrId = (() => {
+    try {
+      return decodeURIComponent(slug).trim();
+    } catch {
+      return slug.trim();
+    }
+  })();
   const navigate = useNavigate();
   const { user, profile, refreshProfile, loading: authLoading } = useAuth();
+  const { currentLang } = useLanguage();
 
   const [article, setArticle] = useState<ArticleWithBlocks | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('Article not found.');
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const [unlockedPct, setUnlockedPct] = useState(0);
   const [showXp, setShowXp] = useState(false);
   const [totalXp, setTotalXp] = useState(0);
@@ -62,6 +81,94 @@ export function ArticlePage() {
   const [articleBounds, setArticleBounds] = useState<{ left: number; width: number } | null>(null);
   const [shareCopyState, setShareCopyState] = useState<'idle' | 'copied' | 'shared'>('idle');
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
+
+  const localizedTitle = article ? getLocalizedArticleText(article, currentLang, 'title') : null;
+  const localizedSubtitle = article ? getLocalizedArticleText(article, currentLang, 'subtitle') : null;
+  const localizedSummary = article ? getLocalizedArticleText(article, currentLang, 'summary') : null;
+  const localizedTakeaways = article ? getLocalizedTakeaways(article, currentLang) : null;
+  const translationSegments = useMemo(() => {
+    if (!article || currentLang === 'EN' || article.content_language === currentLang) return {};
+
+    const segments: Record<string, string> = {};
+    if (article.subtitle) segments.subtitle = article.subtitle;
+    if (article.summary) segments.summary = article.summary;
+    article.key_takeaways?.forEach((takeaway, index) => {
+      if (takeaway) segments[`takeaway-${index}`] = takeaway;
+    });
+    article.blocks.forEach((block) => {
+      if (block.content) segments[`block-${block.id}`] = block.content;
+      if (block.image_caption) segments[`caption-${block.id}`] = block.image_caption;
+      if (block.quiz) {
+        segments[`quiz-question-${block.id}`] = block.quiz.question;
+        block.quiz.options.forEach((option) => {
+          segments[`quiz-option-${option.id}`] = option.label;
+          if (option.explanation) segments[`quiz-explanation-${option.id}`] = option.explanation;
+        });
+      }
+      if (block.opinion) {
+        segments[`opinion-question-${block.id}`] = block.opinion.question;
+        block.opinion.options.forEach((option, index) => {
+          const optionId = block.opinion?.option_ids?.[index];
+          if (optionId) segments[`opinion-option-${optionId}`] = option;
+        });
+      }
+    });
+    return segments;
+  }, [article, currentLang]);
+  const translatedArticle = useTranslatedArticle(
+    article?.id ?? '',
+    localizedTitle ? '' : article?.title ?? '',
+    '',
+    translationSegments,
+    { enabled: currentLang !== 'EN' },
+  );
+  const displayTitle = localizedTitle || translatedArticle.title || article?.title || '';
+  const displaySubtitle = localizedSubtitle
+    || translatedArticle.segments.subtitle
+    || article?.subtitle
+    || '';
+  const displaySummary = localizedSummary
+    || translatedArticle.segments.summary
+    || article?.summary
+    || '';
+  const displayTakeaways = useMemo(
+    () => {
+      if (localizedTakeaways) return localizedTakeaways;
+      if (article?.key_takeaways?.length) {
+        return article.key_takeaways.map((takeaway, index) =>
+          translatedArticle.segments[`takeaway-${index}`] || takeaway,
+        );
+      }
+      const targetScript = currentLang === 'TE' ? /[\u0C00-\u0C7F]/ : /[\u0900-\u097F]/;
+      if (currentLang !== 'EN' && (targetScript.test(displaySummary) || targetScript.test(displaySubtitle))) {
+        return [displaySummary || displaySubtitle];
+      }
+      return [];
+    },
+    [localizedTakeaways, currentLang, displaySummary, displaySubtitle, article, translatedArticle.segments],
+  );
+  const displayBlocks = useMemo(() => article?.blocks.map((block) => ({
+    ...block,
+    content: translatedArticle.segments[`block-${block.id}`] || block.content,
+    image_caption: translatedArticle.segments[`caption-${block.id}`] || block.image_caption,
+    quiz: block.quiz ? {
+      ...block.quiz,
+      question: translatedArticle.segments[`quiz-question-${block.id}`] || block.quiz.question,
+      options: block.quiz.options.map((option) => ({
+        ...option,
+        label: translatedArticle.segments[`quiz-option-${option.id}`] || option.label,
+        explanation: translatedArticle.segments[`quiz-explanation-${option.id}`] || option.explanation,
+      })),
+    } : block.quiz,
+    opinion: block.opinion ? {
+      ...block.opinion,
+      question: translatedArticle.segments[`opinion-question-${block.id}`] || block.opinion.question,
+      options: block.opinion.options.map((option, index) => {
+        const optionId = block.opinion?.option_ids?.[index];
+        return (optionId && translatedArticle.segments[`opinion-option-${optionId}`]) || option;
+      }),
+    } : block.opinion,
+  })) ?? [], [article, translatedArticle.segments]);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const commentsRef = useRef<HTMLDivElement>(null);
@@ -141,6 +248,7 @@ export function ArticlePage() {
     }
     setLoading(true);
     setError(false);
+    setErrorMessage('Article not found.');
     setArticle(null);
     setUnlockedPct(0);
     setShowCompletionModal(false);
@@ -154,20 +262,82 @@ export function ArticlePage() {
     setXpBreakdown([]);
     setCompletionCardXp(30);
     quizXpRef.current = 0;
-    fetchArticleById(slugOrId)
-      .then((art) => {
-        if (!art) {
+    let active = true;
+    const loadArticle = async () => {
+      try {
+        let availableArticles: Article[];
+        try {
+          availableArticles = await fetchAllArticles('EN');
+        } catch (listError) {
+          console.warn('[ArticlePage] Full article-list lookup failed; checking the latest article cache.', listError);
+          availableArticles = await fetchLatestArticles(200, undefined, 'EN');
+        }
+        const normalizedRoute = slugOrId.toLocaleLowerCase();
+        const routeParts = normalizedRoute.split('-');
+        const candidateId = routeParts[routeParts.length - 1] ?? '';
+        const baseSlug = routeParts.slice(0, -1).join('-');
+        const match = availableArticles.find((candidate) => {
+          const candidateIdValue = candidate.id.toLocaleLowerCase();
+          const candidateArticleSlug = candidate.slug?.toLocaleLowerCase() ?? '';
+          return candidateIdValue === normalizedRoute
+            || candidateArticleSlug === normalizedRoute
+            || Boolean(candidateId && (
+              candidateIdValue.startsWith(candidateId)
+              || candidateIdValue.endsWith(candidateId)
+              || candidateIdValue.includes(candidateId)
+            ))
+            || Boolean(candidateArticleSlug && candidateArticleSlug === baseSlug)
+            || Boolean(candidateArticleSlug && normalizedRoute.startsWith(candidateArticleSlug))
+            || Boolean(candidateArticleSlug && normalizedRoute.includes(candidateArticleSlug));
+        });
+
+        let resolved: ArticleWithBlocks | null = null;
+        if (match) {
+          try {
+            resolved = await fetchArticleById(match.id, currentLang);
+          } catch (detailError) {
+            console.warn(`[ArticlePage] Could not load full article by ID "${match.id}".`, detailError);
+          }
+
+          if (!resolved && match.slug) {
+            try {
+              resolved = await fetchArticleById(match.slug, currentLang);
+            } catch (detailError) {
+              console.warn(`[ArticlePage] Could not load full article detail for slug "${match.slug}".`, detailError);
+            }
+          }
+        } else {
+          resolved = await fetchArticleById(slugOrId, currentLang);
+        }
+
+        if (!active) return;
+        if (!resolved) {
+          throw new Error('The full article could not be loaded from the article detail endpoint.');
+        }
+        if (resolved.blocks.length === 0) {
+          throw new Error('The article detail endpoint returned no content blocks.');
+        }
+        setArticle(resolved);
+        if (resolved.slug && slugOrId !== resolved.slug && slugOrId !== resolved.id) {
+          navigate(getArticleRoute(resolved), { replace: true });
+        }
+      } catch (fetchError) {
+        console.error(`[ArticlePage] Could not load article "${slugOrId}".`, fetchError);
+        if (active) {
+          setErrorMessage(fetchError instanceof Error
+            ? 'The full article could not be loaded. Please try again.'
+            : 'Article not found.');
           setError(true);
-          return;
         }
-        setArticle(art);
-        if (art.slug && slugOrId !== art.slug && slugOrId !== art.id) {
-          navigate(getArticleRoute(art), { replace: true });
-        }
-      })
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, [slugOrId, user, authLoading, navigate]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void loadArticle();
+    return () => {
+      active = false;
+    };
+  }, [slugOrId, user, authLoading, navigate, currentLang, retryAttempt]);
 
   useEffect(() => {
     if (!error) return;
@@ -183,12 +353,17 @@ export function ArticlePage() {
   useEffect(() => {
     if (!article) return;
 
-    const title = article.seo_title || article.title;
-    const description = article.seo_description || article.summary || article.subtitle || 'Read this story on The Modern Stories.';
+    const title = localizedTitle || article.seo_title || displayTitle;
+    const description = localizedSummary
+      || localizedSubtitle
+      || article.seo_description
+      || displaySummary
+      || displaySubtitle
+      || 'Read this story on The Modern Stories.';
     const route = getArticleRoute(article);
     const canonical = canonicalUrl(article.canonical_url || route);
     const image = canonicalUrl(article.meta_image_url || article.cover_image_url || '/modern_stories_hero.jpg');
-    const bodyText = [article.title, article.subtitle, article.summary, ...article.blocks
+    const bodyText = [displayTitle, displaySubtitle, displaySummary, ...displayBlocks
       .filter((block) => block.block_type === 'TEXT')
       .map((block) => block.content || '')]
       .filter(Boolean)
@@ -239,17 +414,28 @@ export function ArticlePage() {
         : undefined,
       genre: article.category?.name || article.article_type,
       wordCount,
-      inLanguage: 'en',
+      inLanguage: currentLang.toLowerCase(),
     });
 
     return () => removeJsonLd('article-jsonld');
-  }, [article, slugOrId]);
+  }, [
+    article,
+    slugOrId,
+    currentLang,
+    localizedTitle,
+    localizedSubtitle,
+    localizedSummary,
+    displayTitle,
+    displaySubtitle,
+    displaySummary,
+    displayBlocks,
+  ]);
 
   // Load sidebar data
   useEffect(() => {
-    fetchLatestArticles(5).then(setSidebarLatest).catch(() => {});
-    fetchAuthorsPicks(5).then(setSidebarPicks).catch(() => {});
-  }, []);
+    fetchLatestArticles(5, undefined, currentLang).then(setSidebarLatest).catch(() => {});
+    fetchAuthorsPicks(5, undefined, currentLang).then(setSidebarPicks).catch(() => {});
+  }, [currentLang]);
 
   // Load saved reading progress (resume only if user has saved progress)
   useEffect(() => {
@@ -347,7 +533,7 @@ export function ArticlePage() {
     const triggerCompletion = async () => {
       try {
         const userId = user?.id || 'demo-reader';
-        const result = await createCompletionCard(userId, article.id, article.title, 0, 'completion');
+        const result = await createCompletionCard(userId, article.id, displayTitle, 0, 'completion');
         const articleReward = result.xp_gained + quizXpRef.current + (opinionModalData?.xpGained || 0);
         setCompletionCardXp(articleReward);
         setTotalXp(articleReward);
@@ -390,7 +576,7 @@ export function ArticlePage() {
 
     triggerCompletion();
 
-  }, [unlockedPct, scrolledThroughComments, user, slugOrId, article, completionChecked, alreadyCompleted, profile, refreshProfile, opinionModalData]);
+  }, [unlockedPct, scrolledThroughComments, user, slugOrId, article, displayTitle, completionChecked, alreadyCompleted, profile, refreshProfile, opinionModalData]);
 
   const handleQuizResult = useCallback((xp: number) => {
     quizXpRef.current += xp;
@@ -413,7 +599,7 @@ export function ArticlePage() {
     }
     try {
       const userId = user?.id || 'demo-user';
-      await createOpinionCard(userId, article.id, article.title, opinionText, xpEarned);
+      await createOpinionCard(userId, article.id, displayTitle, opinionText, xpEarned);
       if (user) {
         await refreshProfile();
       }
@@ -427,7 +613,7 @@ export function ArticlePage() {
         xpGained: xpEarned,
       });
     }
-  }, [user, article, slugOrId, refreshProfile]);
+  }, [user, article, slugOrId, refreshProfile, displayTitle]);
 
   const handleBack = useCallback((e?: React.MouseEvent) => {
     if (e) {
@@ -441,12 +627,12 @@ export function ArticlePage() {
     }
   }, [navigate]);
 
-  const summaryText = useMemo(() => article?.summary || article?.subtitle || '', [article]);
+  const summaryText = useMemo(() => displaySummary || displaySubtitle, [displaySummary, displaySubtitle]);
   const keyTakeaways = useMemo(() => {
     if (!article) return [];
-    const rawTakeaways = article.key_takeaways && article.key_takeaways.length > 0
-      ? article.key_takeaways
-      : [article.summary, article.subtitle].filter(Boolean) as string[];
+    const rawTakeaways = displayTakeaways.length > 0
+      ? displayTakeaways
+      : [displaySummary, displaySubtitle].filter(Boolean);
 
     const splitTakeaways = rawTakeaways
       .flatMap((entry) => entry
@@ -456,18 +642,17 @@ export function ArticlePage() {
       .slice(0, 3);
 
     return splitTakeaways;
-  }, [article]);
-
+  }, [article, displayTakeaways, displaySummary, displaySubtitle]);
   const handleShare = useCallback(async () => {
     if (!article) return;
 
     const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
-    const shareMessage = `${article.title}${article.summary ? ` — ${article.summary}` : ''}`;
+    const shareMessage = `${displayTitle}${displaySummary ? ` — ${displaySummary}` : ''}`;
 
     try {
       if (navigator.share) {
         await navigator.share({
-          title: article.title,
+          title: displayTitle,
           text: shareMessage,
           url: shareUrl,
         });
@@ -480,13 +665,13 @@ export function ArticlePage() {
     }
 
     setShareMenuOpen((open) => !open);
-  }, [article]);
+  }, [article, displayTitle, displaySummary]);
 
   const handleShareTarget = useCallback(async (target: 'copy' | 'x' | 'facebook' | 'linkedin' | 'whatsapp') => {
     if (!article) return;
 
     const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
-    const shareMessage = `${article.title}${article.summary ? ` — ${article.summary}` : ''}`;
+    const shareMessage = `${displayTitle}${displaySummary ? ` — ${displaySummary}` : ''}`;
 
     if (target === 'copy') {
       if (navigator.clipboard) {
@@ -509,12 +694,22 @@ export function ArticlePage() {
     setShareCopyState('shared');
     setShareMenuOpen(false);
     window.setTimeout(() => setShareCopyState('idle'), 2000);
-  }, [article]);
+  }, [article, displayTitle, displaySummary]);
 
   if (authLoading) return <LoadingState message="Checking access..." />;
   if (!user) return <Navigate to="/auth" state={{ redirect: getArticleRoute(slugOrId ?? '') }} replace />;
   if (loading) return <LoadingState message="Loading article..." />;
-  if (error || !article) return <ErrorState message="Article not found." onRetry={() => navigate('/')} />;
+  if (error || !article) {
+    return (
+      <ErrorState
+        message={errorMessage}
+        onRetry={() => setRetryAttempt((attempt) => attempt + 1)}
+      />
+    );
+  }
+  if (currentLang !== 'EN' && translatedArticle.isLoading) {
+    return <LoadingState message={currentLang === 'TE' ? 'తెలుగులోకి అనువదిస్తోంది...' : 'हिंदी में अनुवाद हो रहा है...'} />;
+  }
 
   const typeLabel = article.article_type === 'PODCAST' ? 'Podcast'
     : article.article_type === 'QUIZ' ? 'Quiz'
@@ -545,7 +740,7 @@ export function ArticlePage() {
             <Breadcrumbs items={[
               { label: 'Home', href: '/' },
               ...(article.category?.slug ? [{ label: article.category.name, href: `/category/${article.category.slug}` }] : []),
-              { label: article.title },
+              { label: displayTitle },
             ]} />
             {/* Top controls */}
             <div className="flex items-center justify-between mb-6 md:mb-8">
@@ -562,7 +757,7 @@ export function ArticlePage() {
             </div>
 
             {/* Article surface */}
-            <article ref={articleRef} className="article-surface p-6 sm:p-8 md:p-12 w-full">
+            <article ref={articleRef} lang={currentLang.toLowerCase()} className="article-surface relative p-6 sm:p-8 md:p-12 w-full">
               {/* Header */}
               <div className="mb-8">
                 <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -595,14 +790,22 @@ export function ArticlePage() {
                     )}
                   </div>
                 </div>
-                <h1 className="font-display text-2xl sm:text-3xl md:text-4xl leading-tight mb-3" style={{ color: 'var(--article-text)' }}>
-                  {article.title}
-                </h1>
+                <div className="flex items-start gap-2">
+                  <h1 className="font-display text-2xl sm:text-3xl md:text-4xl leading-relaxed mb-3" style={{ color: 'var(--article-text)' }}>
+                    {displayTitle}
+                  </h1>
+                  {translatedArticle.isLoading && <Loader2 className="mt-2 h-5 w-5 shrink-0 animate-spin text-muted" aria-label="Translating article" />}
+                </div>
                 <p className="text-base sm:text-lg leading-relaxed" style={{ color: 'var(--article-muted)' }}>
-                  {article.subtitle}
+                  {displaySubtitle}
                 </p>
               </div>
 
+              {translatedArticle.error && (
+                <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300" role="status">
+                  Translation is unavailable right now. Showing the article text returned by the server.
+                </p>
+              )}
               {summaryText && (
                 <section className="mb-8 rounded-2xl border border-border-default bg-surface-secondary/70 p-5 md:p-6">
                   <div className="mb-3 flex items-center gap-2">
@@ -630,7 +833,7 @@ export function ArticlePage() {
 
               {/* ALL blocks are in the DOM — completely readable and interactive */}
               <div ref={contentRef} className="relative">
-                {article.blocks.map((block) => (
+                {displayBlocks.map((block) => (
                   <ArticleBlockRenderer
                     key={block.id}
                     block={block}
@@ -705,7 +908,7 @@ export function ArticlePage() {
             <CompletionCard
               cardType="completion"
               username={profile?.display_name || user?.email || 'Reader'}
-              articleTitle={article.title}
+              articleTitle={displayTitle}
               articleId={article.id}
               xpGained={completionCardXp}
               onClose={() => setShowCompletionModal(false)}
@@ -726,7 +929,7 @@ export function ArticlePage() {
             <CompletionCard
               cardType="opinion"
               username={profile?.display_name || user?.email || 'Reader'}
-              articleTitle={article.title}
+              articleTitle={displayTitle}
               articleId={article.id}
               xpGained={opinionModalData.xpGained}
               opinionText={opinionModalData.opinionText}
@@ -760,6 +963,19 @@ export function ArticlePage() {
 function SidebarItem({ article }: { article: Article }) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { currentLang } = useLanguage();
+  const { title: availableTitle, description: availableDescription } =
+    getLocalizedArticleFields(article, currentLang);
+  const sourceDescription = article.subtitle || article.summary || '';
+  const translated = useTranslatedArticle(
+    article.id,
+    availableTitle ? '' : article.title,
+    availableDescription ? '' : sourceDescription,
+    {},
+    { enabled: currentLang !== 'EN', lazy: true },
+  );
+  const title = availableTitle || translated.title || article.title;
+  const description = availableDescription || translated.content || sourceDescription;
 
   const handleClick = () => {
     if (user) {
@@ -773,16 +989,23 @@ function SidebarItem({ article }: { article: Article }) {
     <div
       onClick={handleClick}
       className="glass-card p-4 cursor-pointer group"
+      lang={currentLang.toLowerCase()}
+      ref={translated.ref}
+      aria-busy={translated.isLoading}
     >
       <div className="flex items-start gap-3">
         {article.cover_image_url && (
           <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0">
-            <img src={article.cover_image_url} alt={article.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" loading="lazy" />
+            <ExternalImage
+              src={article.cover_image_url}
+              alt={title}
+              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+            />
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <h4 className="text-sm text-primary font-body line-clamp-2 leading-snug mb-1">{article.title}</h4>
-          <p className="text-xs text-muted line-clamp-1">{article.subtitle}</p>
+          <h4 className="text-sm text-primary font-body line-clamp-2 leading-snug mb-1">{title}</h4>
+          <p className="text-xs text-muted line-clamp-1">{description}</p>
         </div>
       </div>
     </div>
