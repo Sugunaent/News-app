@@ -126,14 +126,14 @@ export function GamificationSection(): JSX.Element {
                 {tab === 'levels' && levels.map((l) => (
                   <tr key={l.id} className="border-b" style={{ borderColor: 'var(--border-default)' }}>
                     <Td>{l.level_number}</Td><Td>{l.name}</Td><Td>{l.xp_threshold}</Td>
-                    <Td>{l.image_url ? <img src={l.image_url} alt="" className="w-8 h-8 rounded" /> : '—'}</Td>
+                    <Td>{l.image_url ? <img src={l.image_url} alt={`${l.name} level`} className="w-8 h-8 rounded" /> : '—'}</Td>
                     <Td><RowActions onEdit={() => openEdit(l)} onDelete={() => void remove(l.id)} /></Td>
                   </tr>
                 ))}
                 {tab === 'badges' && badges.map((b) => (
                   <tr key={b.id} className="border-b" style={{ borderColor: 'var(--border-default)' }}>
                     <Td>{b.name}</Td><Td>{b.description}</Td>
-                    <Td>{b.image_url ? <img src={b.image_url} alt="" className="w-8 h-8 rounded" /> : '—'}</Td>
+                    <Td>{b.image_url ? <img src={b.image_url} alt={`${b.name} badge`} className="w-8 h-8 rounded" /> : '—'}</Td>
                     <Td><RowActions onEdit={() => openEdit(b)} onDelete={() => void remove(b.id)} /></Td>
                   </tr>
                 ))}

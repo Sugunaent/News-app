@@ -52,7 +52,6 @@ export function CategoryPage() {
         title: 'Category not found | The Modern Stories',
         description: 'This story category could not be found.',
         canonicalPath: `/category/${slug}`,
-        robots: 'noindex, nofollow',
       });
       return;
     }

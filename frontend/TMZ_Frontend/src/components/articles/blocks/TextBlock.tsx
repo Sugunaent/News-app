@@ -19,6 +19,15 @@ function safeLinkUrl(rawUrl: string): string | null {
   return null;
 }
 
+function safeImageUrl(rawUrl: string): string | null {
+  try {
+    const url = new URL(rawUrl.trim(), window.location.href);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function videoEmbedUrl(rawUrl: string): string | null {
   try {
     const url = new URL(rawUrl);
@@ -70,9 +79,17 @@ function formatInlineText(text: string): React.ReactNode {
     const imageMatch = part.match(/^!\[([\s\S]*?)\]\(([^)]+)\)$/);
     if (imageMatch) {
       const [, alt, rawUrl] = imageMatch;
-      const url = safeLinkUrl(rawUrl);
+      const url = safeImageUrl(rawUrl);
       return url ? (
-        <img key={index} src={url} alt={alt} loading="lazy" className="my-5 max-h-[640px] w-full rounded-2xl object-contain" />
+        <img
+          key={index}
+          src={url}
+          alt={alt}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => console.warn('Failed to load embedded article image', { src: url })}
+          className="my-5 max-h-[640px] w-full rounded-2xl object-contain"
+        />
       ) : <span key={index}>{part}</span>;
     }
 

@@ -112,7 +112,7 @@ export function UsersSection(): JSX.Element {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         {u.avatar_url ? (
-                          <img src={u.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover" />
+                          <img src={u.avatar_url} alt={`${u.display_name} profile photo`} className="w-9 h-9 rounded-full object-cover" />
                         ) : (
                           <div className="w-9 h-9 rounded-full flex items-center justify-center font-display text-sm" style={{ background: 'var(--brand-accent)', color: 'var(--bg-card)' }}>
                             {u.display_name.charAt(0).toUpperCase()}

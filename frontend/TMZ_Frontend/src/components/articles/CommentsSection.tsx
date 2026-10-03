@@ -138,7 +138,7 @@ export function CommentsSection({ articleId, onReadyForCompletion }: { articleId
               <div key={comment.id} className="flex gap-3 animate-fade-in">
                 <div className="w-10 h-10 rounded-full bg-brand-accent/20 flex items-center justify-center text-brand-primary text-sm font-bold flex-shrink-0 overflow-hidden">
                   {comment.avatar_url ? (
-                    <img src={comment.avatar_url} alt="" className="w-full h-full object-cover" />
+                    <img src={comment.avatar_url} alt={`${comment.display_name || 'Reader'} profile photo`} className="w-full h-full object-cover" />
                   ) : (
                     comment.display_name?.[0]?.toUpperCase() || '?'
                   )}

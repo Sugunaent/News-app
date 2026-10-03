@@ -30,7 +30,7 @@ export function ConditionalAdSlot({ enabled = true, slot = 'ARTICLE_INLINE' }: {
       className="glass-card p-4 my-6 flex items-center gap-4 min-h-[90px]"
     >
       {advertisement.image?.signed_url && (
-        <img src={advertisement.image.signed_url} alt="" className="w-24 h-16 object-cover rounded-lg" loading="lazy" />
+        <img src={advertisement.image.signed_url} alt={`${advertisement.title} advertisement`} className="w-24 h-16 object-cover rounded-lg" loading="lazy" />
       )}
       <span className="text-sm text-primary">{advertisement.title}</span>
     </a>

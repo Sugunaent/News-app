@@ -220,7 +220,7 @@ export function SuperAdminPage() {
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-primary to-brand-accent flex items-center justify-center text-white text-xs font-bold overflow-hidden">
                 {profile?.avatar_url ? (
-                  <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+                  <img src={profile.avatar_url} alt={`${profile.display_name || 'Administrator'} profile photo`} className="w-full h-full object-cover" />
                 ) : (
                   profile?.display_name?.[0]?.toUpperCase() ?? 'A'
                 )}

@@ -143,7 +143,7 @@ function AccountSection({
       <div className="flex items-center gap-5 mb-6">
         <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-brand-primary to-brand-accent flex items-center justify-center text-white text-2xl font-display shrink-0 overflow-hidden relative">
           {profile.avatar_url ? (
-            <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+            <img src={profile.avatar_url} alt={`${profile.display_name || 'Your'} profile photo`} className="w-full h-full object-cover" />
           ) : (
             profile.display_name?.[0]?.toUpperCase() || 'U'
           )}

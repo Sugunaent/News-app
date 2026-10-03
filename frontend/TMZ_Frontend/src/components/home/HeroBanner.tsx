@@ -87,9 +87,12 @@ export function HeroBanner() {
 
           <div className="absolute bottom-5 left-5 right-36 z-10 max-w-3xl sm:bottom-8 sm:left-8 sm:right-56">
             <h1 className="font-display text-2xl font-semibold leading-tight text-white drop-shadow-md sm:text-4xl lg:text-5xl">
-              {config.title}
+              The Modern Stories
             </h1>
-            <p className="mt-2 hidden max-w-2xl text-sm leading-relaxed text-white/90 drop-shadow sm:block md:text-base">
+            <p className="mt-2 max-w-2xl font-display text-base leading-relaxed text-white/95 drop-shadow sm:text-lg">
+              {config.title}
+            </p>
+            <p className="mt-1 hidden max-w-2xl text-sm leading-relaxed text-white/90 drop-shadow sm:block md:text-base">
               {config.subtitle}
             </p>
           </div>
