@@ -33,10 +33,10 @@ function AppLayout() {
   useEffect(() => {
     const pageMeta: Record<string, { title: string; description: string; ogTitle?: string; ogDescription?: string }> = {
       '/': {
-        title: 'The Modern Stories | Modern Ideas & Interactive Editorial Stories',
-        description: 'Explore The Modern Stories, an editorial platform for contemporary ideas, perspectives, and interactive articles featuring quizzes, opinions, podcasts, and reader-focused experiences.',
-        ogTitle: 'The Modern Stories | Contemporary Digital Stories',
-        ogDescription: 'Read contemporary ideas and perspectives through articles, quizzes, opinions, and podcasts from The Modern Stories.',
+        title: "The Modern Stories | India's Premier AEO & GEO Digital Storytelling Platform",
+        description: "Discover The Modern Stories (TMS): India's leading AEO & GEO-powered digital platform for modern narratives, cyber articles, technology insights, personality growth, and inspiring contemporary literature. Empowering readers and stories.",
+        ogTitle: "The Modern Stories | India's Premier AEO & GEO Digital Storytelling Platform",
+        ogDescription: "Discover The Modern Stories (TMS): India's leading AEO & GEO-powered digital platform for modern narratives, cyber articles, technology insights, personality growth, and inspiring contemporary literature. Empowering readers and stories.",
       },
       '/about': { title: 'About | The Modern Stories', description: 'Learn more about The Modern Stories editorial platform.' },
       '/latest': { title: 'Latest Stories | The Modern Stories', description: 'Browse the newest articles, features, and editorial content.' },
@@ -58,15 +58,14 @@ function AppLayout() {
       : null;
     const isArticleRoute = /^\/article\/[^/]+\/?$/.test(location.pathname);
     const isKnownRoute = Boolean(pageMeta[location.pathname] || categoryMeta || isArticleRoute);
+    const isPrivateRoute = /^\/(auth|profile|settings|superadmin|card)(\/|$)/.test(location.pathname);
     const routeMeta = pageMeta[location.pathname] ?? categoryMeta ?? (isArticleRoute
       ? { title: 'Story | The Modern Stories', description: 'Read an interactive story from The Modern Stories.' }
       : { title: 'Page not found | The Modern Stories', description: 'The requested page could not be found.' });
-    const isPrivateRoute = /^\/(auth|profile|settings|superadmin|card)(\/|$)/.test(location.pathname);
-
     setPageMetadata({
       ...routeMeta,
       canonicalPath: location.pathname,
-      robots: isPrivateRoute || !isKnownRoute ? 'noindex, nofollow' : undefined,
+      robots: isPrivateRoute || !isKnownRoute || isArticleRoute ? 'noindex, nofollow' : undefined,
       ogTitle: 'ogTitle' in routeMeta ? routeMeta.ogTitle : undefined,
       ogDescription: 'ogDescription' in routeMeta ? routeMeta.ogDescription : undefined,
     });

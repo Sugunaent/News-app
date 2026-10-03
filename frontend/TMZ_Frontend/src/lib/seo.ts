@@ -1,7 +1,7 @@
 export const SITE_NAME = 'The Modern Stories';
-export const SITE_URL = (import.meta.env.VITE_SITE_URL || 'https://www.themodernstories.in').replace(/\/$/, '');
-export const DEFAULT_DESCRIPTION = 'Explore The Modern Stories, an editorial platform for contemporary ideas, perspectives, and interactive articles featuring quizzes, opinions, podcasts, and reader-focused experiences.';
-export const DEFAULT_SOCIAL_IMAGE = `${SITE_URL}/modern_stories_hero.jpg`;
+export const SITE_URL = 'https://www.themodernstories.in';
+export const DEFAULT_DESCRIPTION = "Discover The Modern Stories (TMS): India's leading AEO & GEO-powered digital platform for modern narratives, cyber articles, technology insights, personality growth, and inspiring contemporary literature. Empowering readers and stories.";
+export const DEFAULT_SOCIAL_IMAGE = `${SITE_URL}/assets/og-cover.jpg`;
 
 export interface PageMetadata {
   title: string;
@@ -15,7 +15,6 @@ export interface PageMetadata {
   ogDescription?: string;
   twitterTitle?: string;
   twitterDescription?: string;
-  keywords?: string;
   author?: string;
 }
 
@@ -42,10 +41,6 @@ export function setPageMetadata(metadata: PageMetadata): void {
   upsertMeta('meta[name="description"]', 'name', 'description', metadata.description);
   upsertMeta('meta[name="author"]', 'name', 'author', metadata.author || SITE_NAME);
   upsertMeta('meta[name="robots"]', 'name', 'robots', metadata.robots || 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1');
-  upsertMeta('meta[name="keywords"]', 'name', 'keywords', metadata.keywords || 'The Modern Stories, modern ideas, editorial articles, digital storytelling, interactive journalism, perspectives');
-  upsertMeta('meta[name="news_keywords"]', 'name', 'news_keywords', 'Modern Ideas, Journalism, Digital Stories, Editorial Perspectives');
-  upsertMeta('meta[name="topic"]', 'name', 'topic', 'Contemporary Ideas, Journalism, and Interactive Storytelling');
-
   upsertMeta('meta[property="og:type"]', 'property', 'og:type', metadata.ogType || 'website');
   upsertMeta('meta[property="og:site_name"]', 'property', 'og:site_name', SITE_NAME);
   upsertMeta('meta[property="og:url"]', 'property', 'og:url', canonical);

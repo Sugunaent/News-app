@@ -13,6 +13,7 @@ import { GlowingEffect } from '@/components/articles/GlowingEffect';
 import { HeroBanner } from '@/components/home/HeroBanner';
 import { useAuth } from '@/lib/auth';
 import { ContactSection } from '@/components/common/ContactSection';
+import { canonicalUrl, removeJsonLd, upsertJsonLd } from '@/lib/seo';
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -68,6 +69,26 @@ export function HomePage() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    const listedCategories = categories.filter((category) => (categoryArticles[category.id]?.length ?? 0) > 0);
+    if (listedCategories.length === 0) {
+      removeJsonLd('home-itemlist-jsonld');
+      return;
+    }
+
+    upsertJsonLd('home-itemlist-jsonld', {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      itemListElement: listedCategories.map((category, index) => ({
+        '@type': 'ListItem',
+        position: index + 1,
+        name: category.name,
+        url: canonicalUrl(`/category/${category.slug}`),
+      })),
+    });
+    return () => removeJsonLd('home-itemlist-jsonld');
+  }, [categories, categoryArticles]);
 
   if (loading) return <LoadingState message="Loading stories..." />;
   if (error) return <ErrorState message="Could not load content. Please try again." onRetry={() => window.location.reload()} />;

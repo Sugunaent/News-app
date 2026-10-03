@@ -186,7 +186,7 @@ export function ArticlePage() {
     const title = article.seo_title || article.title;
     const description = article.seo_description || article.summary || article.subtitle || 'Read this story on The Modern Stories.';
     const route = getArticleRoute(article);
-    const canonical = article.canonical_url || canonicalUrl(route);
+    const canonical = canonicalUrl(article.canonical_url || route);
     const image = canonicalUrl(article.meta_image_url || article.cover_image_url || '/modern_stories_hero.jpg');
     const bodyText = [article.title, article.subtitle, article.summary, ...article.blocks
       .filter((block) => block.block_type === 'TEXT')
@@ -203,6 +203,7 @@ export function ArticlePage() {
       description,
       canonicalPath: canonical,
       image,
+      robots: 'noindex, nofollow',
       ogType: 'article',
       author: article.author_name || SITE_NAME,
     });
@@ -227,12 +228,15 @@ export function ArticlePage() {
       description,
       image: [image],
       ...(publishedDate ? { datePublished: publishedDate } : {}),
-      ...(publishedDate ? { dateModified: publishedDate } : {}),
       author: article.author_name
         ? { '@type': 'Person', name: article.author_name }
         : { '@type': 'Organization', name: SITE_NAME },
       publisher: { '@id': `${canonicalUrl('/')}#organization` },
       articleSection: article.category?.name || 'Editorial Stories',
+      keywords: article.category?.name,
+      about: article.category?.name
+        ? { '@type': 'Thing', name: article.category.name }
+        : undefined,
       genre: article.category?.name || article.article_type,
       wordCount,
       inLanguage: 'en',
@@ -773,7 +777,7 @@ function SidebarItem({ article }: { article: Article }) {
       <div className="flex items-start gap-3">
         {article.cover_image_url && (
           <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0">
-            <img src={article.cover_image_url} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" loading="lazy" />
+            <img src={article.cover_image_url} alt={article.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" loading="lazy" />
           </div>
         )}
         <div className="min-w-0 flex-1">

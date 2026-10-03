@@ -1,13 +1,26 @@
 User-agent: *
 Allow: /
-Disallow: /auth
+Disallow: /auth$
+Disallow: /auth/
 Disallow: /profile
 Disallow: /settings
 Disallow: /superadmin
 Disallow: /card
 Disallow: /api/v1/superadmin/
 
+User-agent: Googlebot
+User-agent: Bingbot
+User-agent: PerplexityBot
+User-agent: GPTBot
+User-agent: ClaudeBot
 User-agent: OAI-SearchBot
 Allow: /
+Disallow: /auth$
+Disallow: /auth/
+Disallow: /profile
+Disallow: /settings
+Disallow: /superadmin
+Disallow: /card
+Disallow: /api/v1/superadmin/
 
 Sitemap: https://www.themodernstories.in/sitemap.xml
