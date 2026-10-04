@@ -660,9 +660,12 @@ export async function fetchArticleById(id: string, language: Language = 'EN'): P
     ? ARTICLES_WITH_BLOCKS[mockArticle.id] ?? generateArticleWithBlocks(mockArticle)
     : null;
   const request = withEnglishFallback(
-    apiFetchJson<any>(`/api/v1/articles/${encodeURIComponent(id)}?lang=${language.toLowerCase()}`)
+    apiFetchJson<any>(`/api/v1/articles/${encodeURIComponent(id)}?lang=${language.toLowerCase()}`, { skipAuth: true })
       .then((item) => {
-        if (!item) return null;
+        if (!item) {
+          console.warn(`[api] Article detail endpoint returned no article for "${id}".`);
+          return null;
+        }
 
         const article: ArticleWithBlocks = {
           ...normalizeArticle(item, language),

@@ -281,49 +281,56 @@ export function ArticlePage() {
     let active = true;
     const loadArticle = async () => {
       try {
-        let availableArticles: Article[];
-        try {
-          availableArticles = await fetchAllArticles('EN');
-        } catch (listError) {
-          console.warn('[ArticlePage] Full article-list lookup failed; checking the latest article cache.', listError);
-          availableArticles = await fetchLatestArticles(200, undefined, 'EN');
-        }
-        const normalizedRoute = slugOrId.toLocaleLowerCase();
-        const routeParts = normalizedRoute.split('-');
-        const candidateId = routeParts[routeParts.length - 1] ?? '';
-        const baseSlug = routeParts.slice(0, -1).join('-');
-        const match = availableArticles.find((candidate) => {
-          const candidateIdValue = candidate.id.toLocaleLowerCase();
-          const candidateArticleSlug = candidate.slug?.toLocaleLowerCase() ?? '';
-          return candidateIdValue === normalizedRoute
-            || candidateArticleSlug === normalizedRoute
-            || Boolean(candidateId && (
-              candidateIdValue.startsWith(candidateId)
-              || candidateIdValue.endsWith(candidateId)
-              || candidateIdValue.includes(candidateId)
-            ))
-            || Boolean(candidateArticleSlug && candidateArticleSlug === baseSlug)
-            || Boolean(candidateArticleSlug && normalizedRoute.startsWith(candidateArticleSlug))
-            || Boolean(candidateArticleSlug && normalizedRoute.includes(candidateArticleSlug));
-        });
-
         let resolved: ArticleWithBlocks | null = null;
-        if (match) {
+        try {
+          resolved = await fetchArticleById(slugOrId, currentLang);
+        } catch (detailError) {
+          console.warn(`[ArticlePage] Could not load article detail for route slug "${slugOrId}".`, detailError);
+        }
+
+        if (!resolved) {
+          let availableArticles: Article[];
           try {
-            resolved = await fetchArticleById(match.id, currentLang);
-          } catch (detailError) {
-            console.warn(`[ArticlePage] Could not load full article by ID "${match.id}".`, detailError);
+            availableArticles = await fetchAllArticles('EN');
+          } catch (listError) {
+            console.warn('[ArticlePage] Full article-list lookup failed; checking the latest article list.', listError);
+            availableArticles = await fetchLatestArticles(200, undefined, 'EN');
           }
 
-          if (!resolved && match.slug) {
+          const normalizedRoute = slugOrId.toLocaleLowerCase();
+          const routeParts = normalizedRoute.split('-');
+          const candidateId = routeParts[routeParts.length - 1] ?? '';
+          const baseSlug = routeParts.slice(0, -1).join('-');
+          const match = availableArticles.find((candidate) => {
+            const candidateIdValue = candidate.id.toLocaleLowerCase();
+            const candidateArticleSlug = candidate.slug?.toLocaleLowerCase() ?? '';
+            return candidateIdValue === normalizedRoute
+              || candidateArticleSlug === normalizedRoute
+              || Boolean(candidateId && (
+                candidateIdValue.startsWith(candidateId)
+                || candidateIdValue.endsWith(candidateId)
+                || candidateIdValue.includes(candidateId)
+              ))
+              || Boolean(candidateArticleSlug && candidateArticleSlug === baseSlug)
+              || Boolean(candidateArticleSlug && normalizedRoute.startsWith(candidateArticleSlug))
+              || Boolean(candidateArticleSlug && normalizedRoute.includes(candidateArticleSlug));
+          });
+
+          if (match) {
             try {
-              resolved = await fetchArticleById(match.slug, currentLang);
+              resolved = await fetchArticleById(match.id, currentLang);
             } catch (detailError) {
-              console.warn(`[ArticlePage] Could not load full article detail for slug "${match.slug}".`, detailError);
+              console.warn(`[ArticlePage] Could not load article detail for matched ID "${match.id}".`, detailError);
+            }
+
+            if (!resolved && match.slug && match.slug !== match.id) {
+              try {
+                resolved = await fetchArticleById(match.slug, currentLang);
+              } catch (detailError) {
+                console.warn(`[ArticlePage] Could not load article detail for matched slug "${match.slug}".`, detailError);
+              }
             }
           }
-        } else {
-          resolved = await fetchArticleById(slugOrId, currentLang);
         }
 
         if (!active) return;

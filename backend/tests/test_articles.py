@@ -122,6 +122,32 @@ def test_get_article_returns_all_text_blocks_for_full_article():
     ]
 
 
+def test_public_article_detail_is_available_without_authentication():
+    article_id = "11111111-1111-1111-1111-111111111111"
+    article = {
+        "id": article_id,
+        "slug": "guest-readable-article",
+        "title": "Guest-readable article",
+        "subtitle": "A published story",
+        "summary": "Article summary",
+        "article_type": "STANDARD",
+        "published_at": datetime(2026, 8, 23, 10, tzinfo=timezone.utc),
+        "categories": None,
+        "cover": None,
+    }
+    supabase, _ = _mock_article_detail(article, [])
+
+    with (
+        patch.object(articles_router, "supabase_admin", supabase),
+        patch.object(articles_router, "record_article_view"),
+        patch.object(articles_router, "attach_signed_url", side_effect=lambda media: media),
+    ):
+        response = client.get(f"/api/v1/articles/{article_id}")
+
+    assert response.status_code == 200
+    assert response.json()["slug"] == "guest-readable-article"
+
+
 def test_get_article_uses_translated_text_for_non_english_language():
     article_id = "11111111-1111-1111-1111-111111111111"
     block_id = "33333333-3333-3333-3333-333333333333"

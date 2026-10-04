@@ -3,14 +3,13 @@ from typing import Literal
 from uuid import UUID
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from postgrest.exceptions import APIError
 
 from app.core.config import settings
 from app.core.exceptions import NotFoundError
 from app.db.supabase import supabase_admin
-from app.dependencies.auth import get_current_user
 from app.routers.translation import generate_translation
 from app.schemas.articles import (
     ArticleDetailResponse,
@@ -295,12 +294,12 @@ def redirect_legacy_article(article_id: str):
 @router.get(
     "/{slug}",
     response_model=ArticleDetailResponse,
-    dependencies=[Depends(get_current_user)],
 )
 async def get_article(
     slug: str,
     lang: Literal["en", "te", "hi"] = Query(default="en"),
 ):
+    logger.info("Fetching published article detail for slug=%s language=%s", slug, lang)
     client = supabase_admin
     query = (
         client
@@ -347,6 +346,7 @@ async def get_article(
     article_data = getattr(response, "data", None) if response else None
 
     if not article_data:
+        logger.info("Published article detail not found for slug=%s", slug)
         raise NotFoundError("Article not found")
 
     article = article_data

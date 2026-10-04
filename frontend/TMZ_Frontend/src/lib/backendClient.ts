@@ -61,6 +61,7 @@ function isPublicGetEndpoint(path: string, method = 'GET'): boolean {
     normalized.startsWith('/api/v1/gamification/badges') ||
     normalized.startsWith('/api/v1/gamification/xp-rules') ||
     normalized === '/api/v1/articles' ||
+    normalized.startsWith('/api/v1/articles/') ||
     normalized === '/api/v1/articles/search'
   );
 }
@@ -78,7 +79,7 @@ export async function apiFetch<T>(path: string, init: ApiFetchOptions = {}): Pro
     headers.set('Content-Type', 'application/json');
   }
 
-  const token = init.skipAuth ? null : await getAuthToken();
+  const token = init.skipAuth || isPublic ? null : await getAuthToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
   let response: Response;
@@ -156,4 +157,3 @@ export async function apiFetch<T>(path: string, init: ApiFetchOptions = {}): Pro
 export async function apiFetchJson<T>(path: string, init: ApiFetchOptions = {}): Promise<T> {
   return apiFetch<T>(path, init);
 }
-
