@@ -113,6 +113,8 @@ function normalizeArticle(item: any, language: Language = 'EN'): Article {
     seo_description: item.seo_description ?? item.meta_description ?? item.summary ?? item.subtitle ?? null,
     meta_image_url: item.meta_image_url ?? item.og_image ?? item.cover_image_url ?? item.cover?.signed_url ?? null,
     canonical_url: item.canonical_url ?? null,
+    tags: item.tags ?? null,
+    keywords: item.keywords ?? null,
   };
 }
 
@@ -209,7 +211,7 @@ function saveCompletionCards(cards: CompletionCard[]) {
   }
 }
 
-let _profile: UserProfile = { ...DEFAULT_PROFILE };
+const _profile: UserProfile = { ...DEFAULT_PROFILE };
 const _bookmarks = new Set<string>(DEFAULT_SAVED_ARTICLES.map((b) => b.article_id));
 const _readingProgress: Record<string, ReadingProgress> = {};
 let _completionCards: CompletionCard[] = loadCompletionCards();
@@ -218,7 +220,7 @@ let _comments: Comment[] = [...COMMENTS];
 const _quizAttempted = new Set<string>();
 const _opinionSubmitted = new Set<string>();
 const _opinions: OpinionSubmission[] = [...DEFAULT_OPINIONS];
-let _bookmarkList: Bookmark[] = DEFAULT_SAVED_ARTICLES.map((s) => ({
+const _bookmarkList: Bookmark[] = DEFAULT_SAVED_ARTICLES.map((s) => ({
   id: s.id,
   user_id: s.user_id,
   article_id: s.article_id,

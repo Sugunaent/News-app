@@ -1,11 +1,67 @@
 export const SITE_NAME = 'The Modern Stories';
-export const SITE_URL = 'https://www.themodernstories.in';
+export const SITE_URL = 'https://themodernstories.com';
 export const DEFAULT_DESCRIPTION = "Discover The Modern Stories (TMS): India's leading AEO & GEO-powered digital platform for modern narratives, cyber articles, technology insights, personality growth, and inspiring contemporary literature. Empowering readers and stories.";
-export const DEFAULT_SOCIAL_IMAGE = `${SITE_URL}/assets/og-cover.jpg`;
+export const DEFAULT_SOCIAL_IMAGE = `${SITE_URL}/modern_stories_hero.jpg`;
+export const SITE_ORGANIZATION_ID = `${SITE_URL}/#organization`;
+export const SITE_WEBSITE_ID = `${SITE_URL}/#website`;
+
+export const SITE_ENTITY_SCHEMA = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      '@id': SITE_WEBSITE_ID,
+      url: `${SITE_URL}/`,
+      name: SITE_NAME,
+      alternateName: 'TMS News',
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: {
+          '@type': 'EntryPoint',
+          urlTemplate: `${SITE_URL}/latest?q={search_term_string}`,
+        },
+        'query-input': 'required name=search_term_string',
+      },
+      publisher: { '@id': SITE_ORGANIZATION_ID },
+    },
+    {
+      '@type': 'Organization',
+      '@id': SITE_ORGANIZATION_ID,
+      name: SITE_NAME,
+      alternateName: 'TMS News',
+      url: `${SITE_URL}/`,
+      sameAs: [
+        'https://www.instagram.com/themodernstories_official/',
+        'https://www.youtube.com/@THEMODERNSTORIES-c6n',
+        'https://www.linkedin.com/company/the-modern-stories/',
+      ],
+      logo: {
+        '@type': 'ImageObject',
+        url: `${SITE_URL}/favicon.svg`,
+      },
+      founder: { '@id': `${SITE_URL}/#founder` },
+    },
+    {
+      '@type': 'Person',
+      '@id': `${SITE_URL}/#founder`,
+      name: 'Tolety Mohana Shyam',
+      alternateName: ['Mohana Shyam T', 'Mohan Shyam T', 'Mohan Shyam'],
+      jobTitle: 'Founder',
+      worksFor: { '@id': SITE_ORGANIZATION_ID },
+      knowsAbout: [
+        'Digital storytelling',
+        'Editorial journalism',
+        'Contemporary literature',
+        'Interactive articles',
+      ],
+    },
+  ],
+};
 
 export interface PageMetadata {
   title: string;
   description: string;
+  keywords?: string;
   canonicalPath?: string;
   image?: string;
   imageAlt?: string;
@@ -39,6 +95,7 @@ export function setPageMetadata(metadata: PageMetadata): void {
 
   document.title = title;
   upsertMeta('meta[name="description"]', 'name', 'description', metadata.description);
+  upsertMeta('meta[name="keywords"]', 'name', 'keywords', metadata.keywords || '');
   upsertMeta('meta[name="author"]', 'name', 'author', metadata.author || SITE_NAME);
   upsertMeta('meta[name="robots"]', 'name', 'robots', metadata.robots || 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1');
   upsertMeta('meta[property="og:type"]', 'property', 'og:type', metadata.ogType || 'website');

@@ -3,7 +3,7 @@ import {
   FileText, Plus, Edit3, Trash2, Globe, GlobeLock, Calendar,
   Star, ArrowLeft, Save, Loader2, GripVertical,
   Type, Image as ImageIcon, HelpCircle, MessageSquare, Mic, X,
-  Check, ChevronUp, ChevronDown, AlertCircle, Copy,
+  Check, ChevronUp, ChevronDown, AlertCircle, Copy, Languages, Sparkles,
 } from 'lucide-react';
 import { useToast } from '@/lib/toast';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -11,6 +11,7 @@ import { Modal } from '@/components/ui/States';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { TextFormattingBar } from '@/components/admin/TextFormattingBar';
+import { translateForManualEditing } from '@/lib/translations';
 import {
   fetchArticles, fetchCategories, createArticle, updateArticle, deleteArticle,
   fetchArticleBlocks, createArticleBlock, updateArticleBlock, deleteArticleBlock,
@@ -379,6 +380,12 @@ function ArticleEditor({
   const [title, setTitle] = useState(article?.title ?? '');
   const [subtitle, setSubtitle] = useState(article?.subtitle ?? '');
   const [summary, setSummary] = useState(article?.summary ?? '');
+  const [activeLanguageTab, setActiveLanguageTab] = useState<'EN' | 'TE' | 'HI'>('EN');
+  const [titleTe, setTitleTe] = useState(article?.title_te ?? '');
+  const [contentTe, setContentTe] = useState(article?.content_te ?? '');
+  const [titleHi, setTitleHi] = useState(article?.title_hi ?? '');
+  const [contentHi, setContentHi] = useState(article?.content_hi ?? '');
+  const [translating, setTranslating] = useState(false);
   const [categoryId, setCategoryId] = useState(article?.category_id ?? '');
   const [articleType, setArticleType] = useState(article?.article_type ?? 'ARTICLE');
   const [isAuthorsPick, setIsAuthorsPick] = useState(article?.is_authors_pick ?? false);
@@ -486,6 +493,35 @@ function ArticleEditor({
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, ...updates } : b)));
   };
 
+  const handleAutoTranslate = async () => {
+    const englishContent = blocks
+      .filter((block) => block.block_type === 'TEXT' && block.content.trim())
+      .map((block) => block.content.trim())
+      .join('\n\n');
+    if (!title.trim() && !englishContent) {
+      showToast('Add an English title or text block before translating', 'error');
+      return;
+    }
+
+    setTranslating(true);
+    try {
+      const [telugu, hindi] = await Promise.all([
+        translateForManualEditing({ title, content: englishContent }, 'TE'),
+        translateForManualEditing({ title, content: englishContent }, 'HI'),
+      ]);
+      setTitleTe(telugu.title);
+      setContentTe(telugu.content);
+      setTitleHi(hindi.title);
+      setContentHi(hindi.content);
+      showToast('Telugu and Hindi drafts generated. Review them before saving.', 'success');
+    } catch (error) {
+      console.error('[CMS] Failed to auto-translate article', error);
+      showToast(error instanceof Error ? error.message : 'Auto-translation failed', 'error');
+    } finally {
+      setTranslating(false);
+    }
+  };
+
   const handleSave = async (newStatus?: ArticleStatus) => {
     if (newStatus === 'SCHEDULED' && !scheduleAt) {
       showToast('Choose a scheduled publish date and time', 'error');
@@ -508,6 +544,13 @@ function ArticleEditor({
       const data: Partial<AdminArticle> = {
         id: articleId,
         title, subtitle, summary,
+        title_te: titleTe.trim() || null,
+        content_te: contentTe.trim() || null,
+        title_hi: titleHi.trim() || null,
+        content_hi: contentHi.trim() || null,
+        is_manual_translation: Boolean(
+          titleTe.trim() || contentTe.trim() || titleHi.trim() || contentHi.trim(),
+        ),
         category_id: categoryId || null,
         category_name: categories.find((c) => c.id === categoryId)?.name,
         article_type: articleType as AdminArticle['article_type'],
@@ -710,18 +753,91 @@ function ArticleEditor({
 
       {/* Article Metadata */}
       <GlassCard hover={false} className="p-5 space-y-4">
-        <Input label="Title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Article title" />
-        <Input label="Subtitle" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder="Article subtitle" />
-        <div>
-          <label className="block text-sm text-secondary font-body mb-1.5">Summary</label>
-          <textarea
-            className="input-field resize-none"
-            rows={2}
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            placeholder="Brief summary for cards and previews"
-          />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2" role="tablist" aria-label="Article language">
+            {([
+              ['EN', 'English'],
+              ['TE', 'Telugu'],
+              ['HI', 'Hindi'],
+            ] as const).map(([language, label]) => (
+              <button
+                key={language}
+                type="button"
+                role="tab"
+                aria-selected={activeLanguageTab === language}
+                onClick={() => setActiveLanguageTab(language)}
+                className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  activeLanguageTab === language
+                    ? 'bg-brand-primary text-white'
+                    : 'bg-surface-secondary text-secondary hover:text-primary'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => void handleAutoTranslate()}
+            disabled={translating || saving}
+          >
+            {translating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            Auto-Translate with AI
+          </Button>
         </div>
+
+        {activeLanguageTab === 'EN' ? (
+          <div className="space-y-4" role="tabpanel">
+            <Input label="Title (English)" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Article title" />
+            <Input label="Subtitle (English)" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder="Article subtitle" />
+            <div>
+              <label className="block text-sm text-secondary font-body mb-1.5">Summary (English)</label>
+              <textarea
+                className="input-field resize-none"
+                rows={2}
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+                placeholder="Brief summary for cards and previews"
+              />
+            </div>
+            <p className="text-xs text-muted">English body prose is managed in the Content Blocks section below.</p>
+          </div>
+        ) : activeLanguageTab === 'TE' ? (
+          <div className="space-y-4" role="tabpanel" lang="te">
+            <Input label="Title (Telugu)" value={titleTe} onChange={(e) => setTitleTe(e.target.value)} placeholder="తెలుగు శీర్షిక" />
+            <div>
+              <label className="block text-sm text-secondary font-body mb-1.5">Content (Telugu)</label>
+              <textarea
+                className="input-field min-h-64 resize-y"
+                rows={10}
+                value={contentTe}
+                onChange={(e) => setContentTe(e.target.value)}
+                placeholder="తెలుగు కథనం"
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4" role="tabpanel" lang="hi">
+            <Input label="Title (Hindi)" value={titleHi} onChange={(e) => setTitleHi(e.target.value)} placeholder="हिंदी शीर्षक" />
+            <div>
+              <label className="block text-sm text-secondary font-body mb-1.5">Content (Hindi)</label>
+              <textarea
+                className="input-field min-h-64 resize-y"
+                rows={10}
+                value={contentHi}
+                onChange={(e) => setContentHi(e.target.value)}
+                placeholder="हिंदी लेख"
+              />
+            </div>
+          </div>
+        )}
+        <div className="flex items-center gap-2 text-xs text-muted">
+          <Languages className="h-4 w-4" />
+          Translation drafts remain editable; changes are saved with the English article.
+        </div>
+
         <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm text-secondary font-body mb-1.5">Category</label>

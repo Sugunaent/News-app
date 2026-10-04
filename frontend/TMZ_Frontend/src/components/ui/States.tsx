@@ -60,8 +60,8 @@ export function SectionHeader({
   onAction?: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between mb-3.5 sm:mb-4">
-      <h2 className="font-display text-2xl md:text-3xl text-primary">{title}</h2>
+    <div className="flex items-center justify-between text-left mb-6">
+      <h2 className="font-display text-2xl md:text-3xl font-bold text-primary">{title}</h2>
       {action && (
         <button
           onClick={onAction}

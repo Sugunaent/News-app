@@ -7,7 +7,7 @@ export function PrivacyPage() {
   }, []);
 
   return (
-    <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 md:px-8 py-12">
+    <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 md:px-8">
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-2.5 mb-3">
@@ -25,7 +25,7 @@ export function PrivacyPage() {
 
       {/* Main Content Box */}
       <div
-        className="rounded-2xl p-6 sm:p-10 space-y-8 text-secondary leading-relaxed border"
+        className="rounded-2xl p-6 sm:p-10 space-y-[50px] md:space-y-[100px] text-secondary leading-relaxed border"
         style={{
           background: 'var(--bg-card)',
           borderColor: 'var(--border-subtle)',
@@ -35,13 +35,13 @@ export function PrivacyPage() {
         <p className="text-base sm:text-lg text-primary leading-relaxed">
           At <strong className="text-primary font-semibold">The Modern Stories (TMS)</strong>, accessible via{' '}
           <a
-            href="https://www.themodernstories.in"
+            href="https://themodernstories.com"
             target="_blank"
             rel="noopener noreferrer"
             className="text-brand-primary hover:underline inline-flex items-center gap-1 font-medium"
           >
             <Globe className="w-3.5 h-3.5" />
-            www.themodernstories.in
+            themodernstories.com
           </a>
           , we take your personal data seriously. This Privacy Policy outlines what information we collect when you read our coverage of geopolitical affairs, entertainment, lifestyle, and trending news, how we handle user interactions, and the choices you have regarding your data.
         </p>

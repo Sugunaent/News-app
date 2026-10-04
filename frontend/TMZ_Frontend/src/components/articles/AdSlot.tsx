@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
 import { fetchPublicAdvertisements } from '@/lib/api';
 
+interface PublicAdvertisement {
+  id: string;
+  title: string;
+  image?: { signed_url?: string | null } | null;
+}
+
 export function ConditionalAdSlot({ enabled = true, slot = 'ARTICLE_INLINE' }: { enabled?: boolean; slot?: string }) {
-  const [advertisement, setAdvertisement] = useState<any | null>(null);
+  const [advertisement, setAdvertisement] = useState<PublicAdvertisement | null>(null);
 
   useEffect(() => {
     if (!enabled) return;

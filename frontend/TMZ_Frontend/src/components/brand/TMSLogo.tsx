@@ -12,7 +12,6 @@ export function TMSLogo({
   className = '',
   variant = 'auto',
   showSubtitle = true,
-  hideSubtitleOnMobile = false,
   size = 'md',
 }: TMSLogoProps) {
   const { theme } = useTheme();

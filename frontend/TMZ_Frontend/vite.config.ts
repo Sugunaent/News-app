@@ -10,11 +10,14 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('/node_modules/@supabase/')) return 'supabase-vendor';
-          if (id.includes('/node_modules/react-router')) return 'router-vendor';
           if (
-            id.includes('/node_modules/react/') ||
-            id.includes('/node_modules/react-dom/') ||
-            id.includes('/node_modules/scheduler/')
+            id.includes('/node_modules/react-router/') ||
+            id.includes('/node_modules/@remix-run/router/')
+          ) return 'router-vendor';
+          if (
+            /\/node_modules\/react\//.test(id) ||
+            /\/node_modules\/react-dom\//.test(id) ||
+            /\/node_modules\/scheduler\//.test(id)
           ) return 'react-vendor';
         },
       },

@@ -27,7 +27,7 @@ export function CardPage() {
   const isOpinion = cardData.cardType === 'opinion';
 
   return (
-    <div className="relative z-10 min-h-[calc(100vh-4rem)] flex flex-col items-center justify-center px-4 py-10 md:py-16">
+    <div className="relative z-10 min-h-[calc(100vh-4rem)] flex flex-col items-center justify-center px-4">
       {/* Background glow effects */}
       <div
         className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full pointer-events-none opacity-20 blur-3xl"

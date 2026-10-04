@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Twitter, Instagram } from 'lucide-react';
+import { Instagram, Linkedin, Youtube } from 'lucide-react';
 import { TMSLogo } from '@/components/brand/TMSLogo';
 import { useAuth } from '@/lib/useAuth';
 import { fetchCategories } from '@/lib/api';
@@ -46,11 +46,32 @@ export function Footer() {
               A premium editorial platform for modern thinkers. Read, learn, and grow with interactive articles, quizzes, and more.
             </p>
             <div className="flex gap-3 mt-4">
-              <a href="https://twitter.com/TheModernStories" target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-full glass flex items-center justify-center text-secondary hover:text-brand-primary transition-colors" aria-label="The Modern Stories on X">
-                <Twitter className="w-4 h-4" />
+              <a
+                href="https://www.instagram.com/themodernstories_official/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-9 h-9 rounded-full glass flex items-center justify-center text-secondary hover:text-brand-primary hover:bg-brand-primary/10 transition-colors duration-200"
+                aria-label="The Modern Stories on Instagram"
+              >
+                <Instagram className="w-4 h-4" aria-hidden="true" />
               </a>
-              <a href="https://www.instagram.com/TheModernStories" target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-full glass flex items-center justify-center text-secondary hover:text-brand-primary transition-colors" aria-label="The Modern Stories on Instagram">
-                <Instagram className="w-4 h-4" />
+              <a
+                href="https://www.youtube.com/@THEMODERNSTORIES-c6n"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-9 h-9 rounded-full glass flex items-center justify-center text-secondary hover:text-brand-primary hover:bg-brand-primary/10 transition-colors duration-200"
+                aria-label="The Modern Stories on YouTube"
+              >
+                <Youtube className="w-4 h-4" aria-hidden="true" />
+              </a>
+              <a
+                href="https://www.linkedin.com/company/the-modern-stories/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-9 h-9 rounded-full glass flex items-center justify-center text-secondary hover:text-brand-primary hover:bg-brand-primary/10 transition-colors duration-200"
+                aria-label="The Modern Stories on LinkedIn"
+              >
+                <Linkedin className="w-4 h-4" aria-hidden="true" />
               </a>
             </div>
           </div>

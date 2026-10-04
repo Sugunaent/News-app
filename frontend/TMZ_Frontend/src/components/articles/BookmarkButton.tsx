@@ -3,7 +3,7 @@ import { Bookmark, BookmarkCheck } from 'lucide-react';
 import { useAuth } from '@/lib/useAuth';
 import { isBookmarked, addBookmark, removeBookmark } from '@/lib/api';
 import { useToast } from '@/lib/toast';
-import { useNavigate } from 'react-router-dom';
+import { useAuthPrompt } from '@/lib/authPromptContext';
 
 interface BookmarkButtonProps {
   articleId: string;
@@ -14,7 +14,7 @@ interface BookmarkButtonProps {
 export function BookmarkButton({ articleId, size = 'md', variant = 'icon' }: BookmarkButtonProps) {
   const { user } = useAuth();
   const { showToast } = useToast();
-  const navigate = useNavigate();
+  const { requestLogin } = useAuthPrompt();
   const [bookmarked, setBookmarked] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -28,7 +28,7 @@ export function BookmarkButton({ articleId, size = 'md', variant = 'icon' }: Boo
     e.preventDefault();
 
     if (!user) {
-      navigate('/auth', { state: { redirect: window.location.pathname } });
+      requestLogin('bookmark');
       return;
     }
 

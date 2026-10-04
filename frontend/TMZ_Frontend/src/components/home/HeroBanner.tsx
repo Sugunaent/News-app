@@ -19,6 +19,8 @@ export function HeroBanner({
 
   const preloadImage = (src: string): Promise<boolean> => new Promise((resolve) => {
     const image = new window.Image();
+    image.fetchPriority = 'high';
+    image.decoding = 'async';
     image.onload = () => resolve(true);
     image.onerror = () => resolve(false);
     image.src = src;
@@ -69,8 +71,8 @@ export function HeroBanner({
 
   if (loading) {
     return (
-      <section className="relative w-full overflow-hidden rounded-3xl glass-card border border-border-default shadow-xl">
-        <div className="relative w-full aspect-[16/9] sm:aspect-[21/9] lg:aspect-[2.4/1] min-h-[240px] sm:min-h-[320px] md:min-h-[380px] lg:min-h-[420px] max-h-[520px] overflow-hidden rounded-3xl bg-surface-secondary p-6 sm:p-8 flex flex-col justify-end gap-3">
+      <section className="relative w-full overflow-visible !rounded-md glass-card border border-border-default shadow-xl">
+        <div className="relative w-full aspect-[16/9] sm:aspect-[21/9] lg:aspect-[2.4/1] min-h-[240px] sm:min-h-[320px] md:min-h-[380px] lg:min-h-[420px] max-h-[520px] overflow-hidden !rounded-md bg-surface-secondary p-6 sm:p-8 flex flex-col justify-end gap-3">
           <div className="h-9 w-2/3 max-w-xl animate-pulse rounded-lg bg-brand-primary/10" />
           <div className="h-5 w-1/2 max-w-md animate-pulse rounded-lg bg-brand-primary/10" />
         </div>
@@ -79,8 +81,8 @@ export function HeroBanner({
   }
 
   return (
-    <section className="relative w-full overflow-hidden rounded-3xl glass-card border border-border-default shadow-xl group">
-      <div className="relative w-full aspect-[16/9] sm:aspect-[21/9] lg:aspect-[2.4/1] min-h-[240px] sm:min-h-[320px] md:min-h-[380px] lg:min-h-[420px] max-h-[520px] overflow-hidden rounded-3xl bg-surface-secondary">
+    <section className="relative w-full overflow-visible !rounded-md glass-card border border-border-default shadow-xl group">
+      <div className="relative w-full aspect-[16/9] sm:aspect-[21/9] lg:aspect-[2.4/1] min-h-[240px] sm:min-h-[320px] md:min-h-[380px] lg:min-h-[420px] max-h-[520px] overflow-hidden !rounded-md bg-surface-secondary">
         {!imageReady ? (
           <div className="flex h-full min-h-[240px] items-end bg-surface-secondary p-6 sm:min-h-[320px] md:min-h-[380px] lg:min-h-[420px]" aria-label="Loading current hero image" role="img">
             <div className="h-8 w-2/3 animate-pulse rounded-lg bg-brand-primary/10" />
@@ -92,7 +94,7 @@ export function HeroBanner({
             event.preventDefault();
             onArticleClick(article);
           } : undefined}
-          className="block w-full h-full relative cursor-pointer group/hero rounded-3xl overflow-hidden"
+          className="block w-full h-full relative cursor-pointer group/hero !rounded-md overflow-hidden"
           aria-label={article ? `Read ${article.title}` : `${config.title} — ${config.linkText}`}
         >
           <img

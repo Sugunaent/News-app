@@ -143,10 +143,10 @@ export function AboutPage() {
   }, []);
 
   return (
-    <div lang={currentLang.toLowerCase()} className="relative z-10 max-w-7xl mx-auto px-4 md:px-8 py-12 space-y-24">
+    <div lang={currentLang.toLowerCase()} className="relative z-10 max-w-7xl mx-auto px-4 md:px-8 space-y-[50px] md:space-y-[100px]">
       <Breadcrumbs items={[{ label: t('home'), href: '/' }, { label: t('about') }]} />
       {/* About The Modern Stories */}
-      <section className="w-full space-y-16">
+      <section className="w-full space-y-[50px] md:space-y-[100px]">
         {/* Main Heading & Lead */}
         <div className="text-center w-full max-w-4xl mx-auto">
           <h1 className="font-display text-4xl md:text-5xl text-primary mb-6 leading-relaxed">{t('heading')}</h1>

@@ -94,19 +94,17 @@ export function Header() {
       className="sticky top-0 z-[100] transition-all duration-300"
       style={{
         background: 'var(--nav-bg)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
         borderBottom: '1px solid var(--nav-border)',
       }}
     >
-      <div className="max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-2 sm:px-6 lg:px-8 xl:px-10 h-14 sm:h-16 flex items-center justify-between gap-1 sm:gap-4">
+      <div className="mx-auto flex min-h-14 w-full max-w-[1440px] flex-wrap items-center justify-between gap-1 px-2 py-2 sm:min-h-16 sm:gap-4 sm:px-6 lg:px-8 xl:px-10 2xl:max-w-[1536px]">
         {/* Logo */}
         <Link to="/" className="flex items-center group shrink-0" aria-label="The Modern Stories">
           <TMSLogo size="md" hideSubtitleOnMobile={true} className="group-hover:opacity-90 transition-opacity" />
         </Link>
 
         {/* Navigation & Controls */}
-        <nav className="flex items-center gap-0.5 sm:gap-1.5 md:gap-2 relative shrink-0">
+        <nav className="relative flex min-w-0 max-w-full flex-wrap items-center justify-end gap-0.5 sm:gap-1.5 md:gap-2">
           {navItems.map((item) => (
             <Link
               key={item.path}
@@ -151,9 +149,9 @@ export function Header() {
                   </Link>
                 ))}
                 {categoriesLoading ? (
-                  <p className="px-3 py-2 text-xs text-muted">{navLabels.loading}</p>
+                  <p className="break-words px-3 py-2 text-xs text-muted">{navLabels.loading}</p>
                 ) : categories.length === 0 ? (
-                  <p className="px-3 py-2 text-xs text-muted">{navLabels.empty}</p>
+                  <p className="break-words px-3 py-2 text-xs text-muted">{navLabels.empty}</p>
                 ) : null}
               </div>
             )}

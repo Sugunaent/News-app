@@ -95,7 +95,7 @@ export function CoverFlowCarousel({
 
   return (
     <section
-      className={`relative w-full pt-0 pb-2 md:py-2 flex items-center justify-center overflow-hidden bg-transparent ${className}`}
+      className={`relative w-full pt-0 pb-2 md:py-2 flex items-center justify-center bg-transparent ${className}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onTouchStart={handleTouchStart}
@@ -141,7 +141,7 @@ export function CoverFlowCarousel({
               <div
                 key={idx}
                 onClick={() => !isCenter && goToSlide(idx)}
-                className={`absolute w-[330px] sm:w-[380px] md:w-[min(1100px,calc(100vw-6rem))] h-[420px] md:h-[500px] lg:h-[520px] rounded-3xl overflow-hidden shadow-xl transition-all duration-700 ease-out bg-white/95 dark:bg-[#0b0f17]/95 border border-slate-200/80 dark:border-slate-800/80 backdrop-blur-md ${offsetClass}`}
+                className={`absolute w-[330px] sm:w-[380px] md:w-[min(1100px,calc(100vw-6rem))] h-[420px] md:h-[500px] lg:h-[520px] overflow-visible !rounded-md shadow-xl transition-all duration-700 ease-out bg-white/95 dark:bg-[#0b0f17]/95 border border-slate-200/80 dark:border-slate-800/80 backdrop-blur-md ${offsetClass}`}
                 style={{
                   transform,
                   opacity,
@@ -155,14 +155,17 @@ export function CoverFlowCarousel({
                 }}
               >
                 {/* Responsive Main Container */}
-                <div className="relative w-full h-full flex flex-col md:flex-row items-center justify-between p-5 md:p-8 gap-6">
+                <div className="relative w-full h-full overflow-hidden !rounded-md flex flex-col md:flex-row items-center justify-between p-5 md:p-8 gap-6">
                   
                   {/* Image Block */}
-                  <div className="relative w-full md:w-1/2 h-[200px] md:h-full rounded-2xl overflow-hidden bg-slate-100/80 dark:bg-black/40 flex items-center justify-center p-3 border border-slate-200/60 dark:border-slate-800/50">
+                  <div className="relative w-full md:w-1/2 h-[200px] md:h-full overflow-hidden !rounded-md bg-slate-100/80 dark:bg-black/40 flex items-center justify-center p-3 border border-slate-200/60 dark:border-slate-800/50">
                     <img
                       src={item.img}
                       alt={item.titleLine1}
                       className="max-w-full max-h-full object-contain transform hover:scale-105 transition-transform duration-500"
+                      loading={isCenter ? 'eager' : 'lazy'}
+                      fetchPriority={isCenter ? 'high' : 'auto'}
+                      decoding="async"
                     />
                   </div>
 

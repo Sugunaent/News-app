@@ -28,7 +28,7 @@ export function LinearCarousel({ children }: { children: ReactNode[] }) {
       </button>
       <div
         ref={scrollRef}
-        className="flex gap-6 overflow-x-auto no-scrollbar scroll-smooth pb-2"
+        className="flex gap-6 no-scrollbar scrollbar-none overflow-x-auto scroll-smooth p-2 pb-4"
       >
         {children.map((child, i) => (
           <div key={i} className="flex-shrink-0 w-[340px] sm:w-[380px]">

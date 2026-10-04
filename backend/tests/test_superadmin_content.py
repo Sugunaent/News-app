@@ -127,6 +127,11 @@ def test_list_articles_returns_all_statuses():
             "title": "Draft Article",
             "subtitle": None,
             "summary": "Draft summary",
+            "title_te": "తెలుగు శీర్షిక",
+            "content_te": "తెలుగు కథనం",
+            "title_hi": "हिंदी शीर्षक",
+            "content_hi": "हिंदी लेख",
+            "is_manual_translation": True,
             "slug": "draft-article",
         }
     ]
@@ -150,6 +155,11 @@ def test_list_articles_returns_all_statuses():
     assert data[0]["title"] == (
         "Draft Article"
     )
+    assert data[0]["title_te"] == "తెలుగు శీర్షిక"
+    assert data[0]["content_te"] == "తెలుగు కథనం"
+    assert data[0]["title_hi"] == "हिंदी शीर्षक"
+    assert data[0]["content_hi"] == "हिंदी लेख"
+    assert data[0]["is_manual_translation"] is True
 
 
 def test_list_categories_returns_inactive_categories():

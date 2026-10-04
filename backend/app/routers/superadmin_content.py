@@ -118,6 +118,11 @@ ARTICLE_SELECT = """
     title,
     subtitle,
     summary,
+    title_te,
+    content_te,
+    title_hi,
+    content_hi,
+    is_manual_translation,
     slug
 """
 
@@ -162,6 +167,11 @@ def _map_article(data: dict) -> dict:
         "media_url": create_signed_url((data.get("media_assets") or {}).get("storage_path")),
         "subtitle": data.get("subtitle"),
         "summary": data.get("summary"),
+        "title_te": data.get("title_te"),
+        "content_te": data.get("content_te"),
+        "title_hi": data.get("title_hi"),
+        "content_hi": data.get("content_hi"),
+        "is_manual_translation": bool(data.get("is_manual_translation")),
         "slug": data.get("slug"),
         "article_type": data["article_type"],
         "status": data["status"],
@@ -716,6 +726,11 @@ def create_article(
                     "title": payload.title,
                     "subtitle": payload.subtitle,
                     "summary": payload.summary,
+                    "title_te": payload.title_te,
+                    "content_te": payload.content_te,
+                    "title_hi": payload.title_hi,
+                    "content_hi": payload.content_hi,
+                    "is_manual_translation": payload.is_manual_translation,
                     "slug": slug,
                     "article_type": stored_type,
                     "status": payload.status,
@@ -966,6 +981,16 @@ def update_article(
 
     if payload.summary is not None:
         updates["summary"] = payload.summary
+
+    for field in (
+        "title_te",
+        "content_te",
+        "title_hi",
+        "content_hi",
+        "is_manual_translation",
+    ):
+        if field in payload.model_fields_set:
+            updates[field] = getattr(payload, field)
 
     if payload.slug is not None:
         updates["slug"] = payload.slug
@@ -1848,7 +1873,6 @@ def list_categories(
         current_user.client
         .table("categories")
         .select(CATEGORY_SELECT)
-        .eq("is_active", True)
         .order("display_order")
         .execute()
     )

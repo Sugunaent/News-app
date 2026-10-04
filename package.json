@@ -1,0 +1,7 @@
+{
+  "name": "the-modern-stories",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix frontend/TMZ_Frontend run build"
+  }
+}

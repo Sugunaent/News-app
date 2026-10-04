@@ -4,9 +4,11 @@ import type { Quiz } from '@/types';
 import { useAuth } from '@/lib/useAuth';
 import { submitQuizAttempt, hasUserAttemptedQuiz } from '@/lib/api';
 import { useToast } from '@/lib/toast';
+import { useAuthPrompt } from '@/lib/authPromptContext';
 
 export function QuizBlock({ quiz, onResult }: { quiz: Quiz; onResult?: (xp: number) => void }) {
   const { user } = useAuth();
+  const { requestLogin } = useAuthPrompt();
   const { showToast } = useToast();
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [answered, setAnswered] = useState(false);
@@ -34,6 +36,7 @@ export function QuizBlock({ quiz, onResult }: { quiz: Quiz; onResult?: (xp: numb
     const xp = isCorrect ? quiz.xp_reward : 0;
 
     try {
+      if (!user && isCorrect) requestLogin('gamification');
       if (user) {
         const result = await submitQuizAttempt(quiz.id, user.id, optionId, isCorrect, xp);
         if (result.xp_earned > 0) {

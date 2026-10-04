@@ -74,6 +74,11 @@ class SuperadminArticleCreate(BaseModel):
         default=None,
         max_length=5000,
     )
+    title_te: str | None = Field(default=None, max_length=500)
+    content_te: str | None = None
+    title_hi: str | None = Field(default=None, max_length=500)
+    content_hi: str | None = None
+    is_manual_translation: bool = False
     slug: str | None = Field(default=None, min_length=1, max_length=300)
     article_type: str = "STANDARD"
     status: str = "DRAFT"
@@ -92,6 +97,11 @@ class SuperadminArticleUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=500)
     subtitle: str | None = Field(default=None, max_length=1000)
     summary: str | None = Field(default=None, max_length=5000)
+    title_te: str | None = Field(default=None, max_length=500)
+    content_te: str | None = None
+    title_hi: str | None = Field(default=None, max_length=500)
+    content_hi: str | None = None
+    is_manual_translation: bool | None = None
     slug: str | None = Field(default=None, min_length=1, max_length=300)
     article_type: str | None = None
     cover_media_id: UUID | None = None
@@ -122,6 +132,11 @@ class SuperadminArticleListItem(BaseModel):
     title: str
     subtitle: str | None
     summary: str | None
+    title_te: str | None = None
+    content_te: str | None = None
+    title_hi: str | None = None
+    content_hi: str | None = None
+    is_manual_translation: bool = False
     slug: str
     article_type: str
     status: str

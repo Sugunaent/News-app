@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends
 
 from app.core.db_utils import extract_single_record
 from app.core.exceptions import NotFoundError
-from app.db.supabase import supabase_admin
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.completions import ArticleCompletionResponse
 from app.services.gamification import (
@@ -29,7 +28,7 @@ async def get_article_completion(
     auth: AuthContext = Depends(get_current_user),
 ):
     article_response = (
-        supabase_admin
+        auth.client
         .table("articles")
         .select("id")
         .eq("id", str(article_id))
@@ -42,7 +41,7 @@ async def get_article_completion(
         raise NotFoundError("Article not found")
 
     completion_response = (
-        supabase_admin
+        auth.client
         .table("article_completions")
         .select("article_id, completed_at")
         .eq("article_id", str(article_id))
@@ -71,7 +70,7 @@ async def complete_article(
     auth: AuthContext = Depends(get_current_user),
 ):
     article_response = (
-        supabase_admin
+        auth.client
         .table("articles")
         .select("id")
         .eq("id", str(article_id))
@@ -84,7 +83,7 @@ async def complete_article(
         raise NotFoundError("Article not found")
 
     existing_response = (
-        supabase_admin
+        auth.client
         .table("article_completions")
         .select("article_id, completed_at")
         .eq("article_id", str(article_id))
@@ -120,7 +119,7 @@ async def complete_article(
         "completed_at": now.isoformat(),
     }
 
-    completion_query = supabase_admin.table("article_completions")
+    completion_query = auth.client.table("article_completions")
     completion_response = (
         completion_query
         .insert(completion_payload)

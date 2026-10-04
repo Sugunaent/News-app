@@ -12,7 +12,7 @@ export function LanguageToggle({ currentLang, onLanguageChange }: LanguageToggle
 
   return (
     <div
-      className="relative inline-flex shrink-0 items-center rounded-full border border-neutral-200 bg-neutral-100/50 p-1 backdrop-blur-sm dark:border-neutral-800 dark:bg-neutral-900/50"
+      className="relative inline-flex max-w-full shrink-0 items-center rounded-full border border-neutral-200 bg-neutral-100/50 p-1 backdrop-blur-sm dark:border-neutral-800 dark:bg-neutral-900/50"
       role="group"
       aria-label="Select language"
     >

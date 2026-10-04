@@ -121,6 +121,71 @@ function languageName(language: Language): string {
   return language === 'TE' ? 'Telugu' : 'Hindi';
 }
 
+function protectBrandNames(
+  fields: TranslationFields,
+  language: Language,
+): { fields: TranslationFields; containsBrand: boolean; restore: (translated: TranslationFields) => TranslationFields } {
+  const replacements = new Map<string, string>();
+  let tokenIndex = 0;
+  let containsBrand = false;
+  const brandPattern = /\b(The Modern Stories|TMS)\b/gi;
+
+  const protect = (text: string) => text.replace(brandPattern, (brand) => {
+    containsBrand = true;
+    const token = `ZZQXBRANDTOKEN${tokenIndex++}XQZZ`;
+    replacements.set(token, /^TMS$/i.test(brand)
+      ? 'TMS'
+      : language === 'TE' ? 'ది మోడరన్ స్టోరీస్' : 'द मॉडर्न स्टोरीज');
+    return token;
+  });
+
+  const protectedFields: TranslationFields = {
+    title: protect(fields.title),
+    content: protect(fields.content),
+    segments: Object.fromEntries(
+      Object.entries(fields.segments).map(([key, value]) => [key, protect(value)]),
+    ),
+  };
+
+  const restoreText = (text: string) => {
+    let restored = text;
+    for (const [token, brand] of replacements) {
+      restored = restored.split(token).join(brand);
+    }
+    if (/ZZQXBRANDTOKEN\d+XQZZ/.test(restored)) {
+      throw new Error('Translation service altered a protected brand token');
+    }
+    return restored;
+  };
+
+  const restoreFields = (translated: TranslationFields): TranslationFields => {
+    const translatedValues = [
+      translated.title,
+      translated.content,
+      ...Object.values(translated.segments),
+    ];
+    for (const token of replacements.keys()) {
+      if (!translatedValues.some((value) => value.includes(token))) {
+        throw new Error('Translation service omitted a protected brand token');
+      }
+    }
+
+    return {
+      title: restoreText(translated.title),
+      content: restoreText(translated.content),
+      segments: Object.fromEntries(
+        Object.entries(translated.segments).map(([key, value]) => [key, restoreText(value)]),
+      ),
+    };
+  };
+
+  return {
+    fields: protectedFields,
+    containsBrand,
+    restore: restoreFields,
+  };
+}
+
 function hasAllTranslations(
   source: TranslationFields,
   translated: TranslationFields,
@@ -138,7 +203,10 @@ function hasAllTranslations(
     ...Object.entries(source.segments).map(([key, original]) => [original, translated.segments[key]] as [string, string | undefined]),
   ];
   return pairs.every(([original, result]) =>
-    targetScript.test(result ?? '') || !/[A-Za-z]{3}/.test(original),
+    targetScript.test(result ?? '')
+      || !/[A-Za-z]{3}/.test(
+        original.replace(/\b(The Modern Stories|TMS)\b|ZZQXBRANDTOKEN\d+XQZZ/gi, ''),
+      ),
   );
 }
 
@@ -311,6 +379,42 @@ async function translateWithClientFallback(
   return result;
 }
 
+export async function translateForManualEditing(
+  fields: Pick<TranslationFields, 'title' | 'content'>,
+  language: Exclude<Language, 'EN'>,
+): Promise<Pick<TranslationFields, 'title' | 'content'>> {
+  const sourceFields: TranslationFields = { ...fields, segments: {} };
+  const protectedFields = protectBrandNames(sourceFields, language);
+
+  try {
+    const response = await apiFetchJson<TranslationResponse>('/api/v1/translate', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: protectedFields.fields.title,
+        content: protectedFields.fields.content,
+        segments: {},
+        targetLang: languageName(language),
+      }),
+    });
+    if (!response.success || !response.data) {
+      throw new Error('Translation service returned an invalid response');
+    }
+    const translated = protectedFields.restore(response.data);
+    if (!hasAllTranslations(sourceFields, translated, language)) {
+      throw new Error('Translation service returned empty or incomplete translated fields');
+    }
+    return { title: translated.title, content: translated.content };
+  } catch (error) {
+    console.warn(`[translation] Admin translation endpoint failed for ${language}; trying client translation`, error);
+    const translated = await translateWithClientFallback(protectedFields.fields, language);
+    const restored = protectedFields.restore(translated);
+    if (!hasAllTranslations(sourceFields, restored, language)) {
+      throw new Error('Client translation returned empty or incomplete translated fields');
+    }
+    return { title: restored.title, content: restored.content };
+  }
+}
+
 async function requestArticleTranslation(
   articleId: string,
   language: Language,
@@ -346,26 +450,32 @@ async function requestArticleTranslation(
 
   if (!hasMissingFields) return cachedFields;
 
+  const protectedFields = protectBrandNames(fieldsToTranslate, language);
   let translationPromise = pendingTranslations.get(requestKey);
   if (!translationPromise) {
     translationPromise = apiFetchJson<TranslationResponse>('/api/v1/translate', {
       method: 'POST',
       body: JSON.stringify({
-        title: fieldsToTranslate.title,
-        content: fieldsToTranslate.content,
-        segments: fieldsToTranslate.segments,
+        title: protectedFields.fields.title,
+        content: protectedFields.fields.content,
+        segments: protectedFields.fields.segments,
         targetLang: languageName(language),
       }),
     }).then((response) => {
       if (!response.success || !response.data) {
         throw new Error('Translation service returned an invalid response');
       }
-      if (!hasAllTranslations(fieldsToTranslate, response.data, language)) {
+      const translated = protectedFields.restore(response.data);
+      if (!hasAllTranslations(fieldsToTranslate, translated, language)) {
         throw new Error('Translation service returned empty or incomplete translated fields');
       }
-      return response.data;
+      return translated;
     }).catch(async (error: unknown) => {
       console.error(`[translation] POST /api/v1/translate failed for ${articleId} (${language})`, error);
+      if (protectedFields.containsBrand) {
+        const translated = await translateWithClientFallback(protectedFields.fields, language);
+        return protectedFields.restore(translated);
+      }
       try {
         const fallback = await fetchLocalizedArticleFallback(articleId, language, fieldsToTranslate);
         return {

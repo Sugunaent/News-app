@@ -289,7 +289,7 @@ def test_award_xp_uses_server_side_rule_amount(monkeypatch):
 
     supabase_mock.table.side_effect = table_with_insert
 
-    monkeypatch.setattr(gamification_service, "supabase_admin", supabase_mock)
+    monkeypatch.setattr(gamification_service, "supabase", supabase_mock)
     monkeypatch.setattr(gamification_service, "award_badges_for_user", lambda user_id: [])
 
     result = gamification_service.award_xp(
@@ -333,7 +333,7 @@ def test_award_xp_does_not_create_duplicate_transaction(monkeypatch):
 
     supabase_mock.table.return_value = existing_query
 
-    monkeypatch.setattr(gamification_service, "supabase_admin", supabase_mock)
+    monkeypatch.setattr(gamification_service, "supabase", supabase_mock)
     result = gamification_service.award_xp(
         user_id=USER_ID,
         event_type="ARTICLE_COMPLETED",
@@ -365,7 +365,7 @@ def test_article_completion_awards_xp(monkeypatch):
 
     # Mock DB query for insert completion
     insert_completion_query = MagicMock()
-    insert_completion_query.insert.return_value.select.return_value.single.return_value.execute.return_value.data = {
+    insert_completion_query.insert.return_value.select.return_value.execute.return_value.data = {
         "article_id": str(ARTICLE_ID),
         "completed_at": "2026-08-27T10:00:00+00:00",
     }
@@ -402,6 +402,11 @@ def test_article_completion_awards_xp(monkeypatch):
         completions,
         "award_badges_for_user",
         fake_award_badges,
+    )
+    monkeypatch.setattr(
+        completions,
+        "get_gamification_status",
+        lambda user_id: {"total_xp": 20, "level": {"display_order": 1}, "badges": []},
     )
 
     try:
@@ -448,9 +453,7 @@ def test_award_xp_returns_none_when_no_active_rule():
         .select.return_value
         .eq.return_value
         .eq.return_value
-        .order.return_value
         .limit.return_value
-        .maybe_single.return_value
         .execute.return_value.data
     ) = None
 
@@ -500,19 +503,20 @@ def test_award_first_article_badge():
     ]
 
     badge_query = MagicMock()
-    (
-        badge_query
-        .select.return_value
-        .eq.return_value
-        .eq.return_value
-        .maybe_single.return_value
-        .execute.return_value.data
-    ) = {
-        "id": str(BADGE_ID),
-        "name": "First Article",
-        "description": "Completed your first article",
-        "image_asset_id": None,
-    }
+    badge_query.select.return_value.eq.return_value.execute.return_value.data = [
+        {
+            "id": str(BADGE_ID),
+            "name": "First Article",
+            "description": "Completed your first article",
+            "image_asset_id": None,
+            "rule_type": "ARTICLE_COUNT",
+            "rule_config": {"count": 1},
+        }
+    ]
+    xp_query = MagicMock()
+    xp_query.select.return_value.eq.return_value.execute.return_value.data = []
+    quiz_query = MagicMock()
+    quiz_query.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = []
 
     user_badge_check = MagicMock()
     (
@@ -529,7 +533,6 @@ def test_award_first_article_badge():
         user_badge_insert
         .insert.return_value
         .select.return_value
-        .single.return_value
         .execute.return_value.data
     ) = {
         "user_id": str(USER_ID),
@@ -540,6 +543,12 @@ def test_award_first_article_badge():
     def table(name):
         if name == "article_completions":
             return completion_query
+
+        if name == "xp_transactions":
+            return xp_query
+
+        if name == "quiz_attempts":
+            return quiz_query
 
         if name == "badges":
             return badge_query
@@ -561,6 +570,12 @@ def test_award_first_article_badge():
 
         if name == "article_completions":
             return completion_query
+
+        if name == "xp_transactions":
+            return xp_query
+
+        if name == "quiz_attempts":
+            return quiz_query
 
         if name == "badges":
             return badge_query
@@ -622,19 +637,20 @@ def test_award_ten_articles_badge():
     ]
 
     badge_query = MagicMock()
-    (
-        badge_query
-        .select.return_value
-        .eq.return_value
-        .eq.return_value
-        .maybe_single.return_value
-        .execute.return_value.data
-    ) = {
-        "id": str(BADGE_ID),
-        "name": "10 Articles Completed",
-        "description": "Completed ten articles",
-        "image_asset_id": None,
-    }
+    badge_query.select.return_value.eq.return_value.execute.return_value.data = [
+        {
+            "id": str(BADGE_ID),
+            "name": "10 Articles Completed",
+            "description": "Completed ten articles",
+            "image_asset_id": None,
+            "rule_type": "ARTICLE_COUNT",
+            "rule_config": {"count": 10},
+        }
+    ]
+    xp_query = MagicMock()
+    xp_query.select.return_value.eq.return_value.execute.return_value.data = []
+    quiz_query = MagicMock()
+    quiz_query.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = []
 
     user_badge_check = MagicMock()
     (
@@ -651,7 +667,6 @@ def test_award_ten_articles_badge():
         user_badge_insert
         .insert.return_value
         .select.return_value
-        .single.return_value
         .execute.return_value.data
     ) = {
         "user_id": str(USER_ID),
@@ -666,6 +681,12 @@ def test_award_ten_articles_badge():
 
         if name == "article_completions":
             return completion_query
+
+        if name == "xp_transactions":
+            return xp_query
+
+        if name == "quiz_attempts":
+            return quiz_query
 
         if name == "badges":
             return badge_query
@@ -736,19 +757,20 @@ def test_award_badge_does_not_duplicate_existing_badge():
     ]
 
     badge_query = MagicMock()
-    (
-        badge_query
-        .select.return_value
-        .eq.return_value
-        .eq.return_value
-        .maybe_single.return_value
-        .execute.return_value.data
-    ) = {
-        "id": str(BADGE_ID),
-        "name": "First Article",
-        "description": "Completed your first article",
-        "image_asset_id": None,
-    }
+    badge_query.select.return_value.eq.return_value.execute.return_value.data = [
+        {
+            "id": str(BADGE_ID),
+            "name": "First Article",
+            "description": "Completed your first article",
+            "image_asset_id": None,
+            "rule_type": "ARTICLE_COUNT",
+            "rule_config": {"count": 1},
+        }
+    ]
+    xp_query = MagicMock()
+    xp_query.select.return_value.eq.return_value.execute.return_value.data = []
+    quiz_query = MagicMock()
+    quiz_query.select.return_value.eq.return_value.eq.return_value.execute.return_value.data = []
 
     existing_user_badge = MagicMock()
     (
@@ -766,6 +788,12 @@ def test_award_badge_does_not_duplicate_existing_badge():
     def table(name):
         if name == "article_completions":
             return completion_query
+
+        if name == "xp_transactions":
+            return xp_query
+
+        if name == "quiz_attempts":
+            return quiz_query
 
         if name == "badges":
             return badge_query
@@ -823,6 +851,11 @@ def test_article_completion_awards_badge(monkeypatch):
         "award_badges_for_user",
         fake_award_badges,
     )
+    monkeypatch.setattr(
+        completions,
+        "get_gamification_status",
+        lambda user_id: {"total_xp": 20, "level": {"display_order": 1}, "badges": []},
+    )
 
     # Reuse the same DB mocks from your existing
     # test_article_completion_awards_xp test.
@@ -835,7 +868,7 @@ def test_article_completion_awards_badge(monkeypatch):
     existing_completion_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = None
 
     insert_completion_query = MagicMock()
-    insert_completion_query.insert.return_value.select.return_value.single.return_value.execute.return_value.data = {
+    insert_completion_query.insert.return_value.select.return_value.execute.return_value.data = {
         "article_id": str(ARTICLE_ID),
         "completed_at": "2026-08-27T10:00:00+00:00",
     }

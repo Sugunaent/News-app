@@ -23,4 +23,4 @@ Disallow: /superadmin
 Disallow: /card
 Disallow: /api/v1/superadmin/
 
-Sitemap: https://www.themodernstories.in/sitemap.xml
+Sitemap: https://themodernstories.com/sitemap.xml

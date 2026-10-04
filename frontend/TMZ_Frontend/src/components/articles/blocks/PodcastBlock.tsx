@@ -59,19 +59,6 @@ export function PodcastBlock({ podcast }: { podcast: PodcastBlockType }) {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
-  const isValidMediaUrl = (value: string) => {
-    if (!value || !value.trim()) return false;
-    try {
-      const parsed = new URL(value, window.location.origin);
-      const okProtocol = ['http:', 'https:'].includes(parsed.protocol);
-      const okExt = /(\.(mp3|wav|m4a|aac|ogg|oga|mp4|m4v|webm))(\?.*)?$|audio|video/i.test(value);
-      const okPath = !parsed.pathname.endsWith('/');
-      return okProtocol && (okExt || okPath);
-    } catch {
-      return false;
-    }
-  };
-
   const audioSource = podcast.audio_url?.trim() || '';
   
   const isYouTube = (url: string) => url.includes('youtube.com/watch') || url.includes('youtu.be/');

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { useNavigate, useParams, Navigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Home, Layers, Loader2, User } from 'lucide-react';
 import type { ArticleWithBlocks, Level, Badge, Article } from '@/types';
 import { useAuth } from '@/lib/useAuth';
+import { useAuthPrompt } from '@/lib/authPromptContext';
 import { fireCelebrationConfetti } from '@/lib/confetti';
 import {
   fetchArticleById,
@@ -28,7 +29,14 @@ import { LevelUpModal } from '@/components/articles/LevelUpModal';
 import { BadgePopup } from '@/components/articles/BadgePopup';
 import { ReadingUnlockOverlay } from '@/components/articles/ReadingUnlockOverlay';
 import { ConditionalAdSlot } from '@/components/articles/AdSlot';
-import { canonicalUrl, removeJsonLd, setPageMetadata, SITE_NAME, upsertJsonLd } from '@/lib/seo';
+import {
+  canonicalUrl,
+  removeJsonLd,
+  setPageMetadata,
+  SITE_ENTITY_SCHEMA,
+  SITE_NAME,
+  upsertJsonLd,
+} from '@/lib/seo';
 import { Breadcrumbs } from '@/components/common/Breadcrumbs';
 import { ExternalImage } from '@/components/articles/ExternalImage';
 import { useLanguage } from '@/lib/language';
@@ -38,6 +46,18 @@ import {
   getLocalizedTakeaways,
   useTranslatedArticle,
 } from '@/lib/translations';
+
+function metadataTerms(value: string[] | string | null | undefined): string[] {
+  const values = Array.isArray(value) ? value : value ? value.split(/[,;|]/) : [];
+  return values.map((item) => item.trim()).filter(Boolean);
+}
+
+function conciseDescription(value: string): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= 200) return normalized;
+  const boundary = normalized.lastIndexOf(' ', 197);
+  return `${normalized.slice(0, boundary > 120 ? boundary : 197).trimEnd()}…`;
+}
 
 export function ArticlePage() {
   const { slug = '' } = useParams<{ slug: string }>();
@@ -49,7 +69,8 @@ export function ArticlePage() {
     }
   })();
   const navigate = useNavigate();
-  const { user, profile, refreshProfile, loading: authLoading } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
+  const { requestLogin } = useAuthPrompt();
   const { currentLang } = useLanguage();
 
   const [article, setArticle] = useState<ArticleWithBlocks | null>(null);
@@ -240,12 +261,7 @@ export function ArticlePage() {
 
   // Load article
   useEffect(() => {
-    if (!slugOrId || authLoading) return;
-    if (!user) {
-      setLoading(false);
-      navigate('/auth', { replace: true });
-      return;
-    }
+    if (!slugOrId) return;
     setLoading(true);
     setError(false);
     setErrorMessage('Article not found.');
@@ -337,7 +353,7 @@ export function ArticlePage() {
     return () => {
       active = false;
     };
-  }, [slugOrId, user, authLoading, navigate, currentLang, retryAttempt]);
+  }, [slugOrId, navigate, currentLang, retryAttempt]);
 
   useEffect(() => {
     if (!error) return;
@@ -353,13 +369,19 @@ export function ArticlePage() {
   useEffect(() => {
     if (!article) return;
 
-    const title = localizedTitle || article.seo_title || displayTitle;
-    const description = localizedSummary
+    const title = localizedTitle || displayTitle;
+    const description = conciseDescription(localizedSummary
       || localizedSubtitle
       || article.seo_description
       || displaySummary
       || displaySubtitle
-      || 'Read this story on The Modern Stories.';
+      || 'Read this story on The Modern Stories.');
+    const keywords = [...new Set([
+      ...metadataTerms(article.tags),
+      ...metadataTerms(article.keywords),
+      article.category?.name || '',
+      ...title.split(/\s+/).filter((term) => term.length > 3),
+    ].map((term) => term.trim()).filter(Boolean))];
     const route = getArticleRoute(article);
     const canonical = canonicalUrl(article.canonical_url || route);
     const image = canonicalUrl(article.meta_image_url || article.cover_image_url || '/modern_stories_hero.jpg');
@@ -373,13 +395,16 @@ export function ArticlePage() {
       ? new Date(article.published_at).toISOString()
       : undefined;
 
+    upsertJsonLd('site-jsonld', SITE_ENTITY_SCHEMA);
     setPageMetadata({
       title: `${title} | ${SITE_NAME}`,
       description,
+      keywords: keywords.join(', '),
       canonicalPath: canonical,
       image,
-      robots: 'noindex, nofollow',
+      robots: 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1',
       ogType: 'article',
+      ogTitle: `${title} | ${SITE_NAME}`,
       author: article.author_name || SITE_NAME,
     });
 
@@ -408,7 +433,7 @@ export function ArticlePage() {
         : { '@type': 'Organization', name: SITE_NAME },
       publisher: { '@id': `${canonicalUrl('/')}#organization` },
       articleSection: article.category?.name || 'Editorial Stories',
-      keywords: article.category?.name,
+      keywords,
       about: article.category?.name
         ? { '@type': 'Thing', name: article.category.name }
         : undefined,
@@ -454,7 +479,12 @@ export function ArticlePage() {
 
   // Check for existing completion card (do NOT show modal on initial load)
   useEffect(() => {
-    if (!user || !slugOrId) return;
+    if (!slugOrId) return;
+    if (!user) {
+      setCompletionChecked(true);
+      setAlreadyCompleted(false);
+      return;
+    }
     hasCompletionCard(user.id, slugOrId).then((exists) => {
       setAlreadyCompleted(exists);
       setCompletionChecked(true);
@@ -523,17 +553,21 @@ export function ArticlePage() {
 
   // Completion — trigger confetti and show card immediately upon reaching completion criteria
   useEffect(() => {
-    if (!slugOrId || !article || unlockedPct < 100 || !scrolledThroughComments || !completionChecked || alreadyCompleted || completionTriggeredRef.current) return;
+    if (!slugOrId || !article || unlockedPct < 100 || !scrolledThroughComments || completionTriggeredRef.current) return;
     // Trigger ONLY after genuine article completion/reading progress, NOT on cold load
     if (!userDidScrollRef.current) return;
-    if (completionTriggeredRef.current) return;
+    if (!user) {
+      completionTriggeredRef.current = true;
+      requestLogin('gamification');
+      return;
+    }
+    if (!completionChecked || alreadyCompleted) return;
 
     completionTriggeredRef.current = true;
 
     const triggerCompletion = async () => {
       try {
-        const userId = user?.id || 'demo-reader';
-        const result = await createCompletionCard(userId, article.id, displayTitle, 0, 'completion');
+        const result = await createCompletionCard(user.id, article.id, displayTitle, 0, 'completion');
         const articleReward = result.xp_gained + quizXpRef.current + (opinionModalData?.xpGained || 0);
         setCompletionCardXp(articleReward);
         setTotalXp(articleReward);
@@ -576,7 +610,7 @@ export function ArticlePage() {
 
     triggerCompletion();
 
-  }, [unlockedPct, scrolledThroughComments, user, slugOrId, article, displayTitle, completionChecked, alreadyCompleted, profile, refreshProfile, opinionModalData]);
+  }, [unlockedPct, scrolledThroughComments, user, slugOrId, article, displayTitle, completionChecked, alreadyCompleted, profile, refreshProfile, opinionModalData, requestLogin]);
 
   const handleQuizResult = useCallback((xp: number) => {
     quizXpRef.current += xp;
@@ -592,17 +626,18 @@ export function ArticlePage() {
 
   const handleOpinionSubmit = useCallback(async (opinionText: string, xpEarned: number) => {
     if (!article || !slugOrId) return;
+    if (!user) {
+      requestLogin('gamification');
+      return;
+    }
     if (xpEarned > 0) {
       setShowXp(true);
       setTotalXp(xpEarned);
       setTimeout(() => setShowXp(false), 2000);
     }
     try {
-      const userId = user?.id || 'demo-user';
-      await createOpinionCard(userId, article.id, displayTitle, opinionText, xpEarned);
-      if (user) {
-        await refreshProfile();
-      }
+      await createOpinionCard(user.id, article.id, displayTitle, opinionText, xpEarned);
+      await refreshProfile();
       setOpinionModalData({
         opinionText,
         xpGained: xpEarned,
@@ -613,7 +648,7 @@ export function ArticlePage() {
         xpGained: xpEarned,
       });
     }
-  }, [user, article, slugOrId, refreshProfile, displayTitle]);
+  }, [user, article, slugOrId, refreshProfile, displayTitle, requestLogin]);
 
   const handleBack = useCallback((e?: React.MouseEvent) => {
     if (e) {
@@ -696,8 +731,6 @@ export function ArticlePage() {
     window.setTimeout(() => setShareCopyState('idle'), 2000);
   }, [article, displayTitle, displaySummary]);
 
-  if (authLoading) return <LoadingState message="Checking access..." />;
-  if (!user) return <Navigate to="/auth" state={{ redirect: getArticleRoute(slugOrId ?? '') }} replace />;
   if (loading) return <LoadingState message="Loading article..." />;
   if (error || !article) {
     return (
@@ -718,7 +751,7 @@ export function ArticlePage() {
     : 'Article';
 
   return (
-    <div className="relative min-h-screen">
+    <div className="relative">
       {/* Left navigation rail (desktop) */}
       <aside className="hidden lg:flex fixed left-0 top-16 bottom-0 w-16 flex-col items-center gap-4 py-8 z-20" style={{ borderRight: '1px solid var(--border-subtle)' }}>
         <button onClick={() => navigate('/')} className="w-10 h-10 rounded-xl glass flex items-center justify-center text-secondary hover:text-brand-primary transition-colors" aria-label="Home">
@@ -733,7 +766,7 @@ export function ArticlePage() {
       </aside>
 
       {/* Main responsive layout container */}
-      <div className="relative z-10 lg:ml-16 max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 md:px-8 lg:px-10 py-6 md:py-8">
+      <div className="relative z-10 lg:ml-16 max-w-[1440px] 2xl:max-w-[1600px] mx-auto px-4 sm:px-6 md:px-8 lg:px-10">
         <div className="flex flex-col lg:flex-row gap-8 xl:gap-10 items-start">
           {/* Main column - responsive majority of width */}
           <div className="flex-1 min-w-0 w-full">
@@ -961,7 +994,6 @@ export function ArticlePage() {
 /* ===== Sidebar Item (no glow) ===== */
 
 function SidebarItem({ article }: { article: Article }) {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const { currentLang } = useLanguage();
   const { title: availableTitle, description: availableDescription } =
@@ -978,11 +1010,7 @@ function SidebarItem({ article }: { article: Article }) {
   const description = availableDescription || translated.content || sourceDescription;
 
   const handleClick = () => {
-    if (user) {
-      navigate(getArticleRoute(article));
-    } else {
-      navigate('/auth', { state: { redirect: getArticleRoute(article) } });
-    }
+    navigate(getArticleRoute(article));
   };
 
   return (

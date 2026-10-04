@@ -4,7 +4,7 @@ from uuid import UUID
 from postgrest.exceptions import APIError
 
 from app.core.db_utils import extract_single_record
-from app.db.supabase import supabase, supabase_admin
+from app.db.supabase import supabase_admin
 
 # Shared Supabase client alias for compatibility with the current test suite
 # and downstream service calls that expect a module-level `supabase` handle.
@@ -15,7 +15,7 @@ logger = logging.getLogger("app.gamification")
 
 def _get_active_xp_rule(event_type: str) -> dict | None:
     response = (
-        supabase_admin
+        supabase
         .table("xp_rules")
         .select("id, event_type, amount")
         .eq("event_type", event_type.strip())
@@ -34,7 +34,7 @@ def _find_xp_transaction(
     source_id: UUID,
 ) -> dict | None:
     response = (
-        supabase_admin
+        supabase
         .table("xp_transactions")
         .select(
             "id, xp_rule_id, article_id, source_type, "
@@ -86,7 +86,7 @@ def award_xp(
 
     try:
         response = (
-            supabase_admin
+            supabase
             .table("xp_transactions")
             .insert(transaction)
             .select(
@@ -135,7 +135,7 @@ def get_gamification_status(user_id: UUID) -> dict:
         logger.exception("Could not evaluate badge rules for user %s", user_id)
 
     transactions_response = (
-        supabase_admin
+        supabase
         .table("xp_transactions")
         .select(
             "id, xp_rule_id, article_id, source_type, "
@@ -152,28 +152,21 @@ def get_gamification_status(user_id: UUID) -> dict:
     level = None
     try:
         level_response = (
-            supabase_admin
+            supabase
             .table("levels")
             .select("id, name, minimum_xp, display_order")
+            .lte("minimum_xp", total_xp)
+            .order("minimum_xp", desc=True)
+            .limit(1)
+            .maybe_single()
             .execute()
         )
-        all_levels = getattr(level_response, "data", None) or []
-
-        sorted_levels = sorted(
-            all_levels,
-            key=lambda x: int(x.get("minimum_xp", 0)),
-            reverse=True,
-        )
-
-        for lvl in sorted_levels:
-            if int(lvl.get("minimum_xp", 0)) <= total_xp:
-                level = lvl
-                break
+        level = getattr(level_response, "data", None)
     except Exception:
         logger.exception("Could not load level configuration for user %s", user_id)
 
     badges_response = (
-        supabase_admin
+        supabase
         .table("user_badges")
         .select(
             "badge_id, earned_at, "
@@ -211,7 +204,7 @@ def get_gamification_status(user_id: UUID) -> dict:
 def _has_user_badge(*, user_id: UUID, badge_id: UUID) -> bool:
     try:
         response = (
-            supabase_admin
+            supabase
             .table("user_badges")
             .select("user_id, badge_id")
             .eq("user_id", str(user_id))
@@ -236,7 +229,7 @@ def _award_badge(*, user_id: UUID, badge: dict) -> dict | None:
 
     try:
         response = (
-            supabase_admin
+            supabase
             .table("user_badges")
             .insert(
                 {
@@ -266,7 +259,7 @@ def _award_badge(*, user_id: UUID, badge: dict) -> dict | None:
 def award_badges_for_user(user_id: UUID) -> list[dict]:
     try:
         active_badges_res = (
-            supabase_admin
+            supabase
             .table("badges")
             .select("id, name, description, image_asset_id, rule_type, rule_config")
             .eq("is_active", True)
@@ -282,7 +275,7 @@ def award_badges_for_user(user_id: UUID) -> list[dict]:
 
     try:
         completion_res = (
-            supabase_admin
+            supabase
             .table("article_completions")
             .select("article_id")
             .eq("user_id", str(user_id))
@@ -295,7 +288,7 @@ def award_badges_for_user(user_id: UUID) -> list[dict]:
 
     try:
         xp_res = (
-            supabase_admin
+            supabase
             .table("xp_transactions")
             .select("amount")
             .eq("user_id", str(user_id))
@@ -308,7 +301,7 @@ def award_badges_for_user(user_id: UUID) -> list[dict]:
 
     try:
         quiz_res = (
-            supabase_admin
+            supabase
             .table("quiz_attempts")
             .select("id")
             .eq("user_id", str(user_id))

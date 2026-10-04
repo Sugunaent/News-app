@@ -58,6 +58,8 @@ export interface Article {
   seo_description?: string | null;
   meta_image_url?: string | null;
   canonical_url?: string | null;
+  tags?: string[] | string | null;
+  keywords?: string[] | string | null;
 }
 
 export interface QuizOption {

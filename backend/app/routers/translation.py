@@ -23,6 +23,16 @@ CANDIDATE_MODELS = (
     "gemini-2.0-flash",
 )
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+TRANSLATION_SYSTEM_PROMPT = """You are an expert multilingual news editor and native content strategist for 'The Modern Stories'. Your task is to translate news articles from English to Telugu and Hindi.
+
+STRICT TRANSLATION RULES:
+1. BRAND PROTECTION: Never translate or alter the proper noun 'The Modern Stories' across any language locale (EN/TE/HI).
+2. NATURAL HUMAN PROSE: Do NOT perform literal, word-for-word, or robotic machine translations. Use smooth, idiomatically accurate, natural news writing style (సహజమైన, వాడుక భాషా శైలి లో వార్తా శైలి).
+3. CULTURAL NATIVITY: Adapt idiomatic expressions and headline styles so they sound like they were originally written by a senior native journalist in that language.
+4. CONTEXT OVER DICTIONARY: Prioritize sentence flow, clarity, and emotional tone over rigid grammatical dictionary matches.
+5. PRESERVE STRUCTURE: Retain all bullet points, paragraph structures, and Markdown formatting cleanly.
+
+Translate into the requested target language. Return only a JSON object with string fields title and content, and a string-to-string segments object. Translate each segment value without changing its key. Keep fields that are empty in the input empty in the output."""
 
 
 class TranslationRequest(BaseModel):
@@ -53,19 +63,7 @@ async def _generate_for_model(
         headers={"x-goog-api-key": settings.gemini_api_key},
         json={
             "systemInstruction": {
-                "parts": [
-                    {
-                        "text": (
-                            "You are a professional blog translator. Translate "
-                            "naturally, use correct grammar, and preserve the "
-                            "article's original formatting and headings. Translate "
-                            "each segment value without changing its key. Return "
-                            "only a JSON object with string fields title and content, "
-                            "and a string-to-string segments object. Keep fields that "
-                            "are empty in the input empty in the output."
-                        )
-                    }
-                ]
+                "parts": [{"text": TRANSLATION_SYSTEM_PROMPT}]
             },
             "contents": [
                 {

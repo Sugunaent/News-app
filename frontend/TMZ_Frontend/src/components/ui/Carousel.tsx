@@ -33,7 +33,7 @@ export function Carousel({ children, itemsPerView = { desktop: 4, tablet: 2, mob
       </button>
       <div
         ref={scrollRef}
-        className="flex gap-5 overflow-x-auto no-scrollbar scroll-smooth pb-2"
+        className="flex gap-5 no-scrollbar scrollbar-none overflow-x-auto scroll-smooth p-2 pb-4"
       >
         {children.map((child, i) => (
           <div

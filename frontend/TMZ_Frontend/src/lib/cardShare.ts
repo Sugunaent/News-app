@@ -41,7 +41,7 @@ export function getCleanPublicOrigin(): string {
   }
 
   // 3. Fallback clean production domain for The Modern Stories
-  return 'https://www.themodernstories.in';
+  return 'https://themodernstories.com';
 }
 
 /**

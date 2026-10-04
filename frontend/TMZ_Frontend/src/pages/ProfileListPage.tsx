@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, Navigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, Award, Trophy, Share2, MessageSquare,
   BookOpen, Target, Lock, Sparkles,
 } from 'lucide-react';
 import { useAuth } from '@/lib/useAuth';
+import { LoginRequiredNotice } from '@/lib/authPrompt';
+import { useAuthPrompt } from '@/lib/authPromptContext';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { LoadingState, ErrorState, Modal } from '@/components/ui/States';
 import { CompletionCard as CompletionCardComponent } from '@/components/articles/CompletionCard';
@@ -38,9 +40,14 @@ export function ProfileListPage() {
   const { type } = useParams<{ type: string }>();
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
+  const { requestLogin } = useAuthPrompt();
+
+  useEffect(() => {
+    if (!authLoading && !user) requestLogin('personalized');
+  }, [authLoading, user, requestLogin]);
 
   if (authLoading) return <LoadingState message="Loading..." />;
-  if (!user) return <Navigate to="/auth" state={{ redirect: `/profile/${type}` }} replace />;
+  if (!user) return <LoginRequiredNotice resource="your account details" />;
 
   const listType = type as ListType;
   if (!META[listType]) return <ErrorState message="Page not found." onRetry={() => navigate('/profile')} />;
@@ -49,7 +56,7 @@ export function ProfileListPage() {
   const Icon = meta.icon;
 
   return (
-    <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 sm:py-8">
+    <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10">
       <button
         type="button"
         onClick={() => {

@@ -4,10 +4,12 @@ import type { Comment } from '@/types';
 import { useAuth } from '@/lib/useAuth';
 import { fetchComments, addComment, deleteComment } from '@/lib/api';
 import { useToast } from '@/lib/toast';
+import { useAuthPrompt } from '@/lib/authPromptContext';
 import { LoadingState, EmptyState, ErrorState } from '@/components/ui/States';
 
 export function CommentsSection({ articleId, onReadyForCompletion }: { articleId: string; onReadyForCompletion?: (hasComments: boolean) => void }) {
   const { user } = useAuth();
+  const { requestLogin } = useAuthPrompt();
   const { showToast } = useToast();
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,7 +123,13 @@ export function CommentsSection({ articleId, onReadyForCompletion }: { articleId
           </div>
         </div>
       ) : (
-        <p className="text-sm mb-8" style={{ color: 'var(--article-muted)' }}>Sign in to join the conversation.</p>
+        <button
+          type="button"
+          onClick={() => requestLogin('comment')}
+          className="text-sm mb-8 text-brand-primary hover:underline"
+        >
+          Sign in to join the conversation.
+        </button>
       )}
 
       {/* Comments */}

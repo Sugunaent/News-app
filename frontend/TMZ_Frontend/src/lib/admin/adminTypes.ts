@@ -36,6 +36,11 @@ export interface AdminArticle {
   title: string;
   subtitle: string;
   summary: string | null;
+  title_te?: string | null;
+  content_te?: string | null;
+  title_hi?: string | null;
+  content_hi?: string | null;
+  is_manual_translation?: boolean;
   category_id: string | null;
   category_name?: string;
   article_type: ArticleType;

@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Settings as SettingsIcon, User, Palette, LogOut,
   Sun, Moon, Upload, Check, AlertCircle, ArrowLeft, Loader2,
@@ -11,10 +11,17 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { updateProfile, uploadAvatar } from '@/lib/api';
+import { LoginRequiredNotice } from '@/lib/authPrompt';
+import { useAuthPrompt } from '@/lib/authPromptContext';
 
 export function SettingsPage() {
   const navigate = useNavigate();
   const { user, profile, loading, signOut, refreshProfile } = useAuth();
+  const { requestLogin } = useAuthPrompt();
+
+  useEffect(() => {
+    if (!loading && (!user || !profile)) requestLogin('personalized');
+  }, [loading, user, profile, requestLogin]);
 
   if (loading) {
     return (
@@ -25,11 +32,11 @@ export function SettingsPage() {
   }
 
   if (!user || !profile) {
-    return <Navigate to="/auth" state={{ redirect: '/settings' }} replace />;
+    return <LoginRequiredNotice resource="your settings" />;
   }
 
   return (
-    <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 sm:py-8">
+    <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10">
       {/* Back */}
       <button
         type="button"

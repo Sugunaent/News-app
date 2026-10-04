@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { CarouselItem } from './connected-carousel';
 
 interface StackedPromotionsCarouselProps {
@@ -65,19 +65,19 @@ export function StackedPromotionsCarousel({
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
-      <header className="mx-auto mb-6 w-full max-w-7xl px-4 text-center md:text-left">
+      <header className="mx-auto mb-6 w-full text-left">
         <h2
           id="promotions-heading"
-          className="font-['Momo_Trust_Display'] text-3xl font-bold tracking-tight text-slate-900 dark:text-white md:text-5xl"
+          className="font-display text-2xl font-bold tracking-tight text-slate-900 dark:text-white md:text-3xl"
         >
           Promotions
         </h2>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 md:text-sm">
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           Explore current events, deals, and featured highlights.
         </p>
       </header>
 
-      <div className="mx-auto flex w-full max-w-7xl flex-col items-center px-2 sm:px-4">
+      <div className="flex w-full flex-col items-center">
         <div
           className="relative flex h-[480px] w-full items-center justify-center sm:h-[500px] md:h-[520px]"
           style={{ perspective: '1200px' }}
@@ -121,36 +121,37 @@ export function StackedPromotionsCarousel({
               <article
                 key={`${item.titleLine1}-${index}`}
                 onClick={() => !isActive && goToSlide(index)}
-                className={`group absolute h-[400px] w-[280px] select-none overflow-hidden rounded-3xl border border-white/70 bg-white shadow-2xl transition-all duration-700 sm:h-[430px] sm:w-[320px] md:h-[450px] md:w-[360px] dark:border-slate-700/60 dark:bg-slate-900 ${offsetClass}`}
+                className={`group absolute h-[400px] w-[280px] select-none overflow-visible !rounded-md border border-slate-200/60 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.16)] transition-all duration-700 sm:h-[430px] sm:w-[320px] md:h-[450px] md:w-[360px] dark:border-slate-800/60 dark:bg-slate-900 ${offsetClass}`}
                 style={{ transform, opacity, zIndex, transformOrigin: 'bottom center', cursor: isActive ? 'default' : 'pointer' }}
               >
-                <img
-                  src={item.img}
-                  alt={item.titleLine1}
-                  className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/10 transition-colors duration-500 dark:from-black/95 dark:via-black/50 dark:to-black/20" />
-                {item.tag && (
-                  <div className="absolute left-4 top-4 z-10">
-                    <span className="rounded-full bg-white/90 px-3.5 py-1 font-mono text-[11px] font-bold uppercase tracking-widest text-slate-900 shadow-md backdrop-blur">
-                      {item.tag}
-                    </span>
-                  </div>
-                )}
-                <div
-                  className={`absolute bottom-0 left-0 right-0 z-20 flex flex-col items-start gap-2 p-5 text-left transition-all duration-500 sm:p-6 ${
-                    isActive ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-80'
-                  }`}
-                >
-                  <h3 className="text-xl font-black uppercase leading-tight tracking-wide text-white drop-shadow-md sm:text-2xl">
-                    {item.titleLine1}
-                  </h3>
-                  {item.desc && (
-                    <p className="line-clamp-2 text-xs font-normal text-slate-200 drop-shadow sm:text-sm">
-                      {item.desc}
-                    </p>
-                  )}
-                  <div className="w-full pt-2">
+                <div className="relative h-full w-full overflow-hidden !rounded-md border border-slate-200/50 dark:border-slate-800/50">
+                  <img
+                    src={item.img}
+                    alt={item.titleLine1}
+                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                    loading={isActive ? 'eager' : 'lazy'}
+                    fetchPriority={isActive ? 'high' : 'auto'}
+                    decoding="async"
+                  />
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-3/5 bg-gradient-to-t from-black/95 via-black/70 to-transparent" />
+                  <div
+                    className={`absolute inset-x-0 bottom-0 z-20 flex flex-col justify-end p-6 text-left transition-all duration-500 ${
+                      isActive ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-80'
+                    }`}
+                  >
+                    {item.tag && (
+                      <span className="mb-2 inline-block self-start rounded-full border border-white/30 bg-white/20 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white backdrop-blur-md">
+                        {item.tag}
+                      </span>
+                    )}
+                    <h3 className="mb-1 text-xl font-bold leading-snug text-white drop-shadow-md md:text-2xl">
+                      {item.titleLine1}
+                    </h3>
+                    {item.desc && (
+                      <p className="mb-4 line-clamp-2 text-sm text-slate-200 drop-shadow">
+                        {item.desc}
+                      </p>
+                    )}
                     <a
                       href={item.ctaUrl || '#'}
                       onClick={(event) => {
@@ -158,10 +159,9 @@ export function StackedPromotionsCarousel({
                         event.preventDefault();
                         onCtaClick(item);
                       }}
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/30 bg-white/20 px-5 py-2.5 font-body text-xs font-bold uppercase tracking-wider text-white backdrop-blur transition-all duration-300 hover:bg-white hover:text-black active:scale-95"
+                      className="inline-flex self-start items-center justify-center gap-2 rounded-xl border border-white/40 bg-white/20 px-5 py-2 font-body text-xs font-bold uppercase tracking-wider text-white shadow-lg backdrop-blur-md transition-all hover:bg-white/30 active:scale-95"
                     >
-                      <span>{item.ctaText || 'Learn More'}</span>
-                      <ArrowRight className="h-4 w-4" />
+                      <span>{item.ctaText || 'Learn More'} →</span>
                     </a>
                   </div>
                 </div>

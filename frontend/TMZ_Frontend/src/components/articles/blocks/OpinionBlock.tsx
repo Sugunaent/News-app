@@ -4,6 +4,7 @@ import type { Opinion } from '@/types';
 import { useAuth } from '@/lib/useAuth';
 import { submitOpinion, hasUserSubmittedOpinion } from '@/lib/api';
 import { useToast } from '@/lib/toast';
+import { useAuthPrompt } from '@/lib/authPromptContext';
 
 export function OpinionBlock({
   opinion,
@@ -13,6 +14,7 @@ export function OpinionBlock({
   onSubmit?: (opinionText: string, xpEarned: number) => void;
 }) {
   const { user } = useAuth();
+  const { requestLogin } = useAuthPrompt();
   const { showToast } = useToast();
   const [selected, setSelected] = useState<string | null>(null);
   const [customText, setCustomText] = useState('');
@@ -40,15 +42,18 @@ export function OpinionBlock({
   const handleSubmit = async () => {
     const finalOpinion = isCustomMode ? customText.trim() : (selected || '').trim();
     if (!finalOpinion || loading || submitted) return;
+    if (!user) {
+      requestLogin('gamification');
+      return;
+    }
 
     setLoading(true);
     try {
-      const userId = user?.id || 'demo-reader';
       const selectedIndex = opinion.options.indexOf(finalOpinion);
       const selectedOptionId = selectedIndex >= 0 ? opinion.option_ids?.[selectedIndex] : undefined;
       const result = await submitOpinion(
         opinion.id,
-        userId,
+        user.id,
         finalOpinion,
         selectedOptionId,
         isCustomMode ? finalOpinion : undefined,

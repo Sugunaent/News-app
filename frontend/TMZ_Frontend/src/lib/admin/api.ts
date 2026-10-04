@@ -113,6 +113,11 @@ const toAdminArticle = (item: any): AdminArticle => ({
   title: item.title ?? 'Untitled',
   subtitle: item.subtitle ?? '',
   summary: item.summary ?? null,
+  title_te: item.title_te ?? null,
+  content_te: item.content_te ?? null,
+  title_hi: item.title_hi ?? null,
+  content_hi: item.content_hi ?? null,
+  is_manual_translation: Boolean(item.is_manual_translation),
   category_id: item.category_id ?? item.category?.id ?? null,
   category_name: item.category?.name ?? item.category_name ?? undefined,
   article_type: normalizeArticleType(item.article_type ?? item.type),
@@ -380,6 +385,11 @@ export async function createArticle(data: Partial<AdminArticle>): Promise<AdminA
     title: data.title ?? 'Untitled',
     subtitle: data.subtitle ?? '',
     summary: data.summary ?? undefined,
+    title_te: data.title_te ?? null,
+    content_te: data.content_te ?? null,
+    title_hi: data.title_hi ?? null,
+    content_hi: data.content_hi ?? null,
+    is_manual_translation: Boolean(data.is_manual_translation),
     slug: undefined,
     article_type: data.article_type ?? 'ARTICLE',
     status: data.status ?? 'DRAFT',
@@ -404,6 +414,11 @@ export async function updateArticle(id: string, updates: Partial<AdminArticle>):
   if (updates.title !== undefined) payload.title = updates.title;
   if (updates.subtitle !== undefined) payload.subtitle = updates.subtitle;
   if (updates.summary !== undefined) payload.summary = updates.summary;
+  if (updates.title_te !== undefined) payload.title_te = updates.title_te;
+  if (updates.content_te !== undefined) payload.content_te = updates.content_te;
+  if (updates.title_hi !== undefined) payload.title_hi = updates.title_hi;
+  if (updates.content_hi !== undefined) payload.content_hi = updates.content_hi;
+  if (updates.is_manual_translation !== undefined) payload.is_manual_translation = updates.is_manual_translation;
   if (updates.category_id !== undefined) payload.category_id = updates.category_id;
   if (updates.article_type !== undefined) payload.article_type = updates.article_type;
   if (updates.cover_image_url !== undefined) payload.cover_image_url = updates.cover_image_url;

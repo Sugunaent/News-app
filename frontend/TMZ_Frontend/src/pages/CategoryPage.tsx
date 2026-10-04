@@ -78,7 +78,7 @@ export function CategoryPage() {
   if (error || !category) return <ErrorState message="Category not found." />;
 
   return (
-    <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 sm:py-8">
+    <div className="relative z-10 mx-auto w-full max-w-[100vw] min-w-0 px-4 sm:px-6 lg:px-8 xl:max-w-[1440px] xl:px-10 2xl:max-w-[1536px]">
       <Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: category.name }]} />
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-5 mb-8">
         <div className="flex-1">
@@ -106,7 +106,7 @@ export function CategoryPage() {
       ) : articles.length === 0 ? (
         <EmptyState message={debouncedQuery ? "No articles match your search." : "No articles in this category yet."} />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div className="grid w-full max-w-full min-w-0 grid-cols-1 gap-6 p-3 pt-2 pb-8 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {articles.map((article) => (
             <ArticleCard key={article.id} article={article} />
           ))}

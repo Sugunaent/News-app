@@ -1,9 +1,8 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Category, Promotion, Article } from '@/types';
 import { ConnectedCarousel, type CarouselItem } from '@/components/ui/connected-carousel';
-import { StackedPromotionsCarousel } from '@/components/ui/stacked-promotions-carousel';
 import { TestimonialMarquee } from '@/components/ui/testimonial-marquee';
 import {
   fetchPromotions,
@@ -14,7 +13,6 @@ import {
 import { SectionHeader, LoadingState, ErrorState } from '@/components/ui/States';
 import { BookmarkButton } from '@/components/articles/BookmarkButton';
 import { GlowingEffect } from '@/components/articles/GlowingEffect';
-import { useAuth } from '@/lib/useAuth';
 import { ContactSection } from '@/components/common/ContactSection';
 import { canonicalUrl, removeJsonLd, upsertJsonLd } from '@/lib/seo';
 import { ExternalImage } from '@/components/articles/ExternalImage';
@@ -22,9 +20,14 @@ import { useLanguage } from '@/lib/language';
 import { getLocalizedArticleFields, useTranslatedArticle } from '@/lib/translations';
 import { Loader2 } from 'lucide-react';
 
+const StackedPromotionsCarousel = lazy(() =>
+  import('@/components/ui/stacked-promotions-carousel').then((module) => ({
+    default: module.StackedPromotionsCarousel,
+  })),
+);
+
 export function HomePage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const { currentLang } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -139,8 +142,8 @@ export function HomePage() {
 
   if (loading) {
     return (
-      <div className="relative z-10 mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8 xl:px-10 2xl:max-w-[1536px]">
-        <section className="w-full pt-4 pb-5 md:pt-6 md:pb-8">
+      <div className="relative z-10 mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+        <section className="w-full">
           <LoadingState message="Loading stories..." />
         </section>
       </div>
@@ -152,12 +155,7 @@ export function HomePage() {
   const remainingCategories = categories.slice(1);
 
   const handleArticleClick = (article: Article) => {
-    const route = getArticleRoute(article);
-    if (user) {
-      navigate(route);
-    } else {
-      navigate('/auth', { state: { redirect: route } });
-    }
+    navigate(getArticleRoute(article));
   };
 
   const carouselItems: CarouselItem[] = [
@@ -203,10 +201,10 @@ export function HomePage() {
   };
 
   return (
-    <div lang={currentLang.toLowerCase()} className="relative z-10 mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8 xl:px-10 2xl:max-w-[1536px]">
+    <div lang={currentLang.toLowerCase()} className="relative z-10 mx-auto w-full max-w-7xl space-y-[50px] md:space-y-[100px] px-4 sm:px-6 lg:px-8">
       {/* Dynamic promotional banners and featured published articles */}
       {carouselItems.length > 0 && (
-        <section className="w-full py-8 md:py-12">
+        <section className="w-full">
           <ConnectedCarousel
             items={carouselItems}
             autoplay
@@ -216,7 +214,7 @@ export function HomePage() {
         </section>
       )}
 
-      <div className="space-y-8 md:space-y-12">
+      <div className="space-y-[50px] md:space-y-[100px]">
         {/* Latest articles */}
         {latest.length > 0 && (
           <section id="latest-section">
@@ -260,22 +258,24 @@ export function HomePage() {
       </div>
 
       {promotionCarouselItems.length > 0 && (
-        <section className="w-full py-6 md:py-10">
-          <StackedPromotionsCarousel
-            items={promotionCarouselItems}
-            autoplay
-            autoplayDelay={5000}
-            onCtaClick={handleCarouselCta}
-          />
+        <section className="w-full">
+          <Suspense fallback={<div className="h-48 animate-pulse rounded-md bg-slate-100 dark:bg-slate-800" />}>
+            <StackedPromotionsCarousel
+              items={promotionCarouselItems}
+              autoplay
+              autoplayDelay={5000}
+              onCtaClick={handleCarouselCta}
+            />
+          </Suspense>
         </section>
       )}
 
-      <section className="w-full py-6 md:py-10">
+      <section className="w-full">
         <TestimonialMarquee />
       </section>
 
       {/* Contact */}
-      <section className="w-full py-6 md:py-10">
+      <section className="w-full">
         <ContactSection />
       </section>
     </div>
@@ -308,16 +308,17 @@ function AuthorsPickCard({ article, onClick }: { article: Article; onClick: () =
     <div
       onClick={onClick}
       lang={currentLang.toLowerCase()}
-      className="relative glass-card overflow-hidden cursor-pointer group flex-shrink-0 snap-start w-[280px] sm:w-[310px] md:w-[330px] h-[340px] flex flex-col transition-transform duration-300 hover:scale-[1.03]"
+      className="relative glass-card overflow-visible !rounded-md shadow-md transition-all duration-300 ease-out hover:shadow-[0_12px_28px_-6px_rgba(0,0,0,0.12)] dark:hover:shadow-[0_12px_28px_-6px_rgba(0,0,0,0.5)] cursor-pointer group flex-shrink-0 snap-start w-[280px] sm:w-[310px] md:w-[330px] h-[340px] flex flex-col hover:scale-[1.03]"
       ref={translated.ref}
       aria-busy={translated.isLoading}
     >
       <GlowingEffect borderWidth={1.5} spread={40} glow={true} />
-      <div className="relative h-[235px] overflow-hidden flex-shrink-0">
+      <div className="relative h-[235px] overflow-hidden !rounded-t-md flex-shrink-0">
         <ExternalImage
           src={article.cover_image_url}
           alt={title}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          loading="lazy"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
         <span className="absolute top-3 left-3 z-20 px-2.5 py-1 rounded-full glass text-xs text-primary font-body">
@@ -389,8 +390,8 @@ function ArticleCarouselRow({
 
   return (
     <section>
-      <div className="flex items-center justify-between mb-3.5 sm:mb-4">
-        <h2 className="font-display text-2xl md:text-3xl text-primary">{title}</h2>
+      <div className="flex items-center justify-between text-left mb-6">
+        <h2 className="font-display text-2xl md:text-3xl font-bold text-primary">{title}</h2>
         <div className="flex items-center gap-2 sm:gap-3">
           {action && (
             <button
@@ -425,7 +426,7 @@ function ArticleCarouselRow({
       <div
         ref={rowRef}
         onScroll={checkScroll}
-        className="flex gap-4 sm:gap-5 overflow-x-auto no-scrollbar scroll-smooth snap-x py-3 px-1.5"
+        className="flex gap-4 sm:gap-5 no-scrollbar scrollbar-none overflow-x-auto scroll-smooth snap-x pt-2 pb-8 pl-0 pr-6"
       >
         {articles.map((article) => (
           <AuthorsPickCard
@@ -448,8 +449,8 @@ function LatestMarquee({ articles, onArticleClick }: { articles: Article[]; onAr
   const items = [...articles, ...articles];
 
   return (
-    <div className="relative overflow-hidden py-4 sm:py-5 -my-2 sm:-my-3">
-      <div className="marquee-track gap-5 py-1">
+    <div className="relative overflow-hidden py-8 sm:py-9">
+      <div className="marquee-track gap-5 py-2">
         {items.map((article, i) => (
           <LatestMarqueeCard
             key={`${article.id}-${i}`}
@@ -494,12 +495,12 @@ function LatestMarqueeCard({
       onClick={onClick}
       lang={currentLang.toLowerCase()}
       ref={translated.ref}
-      className="relative glass-card overflow-hidden cursor-pointer group w-[275px] sm:w-[295px] md:w-[310px] h-[385px] flex flex-col transition-transform duration-300 hover:scale-105 flex-shrink-0"
+      className="relative glass-card overflow-visible !rounded-md shadow-md transition-all duration-300 ease-out hover:shadow-[0_12px_28px_-6px_rgba(0,0,0,0.12)] dark:hover:shadow-[0_12px_28px_-6px_rgba(0,0,0,0.5)] cursor-pointer group w-[275px] sm:w-[295px] md:w-[310px] h-[385px] flex flex-col hover:scale-105 flex-shrink-0"
       style={{ transformOrigin: 'center' }}
       aria-busy={translated.isLoading}
     >
       <GlowingEffect borderWidth={1.5} spread={40} glow={true} className="z-30" />
-      <div className="relative z-0 h-[270px] min-h-0 overflow-hidden rounded-t-[inherit] flex-shrink-0">
+      <div className="relative z-0 h-[270px] min-h-0 overflow-hidden !rounded-t-md flex-shrink-0">
         <ExternalImage
           src={article.cover_image_url}
           alt={title}

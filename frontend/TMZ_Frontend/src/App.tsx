@@ -1,15 +1,49 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useEffect } from 'react';
+import OneSignal from 'react-onesignal';
 import { canonicalUrl, setPageMetadata, upsertJsonLd } from '@/lib/seo';
 import { ThemeProvider } from '@/lib/theme';
 import { LanguageProvider } from '@/lib/language';
 import { AuthProvider } from '@/lib/auth';
+import { AuthPromptProvider } from '@/lib/authPrompt';
 import { ToastProvider } from '@/lib/toast';
-import { DotPattern } from '@/components/layout/DotPattern';
 import { CursorFollower } from '@/components/layout/CursorFollower';
 import { ScrollToTop } from '@/components/layout/ScrollToTop';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
+
+const oneSignalAppId = import.meta.env.VITE_ONESIGNAL_APP_ID
+  || '2003e8e9-3d0d-466e-9744-eecce89b5822';
+let oneSignalInitialization: Promise<void> | undefined;
+
+function initializeOneSignal() {
+  if (!oneSignalInitialization) {
+    oneSignalInitialization = OneSignal.init({
+      appId: oneSignalAppId,
+      allowLocalhostAsSecureOrigin: true,
+      serviceWorkerPath: '/OneSignalSDKWorker.js',
+      promptOptions: {
+        slidedown: {
+          prompts: [
+            {
+              type: 'push',
+              autoPrompt: false,
+              delay: { timeDelay: 0 },
+              text: {
+                actionMessage: 'Get the latest stories from The Modern Stories.',
+                acceptButton: 'Subscribe',
+                cancelButton: 'Not now',
+              },
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  return oneSignalInitialization;
+}
+
 const HomePage = lazy(() => import('@/pages/HomePage').then((module) => ({ default: module.HomePage })));
 const AboutPage = lazy(() => import('@/pages/AboutPage').then((module) => ({ default: module.AboutPage })));
 const CategoryPage = lazy(() => import('@/pages/CategoryPage').then((module) => ({ default: module.CategoryPage })));
@@ -30,6 +64,37 @@ const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((module) => 
 function AppLayout() {
   const location = useLocation();
   const isAuthPage = ['/auth', '/login', '/auth/callback'].includes(location.pathname);
+  const usesPageSpacing = !isAuthPage && location.pathname !== '/superadmin';
+
+  useEffect(() => {
+    let isActive = true;
+    let promptTimer: number | undefined;
+
+    void initializeOneSignal()
+      .then(() => {
+        if (!isActive) return;
+
+        promptTimer = window.setTimeout(() => {
+          if (
+            isActive
+            && OneSignal.Notifications.isPushSupported()
+            && OneSignal.Notifications.permissionNative === 'default'
+          ) {
+            void OneSignal.Slidedown.promptPush().catch((error: unknown) => {
+              console.error('OneSignal subscription prompt failed to open:', error);
+            });
+          }
+        }, 5000);
+      })
+      .catch((error: unknown) => {
+        console.error('OneSignal failed to initialize:', error);
+      });
+
+    return () => {
+      isActive = false;
+      if (promptTimer !== undefined) window.clearTimeout(promptTimer);
+    };
+  }, []);
 
   useEffect(() => {
     const pageMeta: Record<string, { title: string; description: string; ogTitle?: string; ogDescription?: string }> = {
@@ -66,7 +131,7 @@ function AppLayout() {
     setPageMetadata({
       ...routeMeta,
       canonicalPath: location.pathname,
-      robots: isPrivateRoute || !isKnownRoute || isArticleRoute ? 'noindex, nofollow' : undefined,
+      robots: isPrivateRoute || !isKnownRoute ? 'noindex, nofollow' : undefined,
       ogTitle: 'ogTitle' in routeMeta ? routeMeta.ogTitle : undefined,
       ogDescription: 'ogDescription' in routeMeta ? routeMeta.ogDescription : undefined,
     });
@@ -84,9 +149,9 @@ function AppLayout() {
   }, [location.pathname]);
 
   return (
-    <div className="relative min-h-screen flex flex-col">
+    <div className="relative flex min-h-screen w-full max-w-[100vw] min-w-0 flex-col">
       {!isAuthPage && <Header />}
-      <main className="flex-1">
+      <main className={`w-full max-w-[100vw] min-w-0 min-h-screen flex-1 ${usesPageSpacing ? 'pt-[50px] md:pt-[100px] pb-[50px] md:pb-[100px]' : ''}`}>
         <Suspense fallback={<div className="flex min-h-[50vh] items-center justify-center text-sm text-muted" role="status">Loading page…</div>}>
           <Routes>
             <Route path="/" element={<HomePage />} />
@@ -121,10 +186,11 @@ function App() {
         <AuthProvider>
           <ToastProvider>
             <BrowserRouter>
-              <ScrollToTop />
-              <DotPattern />
-              <CursorFollower />
-              <AppLayout />
+              <AuthPromptProvider>
+                <ScrollToTop />
+                <CursorFollower />
+                <AppLayout />
+              </AuthPromptProvider>
             </BrowserRouter>
           </ToastProvider>
         </AuthProvider>

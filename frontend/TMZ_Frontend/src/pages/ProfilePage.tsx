@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   BookOpen, Trophy, Target, MessageSquare, Award, Share2,
   Clock, TrendingUp, CheckCircle2, Lock, ChevronRight, Settings,
   Zap, Star, BarChart3, Sparkles,
 } from 'lucide-react';
 import { useAuth } from '@/lib/useAuth';
+import { LoginRequiredNotice } from '@/lib/authPrompt';
+import { useAuthPrompt } from '@/lib/authPromptContext';
 import { useToast } from '@/lib/toast';
 import { Modal } from '@/components/ui/States';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -17,13 +19,55 @@ import {
   getArticleRoute,
 } from '@/lib/api';
 import type {
-  Level, Badge, CompletionCard, ReadingHistoryItem,
+  Article, Level, Badge, CompletionCard, ReadingHistoryItem,
   SavedArticleItem, QuizStats, OpinionWithArticle, AchievementItem,
   UserProfile,
 } from '@/types';
 
+interface ProfileReadingHistoryEntry {
+  article_id: string;
+  article_title?: string | null;
+  progress_percentage?: number | null;
+  last_position?: number | null;
+  completed_at?: string | null;
+  last_read_at: string;
+}
+
+interface ProfileAchievementEntry {
+  type: string;
+  title: string;
+  description: string;
+  earned_at: string;
+  article_id?: string | null;
+  badge_id?: string | null;
+  xp_amount?: number | null;
+  amount?: number | null;
+}
+
+interface ProfileShareCardEntry {
+  id: string;
+  article_id?: string | null;
+  article_title?: string | null;
+  title?: string | null;
+  xp_gained?: number | null;
+  xp?: number | null;
+  xp_reward?: number | null;
+  created_at: string;
+  card_type: string;
+  opinion_text?: string | null;
+}
+
+type ProfileHistoryItem = Omit<ReadingHistoryItem, 'article'> & {
+  article?: Pick<Article, 'id' | 'title'>;
+};
+
 export function ProfilePage() {
   const { user, profile, loading } = useAuth();
+  const { requestLogin } = useAuthPrompt();
+
+  useEffect(() => {
+    if (!loading && (!user || !profile)) requestLogin('personalized');
+  }, [loading, user, profile, requestLogin]);
 
   if (loading) {
     return (
@@ -34,11 +78,11 @@ export function ProfilePage() {
   }
 
   if (!user || !profile) {
-    return <Navigate to="/auth" state={{ redirect: '/profile' }} replace />;
+    return <LoginRequiredNotice resource="your profile" />;
   }
 
   return (
-    <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 sm:py-8">
+    <div className="relative z-10 max-w-[1440px] 2xl:max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10">
       <ProfileOverview />
     </div>
   );
@@ -58,8 +102,8 @@ function ProfileOverview() {
   const [opinionsCount, setOpinionsCount] = useState(0);
   const [badgesEarned, setBadgesEarned] = useState(0);
   const [shareCardsCount, setShareCardsCount] = useState(0);
-  const [readingHistory, setReadingHistory] = useState<ReadingHistoryItem[]>([]);
-  const [completedArticles, setCompletedArticles] = useState<ReadingHistoryItem[]>([]);
+  const [readingHistory, setReadingHistory] = useState<ProfileHistoryItem[]>([]);
+  const [completedArticles, setCompletedArticles] = useState<ProfileHistoryItem[]>([]);
   const [savedArticles, setSavedArticles] = useState<SavedArticleItem[]>([]);
   const [userOpinions, setUserOpinions] = useState<OpinionWithArticle[]>([]);
   const [achievements, setAchievements] = useState<AchievementItem[]>([]);
@@ -99,7 +143,10 @@ function ProfileOverview() {
         level: Number(level?.level_number ?? profile?.level ?? 1),
         bio: aggregateUser.bio ?? profile?.bio ?? null,
       };
-      const history = (aggregate.reading_history ?? []).map((item: any) => ({
+      const historyEntries: ProfileReadingHistoryEntry[] = aggregate.reading_history ?? [];
+      const achievementEntries: ProfileAchievementEntry[] = aggregate.achievement_history ?? [];
+      const shareCardEntries: ProfileShareCardEntry[] = aggregate.share_cards ?? [];
+      const history: ProfileHistoryItem[] = historyEntries.map((item) => ({
         article_id: item.article_id,
         user_id: uid,
         percentage: Number(item.progress_percentage ?? 0),
@@ -112,14 +159,14 @@ function ProfileOverview() {
         },
       }));
       const achievementByCard = new Map<string, number>();
-      for (const item of aggregate.achievement_history ?? []) {
+      for (const item of achievementEntries) {
         const key = item.article_id ? `article:${item.article_id}` : item.badge_id ? `badge:${item.badge_id}` : null;
         if (!key) continue;
         const amount = Number(item.xp_amount ?? item.amount ?? 0);
         if (amount > 0) achievementByCard.set(key, amount);
       }
 
-      const cards = (aggregate.share_cards ?? []).map((card: any) => {
+      const cards: CompletionCard[] = shareCardEntries.map((card) => {
         const rawXp = Number(card.xp_gained ?? card.xp ?? card.xp_reward ?? 0);
         const derivedXp = rawXp > 0
           ? rawXp
@@ -128,15 +175,15 @@ function ProfileOverview() {
         return {
           id: card.id,
           user_id: uid,
-          article_id: card.article_id,
-          article_title: card.article_title ?? card.title,
+          article_id: card.article_id ?? '',
+          article_title: card.article_title ?? card.title ?? 'Article',
           xp_gained: derivedXp,
           created_at: card.created_at,
           card_type: card.card_type === 'OPINION' ? 'opinion' : 'completion',
           opinion_text: card.opinion_text ?? undefined,
         };
       });
-      const achievementItems = (aggregate.achievement_history ?? []).map((item: any, index: number) => ({
+      const achievementItems: AchievementItem[] = achievementEntries.map((item, index) => ({
         id: `${item.type}-${item.earned_at}-${index}`,
         type: item.type === 'BADGE' ? 'badge' : item.type === 'ARTICLE_COMPLETION' ? 'completion' : 'quiz',
         title: item.title,
@@ -159,7 +206,7 @@ function ProfileOverview() {
       setUserOpinions(aggregate.opinions ?? []);
       setShareCardsCount(cards.length);
       setReadingHistory(history);
-      setCompletedArticles(history.filter((item: ReadingHistoryItem) => item.completed));
+      setCompletedArticles(history.filter((item) => item.completed));
       setSavedArticles(saved);
       setAchievements(achievementItems);
       setAllBadges(badges.all);
@@ -589,7 +636,7 @@ function StatBlock({
 
 /* ===== Reading History Card ===== */
 
-function ReadingHistoryCard({ item }: { item: ReadingHistoryItem }) {
+function ReadingHistoryCard({ item }: { item: ProfileHistoryItem }) {
   const navigate = useNavigate();
   const article = item.article;
   if (!article) return null;
@@ -646,7 +693,7 @@ function SavedArticleCard({ item }: { item: SavedArticleItem }) {
 
 /* ===== Completed Article Card ===== */
 
-function CompletedArticleCard({ item }: { item: ReadingHistoryItem }) {
+function CompletedArticleCard({ item }: { item: ProfileHistoryItem }) {
   const navigate = useNavigate();
   const article = item.article;
   if (!article) return null;

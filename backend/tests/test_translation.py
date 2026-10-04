@@ -1,3 +1,5 @@
+import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -8,10 +10,66 @@ from fastapi.testclient import TestClient
 from app.core.config import settings
 from app.dependencies.auth import get_current_user
 from app.main import app
-from app.routers.translation import TranslationContent
+from app.routers.translation import (
+    TRANSLATION_SYSTEM_PROMPT,
+    TranslationContent,
+    _generate_for_model,
+)
 
 
 client = TestClient(app)
+
+
+def test_gemini_request_uses_native_translation_system_prompt():
+    captured_payload = {}
+
+    async def capture_request(request):
+        captured_payload.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {
+                                    "text": json.dumps(
+                                        {
+                                            "title": "ఏఐ వార్తలు",
+                                            "content": "",
+                                            "segments": {"body-1": "సహజమైన అనువాదం"},
+                                        }
+                                    )
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+        )
+
+    async def generate():
+        transport = httpx.MockTransport(capture_request)
+        async with httpx.AsyncClient(transport=transport) as http_client:
+            return await _generate_for_model(
+                http_client,
+                "gemini-2.5-flash",
+                "AI news",
+                "",
+                {"body-1": "Natural translation"},
+                "Telugu",
+            )
+
+    result = asyncio.run(generate())
+
+    assert result.title == "ఏఐ వార్తలు"
+    assert result.segments == {"body-1": "సహజమైన అనువాదం"}
+    assert (
+        captured_payload["systemInstruction"]["parts"][0]["text"]
+        == TRANSLATION_SYSTEM_PROMPT
+    )
+    assert "The Modern Stories" in TRANSLATION_SYSTEM_PROMPT
+    assert "సహజమైన, వాడుక భాషా శైలి లో వార్తా శైలి" in TRANSLATION_SYSTEM_PROMPT
 
 
 @pytest.fixture
