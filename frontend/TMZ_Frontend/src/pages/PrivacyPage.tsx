@@ -35,13 +35,13 @@ export function PrivacyPage() {
         <p className="text-base sm:text-lg text-primary leading-relaxed">
           At <strong className="text-primary font-semibold">The Modern Stories (TMS)</strong>, accessible via{' '}
           <a
-            href="https://themodernstories.com"
+            href="https://themodernstories.in"
             target="_blank"
             rel="noopener noreferrer"
             className="text-brand-primary hover:underline inline-flex items-center gap-1 font-medium"
           >
             <Globe className="w-3.5 h-3.5" />
-            themodernstories.com
+            themodernstories.in
           </a>
           , we take your personal data seriously. This Privacy Policy outlines what information we collect when you read our coverage of geopolitical affairs, entertainment, lifestyle, and trending news, how we handle user interactions, and the choices you have regarding your data.
         </p>

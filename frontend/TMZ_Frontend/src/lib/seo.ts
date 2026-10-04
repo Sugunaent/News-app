@@ -1,5 +1,5 @@
 export const SITE_NAME = 'The Modern Stories';
-export const SITE_URL = 'https://themodernstories.com';
+export const SITE_URL = 'https://themodernstories.in';
 export const DEFAULT_DESCRIPTION = "Discover The Modern Stories (TMS): India's leading AEO & GEO-powered digital platform for modern narratives, cyber articles, technology insights, personality growth, and inspiring contemporary literature. Empowering readers and stories.";
 export const DEFAULT_SOCIAL_IMAGE = `${SITE_URL}/modern_stories_hero.jpg`;
 export const SITE_ORGANIZATION_ID = `${SITE_URL}/#organization`;
@@ -85,7 +85,9 @@ function upsertMeta(selector: string, identifyingAttribute: 'name' | 'property',
 }
 
 export function canonicalUrl(path = window.location.pathname): string {
-  return new URL(path, `${SITE_URL}/`).toString();
+  const requestedUrl = new URL(path, `${SITE_URL}/`);
+  const siteOrigin = new URL(SITE_URL).origin;
+  return new URL(`${requestedUrl.pathname}${requestedUrl.search}${requestedUrl.hash}`, siteOrigin).toString();
 }
 
 export function setPageMetadata(metadata: PageMetadata): void {

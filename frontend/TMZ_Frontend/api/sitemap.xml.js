@@ -1,4 +1,4 @@
-const SITE_URL = 'https://themodernstories.com';
+const SITE_URL = 'https://themodernstories.in';
 const PUBLIC_PATHS = ['/', '/about', '/latest', '/authors-picks', '/privacy', '/legal'];
 const SITEMAP_NS = 'http://www.sitemaps.org/schemas/sitemap/0.9';
 

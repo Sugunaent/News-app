@@ -35,13 +35,13 @@ export function LegalPage() {
         <p className="text-base sm:text-lg text-primary leading-relaxed">
           Welcome to <strong className="text-primary font-semibold">The Modern Stories (TMS)</strong>. By accessing, browsing, or interacting with{' '}
           <a
-            href="https://themodernstories.com"
+            href="https://themodernstories.in"
             target="_blank"
             rel="noopener noreferrer"
             className="text-brand-primary hover:underline inline-flex items-center gap-1 font-medium"
           >
             <Globe className="w-3.5 h-3.5" />
-            themodernstories.com
+            themodernstories.in
           </a>
           , you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions. If you do not accept these terms in full, you must immediately discontinue your use of our platform.
         </p>
