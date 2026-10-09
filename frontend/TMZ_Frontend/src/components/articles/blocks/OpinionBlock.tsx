@@ -29,14 +29,21 @@ export function OpinionBlock({
 
   useEffect(() => {
     if (!user) return;
+    let active = true;
     hasUserSubmittedOpinion(user.id, opinion.id)
       .then((res) => {
+        if (!active) return;
         setSubmitted(res.submitted);
         if (res.submittedText) {
           setSubmittedText(res.submittedText);
         }
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        console.error(`[OpinionBlock] Could not check prior submission for opinion "${opinion.id}":`, error);
+      });
+    return () => {
+      active = false;
+    };
   }, [user, opinion.id]);
 
   const handleSubmit = async () => {
@@ -63,7 +70,8 @@ export function OpinionBlock({
       setSubmittedXp(result.xp_earned ?? 0);
       showToast(`Your opinion has been recorded${result.xp_earned ? ` (+${result.xp_earned} XP)` : ''}!`, 'success');
       onSubmit?.(finalOpinion, result.xp_earned ?? 0);
-    } catch {
+    } catch (error) {
+      console.error(`[OpinionBlock] Could not submit opinion "${opinion.id}":`, error);
       showToast('Could not submit opinion', 'error');
     } finally {
       setLoading(false);

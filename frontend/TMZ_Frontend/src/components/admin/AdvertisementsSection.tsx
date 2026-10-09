@@ -14,10 +14,10 @@ import { Input } from '@/components/ui/Input';
 type Tab = 'ads' | 'slots';
 const AD_STATUSES: AdStatus[] = ['ACTIVE', 'INACTIVE', 'SCHEDULED'];
 
-function isHttpsImageUrl(value: string): boolean {
+function isHttpImageUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' && Boolean(url.hostname);
+    return (url.protocol === 'https:' || url.protocol === 'http:') && Boolean(url.hostname);
   } catch {
     return false;
   }
@@ -30,6 +30,7 @@ export function AdvertisementsSection(): JSX.Element {
   const [slots, setSlots] = useState<AdSlot[]>([]);
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Advertisement | AdSlot | null>(null);
   const [form, setForm] = useState<Record<string, string | boolean>>({});
@@ -37,13 +38,28 @@ export function AdvertisementsSection(): JSX.Element {
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { const [a, s] = await Promise.all([fetchAdvertisements(), fetchAdSlots()]); setAds(a); setSlots(s); }
-    catch { showToast('Failed to load', 'error'); }
+    setLoadError(false);
+    try {
+      const [a, s] = await Promise.all([fetchAdvertisements(), fetchAdSlots()]);
+      setAds(a);
+      setSlots(s);
+    } catch (error) {
+      console.error('[AdvertisementsSection] Failed to load advertisements or slots:', error);
+      setLoadError(true);
+      showToast('Failed to load advertisements', 'error');
+    }
     finally { setLoading(false); }
   }, [showToast]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { fetchMedia().then(setMedia).catch(() => setMedia([])); }, []);
+  useEffect(() => {
+    fetchMedia()
+      .then(setMedia)
+      .catch((error) => {
+        console.error('[AdvertisementsSection] Failed to load media options:', error);
+        setMedia([]);
+      });
+  }, []);
 
   const openAdd = () => { setEditing(null); setForm(tab === 'ads' ? { title: '', description: '', image_source: 'url', image_media_id: '', external_image_url: '', target_url: '', ad_slot_id: '', status: 'ACTIVE', starts_at: '', ends_at: '' } : { name: '', slug: '', placement: '', description: '', is_active: true }); setModalOpen(true); };
   const openEdit = (item: Advertisement | AdSlot) => {
@@ -68,8 +84,13 @@ export function AdvertisementsSection(): JSX.Element {
         const imageSource = String(form.image_source);
         const externalImageUrl = String(form.external_image_url || '').trim();
         const imageMediaId = String(form.image_media_id || '').trim();
-        if ((imageSource === 'url' && !isHttpsImageUrl(externalImageUrl)) || (imageSource === 'media' && !imageMediaId)) {
-          showToast(imageSource === 'url' ? 'Enter a valid HTTPS image URL from any host' : 'Choose an uploaded image', 'error');
+        const adSlotId = String(form.ad_slot_id || '').trim();
+        if ((imageSource === 'url' && !isHttpImageUrl(externalImageUrl)) || (imageSource === 'media' && !imageMediaId)) {
+          showToast(imageSource === 'url' ? 'Enter a valid HTTP or HTTPS image URL' : 'Choose an uploaded image', 'error');
+          return;
+        }
+        if (!adSlotId) {
+          showToast('Choose an ad slot before saving', 'error');
           return;
         }
         const data = {
@@ -79,7 +100,7 @@ export function AdvertisementsSection(): JSX.Element {
           external_image_url: imageSource === 'url' ? externalImageUrl : null,
           image_url: imageSource === 'url' ? externalImageUrl : '',
           target_url: String(form.target_url),
-          ad_slot_id: form.ad_slot_id ? String(form.ad_slot_id) : null,
+          ad_slot_id: adSlotId,
           status: String(form.status) as AdStatus,
           starts_at: form.starts_at ? String(form.starts_at) : null,
           ends_at: form.ends_at ? String(form.ends_at) : null,
@@ -92,7 +113,10 @@ export function AdvertisementsSection(): JSX.Element {
         else { const n = await createAdSlot(data); setSlots((p) => [...p, n]); }
       }
       showToast('Saved', 'success'); setModalOpen(false);
-    } catch { showToast('Failed to save', 'error'); }
+    } catch (error) {
+      console.error('[AdvertisementsSection] Failed to save:', error);
+      showToast('Failed to save', 'error');
+    }
   };
 
   const confirmDelete = async () => {
@@ -101,7 +125,10 @@ export function AdvertisementsSection(): JSX.Element {
       if (tab === 'ads') { await deleteAdvertisement(deleteId); setAds((p) => p.filter((x) => x.id !== deleteId)); }
       else { await deleteAdSlot(deleteId); setSlots((p) => p.filter((x) => x.id !== deleteId)); }
       showToast('Deleted', 'success');
-    } catch { showToast('Failed to delete', 'error'); }
+    } catch (error) {
+      console.error('[AdvertisementsSection] Failed to delete:', error);
+      showToast('Failed to delete', 'error');
+    }
     finally { setDeleteId(null); }
   };
 
@@ -125,6 +152,11 @@ export function AdvertisementsSection(): JSX.Element {
       <GlassCard hover={false} className="overflow-hidden">
         {loading ? (
           <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--brand-primary)' }} /></div>
+        ) : loadError ? (
+          <div className="space-y-3 py-12 text-center">
+            <p className="font-body text-sm" style={{ color: 'var(--text-muted)' }}>Advertisements could not be loaded.</p>
+            <Button variant="secondary" onClick={() => void load()}>Try again</Button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm font-body">
@@ -205,13 +237,13 @@ export function AdvertisementsSection(): JSX.Element {
                 ) : (
                   <>
                     <Input
-                      label="HTTPS image URL"
+                      label="Image URL"
                       value={String(form.external_image_url || '')}
                       onChange={(e) => setForm((p) => ({ ...p, external_image_url: e.target.value }))}
                       placeholder="https://any-image-host.example/ad.jpg"
                     />
-                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Any HTTPS host is supported; the URL must point directly to an image.</p>
-                    {String(form.external_image_url || '').trim() && isHttpsImageUrl(String(form.external_image_url).trim()) && (
+                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>HTTP or HTTPS image URLs from any host are supported.</p>
+                    {String(form.external_image_url || '').trim() && isHttpImageUrl(String(form.external_image_url).trim()) && (
                       <img
                         key={String(form.external_image_url)}
                         src={String(form.external_image_url)}
@@ -230,7 +262,7 @@ export function AdvertisementsSection(): JSX.Element {
                 <div className="space-y-1.5">
                   <label className="block text-sm font-body" style={{ color: 'var(--text-secondary)' }}>Ad Slot</label>
                   <select className="input-field" value={String(form.ad_slot_id || '')} onChange={(e) => setForm((p) => ({ ...p, ad_slot_id: e.target.value }))}>
-                    <option value="">None</option>
+                    <option value="">Choose a slot…</option>
                     {slots.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>

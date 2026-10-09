@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import type { Category, Article } from '@/types';
@@ -19,6 +19,7 @@ export function CategoryPage() {
   const [error, setError] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  const previousSlug = useRef(slug);
 
   // Debounce search query
   useEffect(() => {
@@ -28,24 +29,36 @@ export function CategoryPage() {
 
   useEffect(() => {
     if (!slug) return;
+    const categoryChanged = previousSlug.current !== slug;
+    previousSlug.current = slug;
     setLoading(true);
     setError(false);
+    if (categoryChanged) {
+      setCategory(null);
+      setArticles([]);
+    }
+    let active = true;
     (async () => {
       try {
         const cat = await fetchCategoryBySlug(slug);
         if (!cat) {
-          setError(true);
+          if (active) setError(true);
           return;
         }
+        if (!active) return;
         setCategory(cat);
         const arts = await fetchArticlesByCategory(cat.id, debouncedQuery, currentLang);
-        setArticles(arts);
-      } catch {
-        setError(true);
+        if (active) setArticles(arts);
+      } catch (requestError) {
+        console.error(`[CategoryPage] Could not load category "${slug}":`, requestError);
+        if (active) setError(true);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     })();
+    return () => {
+      active = false;
+    };
   }, [slug, debouncedQuery, currentLang]);
 
   useEffect(() => {

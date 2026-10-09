@@ -166,6 +166,7 @@ export function CoverFlowCarousel({
                       loading={isCenter ? 'eager' : 'lazy'}
                       fetchPriority={isCenter ? 'high' : 'auto'}
                       decoding="async"
+                      onError={(event) => { event.currentTarget.style.display = 'none'; }}
                     />
                   </div>
 
@@ -203,6 +204,8 @@ export function CoverFlowCarousel({
                     <div className="pt-2">
                       <a
                         href={item.ctaUrl || "#"}
+                        target={item.tag === '#Promotion' ? '_blank' : undefined}
+                        rel={item.tag === '#Promotion' ? 'sponsored noopener noreferrer' : undefined}
                         onClick={(e) => {
                           if (onCtaClick) {
                             e.preventDefault();

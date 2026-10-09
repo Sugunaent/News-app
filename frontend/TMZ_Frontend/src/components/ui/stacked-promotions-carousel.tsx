@@ -132,6 +132,7 @@ export function StackedPromotionsCarousel({
                     loading={isActive ? 'eager' : 'lazy'}
                     fetchPriority={isActive ? 'high' : 'auto'}
                     decoding="async"
+                    onError={(event) => { event.currentTarget.style.display = 'none'; }}
                   />
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-3/5 bg-gradient-to-t from-black/95 via-black/70 to-transparent" />
                   <div
@@ -154,6 +155,8 @@ export function StackedPromotionsCarousel({
                     )}
                     <a
                       href={item.ctaUrl || '#'}
+                      target="_blank"
+                      rel="sponsored noopener noreferrer"
                       onClick={(event) => {
                         if (!onCtaClick) return;
                         event.preventDefault();

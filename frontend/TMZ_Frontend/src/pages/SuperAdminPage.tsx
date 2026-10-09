@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { lazy, Suspense, useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, FileText, FolderTree, HelpCircle, MessageSquare,
@@ -8,25 +8,27 @@ import {
 } from 'lucide-react';
 import { TMSIcon } from '@/components/brand/TMSIcon';
 import { useAuth } from '@/lib/useAuth';
+import { useToast } from '@/lib/toast';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { searchArticles } from '@/lib/admin/api';
 import type { AdminArticle } from '@/lib/admin/adminTypes';
-import { DashboardSection } from '@/components/admin/DashboardSection';
-import { ArticlesSection } from '@/components/admin/ArticlesSection';
-import { HomeSection } from '@/components/admin/HomeSection';
-import { CategoriesSection } from '@/components/admin/CategoriesSection';
-import { QuizzesSection } from '@/components/admin/QuizzesSection';
-import { OpinionsSection } from '@/components/admin/OpinionsSection';
-import { CommentsSection } from '@/components/admin/CommentsSection';
-import { UsersSection } from '@/components/admin/UsersSection';
-import { GamificationSection } from '@/components/admin/GamificationSection';
-import { PromotionsSection } from '@/components/admin/PromotionsSection';
-import { AdvertisementsSection } from '@/components/admin/AdvertisementsSection';
-import { MediaSection } from '@/components/admin/MediaSection';
-import { AnalyticsSection } from '@/components/admin/AnalyticsSection';
-import { FeedbackSection } from '@/components/admin/FeedbackSection';
-import { BusinessEnquiriesSection } from '@/components/admin/BusinessEnquiriesSection';
-import { AuditLogsSection } from '@/components/admin/AuditLogsSection';
+
+const DashboardSection = lazy(() => import('@/components/admin/DashboardSection').then((module) => ({ default: module.DashboardSection })));
+const ArticlesSection = lazy(() => import('@/components/admin/ArticlesSection').then((module) => ({ default: module.ArticlesSection })));
+const HomeSection = lazy(() => import('@/components/admin/HomeSection').then((module) => ({ default: module.HomeSection })));
+const CategoriesSection = lazy(() => import('@/components/admin/CategoriesSection').then((module) => ({ default: module.CategoriesSection })));
+const QuizzesSection = lazy(() => import('@/components/admin/QuizzesSection').then((module) => ({ default: module.QuizzesSection })));
+const OpinionsSection = lazy(() => import('@/components/admin/OpinionsSection').then((module) => ({ default: module.OpinionsSection })));
+const CommentsSection = lazy(() => import('@/components/admin/CommentsSection').then((module) => ({ default: module.CommentsSection })));
+const UsersSection = lazy(() => import('@/components/admin/UsersSection').then((module) => ({ default: module.UsersSection })));
+const GamificationSection = lazy(() => import('@/components/admin/GamificationSection').then((module) => ({ default: module.GamificationSection })));
+const PromotionsSection = lazy(() => import('@/components/admin/PromotionsSection').then((module) => ({ default: module.PromotionsSection })));
+const AdvertisementsSection = lazy(() => import('@/components/admin/AdvertisementsSection').then((module) => ({ default: module.AdvertisementsSection })));
+const MediaSection = lazy(() => import('@/components/admin/MediaSection').then((module) => ({ default: module.MediaSection })));
+const AnalyticsSection = lazy(() => import('@/components/admin/AnalyticsSection').then((module) => ({ default: module.AnalyticsSection })));
+const FeedbackSection = lazy(() => import('@/components/admin/FeedbackSection').then((module) => ({ default: module.FeedbackSection })));
+const BusinessEnquiriesSection = lazy(() => import('@/components/admin/BusinessEnquiriesSection').then((module) => ({ default: module.BusinessEnquiriesSection })));
+const AuditLogsSection = lazy(() => import('@/components/admin/AuditLogsSection').then((module) => ({ default: module.AuditLogsSection })));
 
 type SectionKey =
   | 'dashboard' | 'home' | 'articles' | 'categories' | 'quizzes' | 'opinions'
@@ -61,29 +63,65 @@ const navItems: NavItem[] = [
 export function SuperAdminPage() {
   const navigate = useNavigate();
   const { user, profile, loading, signOut } = useAuth();
+  const { showToast } = useToast();
   const [activeSection, setActiveSection] = useState<SectionKey>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<AdminArticle[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [editorArticleId, setEditorArticleId] = useState<string | null>(null);
 
-  const handleSearch = useCallback(async (q: string) => {
+  const handleSearch = useCallback((q: string) => {
     setSearchQuery(q);
-    if (q.trim().length < 2) {
-      setSearchResults([]);
-      setSearchOpen(false);
-      return;
-    }
-    const results = await searchArticles(q);
-    setSearchResults(results);
-    setSearchOpen(true);
   }, []);
 
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (query.length < 2) {
+      setSearchResults([]);
+      setSearchOpen(false);
+      setSearchLoading(false);
+      return undefined;
+    }
+
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setSearchLoading(true);
+      void searchArticles(query)
+        .then((results) => {
+          if (!active) return;
+          setSearchResults(results);
+          setSearchOpen(true);
+        })
+        .catch((error: unknown) => {
+          console.error('[SuperAdminPage] Article search failed:', error);
+          if (active) {
+            setSearchResults([]);
+            setSearchOpen(false);
+            showToast('Article search failed. Please try again.', 'error');
+          }
+        })
+        .finally(() => {
+          if (active) setSearchLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [searchQuery, showToast]);
+
   const handleSignOut = async () => {
-    await signOut();
-    navigate('/');
+    try {
+      await signOut();
+      navigate('/');
+    } catch (error) {
+      console.error('[SuperAdminPage] Sign out failed:', error);
+      showToast('Could not sign out. Please try again.', 'error');
+    }
   };
 
   const openArticleEditor = (id?: string) => {
@@ -117,9 +155,7 @@ export function SuperAdminPage() {
     );
   }
 
-  // Role check — in production this would check profile.role === 'admin'
-  // For now, we allow all authenticated users to preview the CMS
-  const isAdmin = true; // TODO: Replace with real role check: profile?.role === 'admin'
+  const isAdmin = profile?.role?.toUpperCase() === 'SUPERADMIN';
 
   if (!isAdmin) {
     return (
@@ -273,6 +309,11 @@ export function SuperAdminPage() {
                   ))}
                 </div>
               )}
+              {searchLoading && (
+                <p className="absolute right-0 top-full mt-2 text-xs text-muted" role="status">
+                  Searching...
+                </p>
+              )}
             </div>
 
             <ThemeToggle />
@@ -281,7 +322,16 @@ export function SuperAdminPage() {
 
         {/* Content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          {renderSection()}
+          <Suspense
+            fallback={
+              <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-muted" role="status">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading admin section...
+              </div>
+            }
+          >
+            {renderSection()}
+          </Suspense>
         </main>
       </div>
     </div>

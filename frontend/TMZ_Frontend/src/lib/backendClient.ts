@@ -27,7 +27,8 @@ export async function getAuthToken(): Promise<string | null> {
   try {
     const { data } = await supabase.auth.getSession();
     return data.session?.access_token ?? null;
-  } catch {
+  } catch (error) {
+    console.error('[API] Failed to read the current authentication session:', error);
     return null;
   }
 }
@@ -40,7 +41,10 @@ async function refreshAccessToken(): Promise<string | null> {
         if (error) throw error;
         return data.session?.access_token ?? null;
       })
-      .catch(() => null)
+      .catch((error) => {
+        console.error('[API] Failed to refresh the authentication session:', error);
+        return null;
+      })
       .finally(() => {
         refreshPromise = null;
       });
@@ -51,11 +55,14 @@ async function refreshAccessToken(): Promise<string | null> {
 function isPublicGetEndpoint(path: string, method = 'GET'): boolean {
   if (method.toUpperCase() !== 'GET') return false;
   const normalized = path.split('?')[0].toLowerCase();
+  if (/(^|\/)admin(?:\/|$)/.test(normalized)) return false;
   return (
     normalized.startsWith('/api/v1/categories') ||
-    normalized.startsWith('/api/v1/promotions') ||
+    normalized === '/api/v1/promotions' ||
     normalized.startsWith('/api/v1/site') ||
-    normalized.startsWith('/api/v1/advertisements') ||
+    normalized === '/api/v1/advertisements' ||
+    normalized === '/api/v1/advertisements/slots' ||
+    /^\/api\/v1\/advertisements\/[^/]+\/click$/.test(normalized) ||
     normalized === '/api/v1/home/discovery' ||
     normalized.startsWith('/api/v1/gamification/levels') ||
     normalized.startsWith('/api/v1/gamification/badges') ||
@@ -86,6 +93,7 @@ export async function apiFetch<T>(path: string, init: ApiFetchOptions = {}): Pro
   try {
     response = await fetch(buildApiUrl(path), { ...init, headers });
   } catch (networkError) {
+    console.error(`[API] ${method} ${path} network request failed:`, networkError);
     // If authenticated request to public endpoint failed due to CORS preflight / network,
     // fallback immediately to an unauthenticated simple GET request.
     if (token && isPublic) {
@@ -94,7 +102,8 @@ export async function apiFetch<T>(path: string, init: ApiFetchOptions = {}): Pro
       retryHeaders.delete('Authorization');
       try {
         response = await fetch(buildApiUrl(path), { ...init, headers: retryHeaders });
-      } catch {
+      } catch (retryError) {
+        console.error(`[API] ${method} ${path} retry without authentication failed:`, retryError);
         throw networkError;
       }
     } else {

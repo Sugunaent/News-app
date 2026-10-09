@@ -5,27 +5,52 @@ import { useAuth } from '@/lib/useAuth';
 import { submitQuizAttempt, hasUserAttemptedQuiz } from '@/lib/api';
 import { useToast } from '@/lib/toast';
 import { useAuthPrompt } from '@/lib/authPromptContext';
+import { CompletionCard } from '@/components/articles/CompletionCard';
 
-export function QuizBlock({ quiz, onResult }: { quiz: Quiz; onResult?: (xp: number) => void }) {
-  const { user } = useAuth();
+export function QuizBlock({
+  quiz,
+  articleId,
+  onResult,
+}: {
+  quiz: Quiz;
+  articleId?: string;
+  onResult?: (xp: number) => void;
+}) {
+  const { user, profile } = useAuth();
   const { requestLogin } = useAuthPrompt();
   const { showToast } = useToast();
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [answered, setAnswered] = useState(false);
   const [loading, setLoading] = useState(false);
   const [xpEarned, setXpEarned] = useState(0);
+  const [showShareCard, setShowShareCard] = useState(false);
 
   useEffect(() => {
     if (!user) return;
+    let active = true;
     hasUserAttemptedQuiz(user.id, quiz.id).then((res) => {
-      if (res.attempted) {
+      if (active && res.attempted) {
         setAnswered(true);
         if (res.selectedOptionId) {
           setSelectedOption(res.selectedOptionId);
         }
       }
-    }).catch(() => {});
+    }).catch((error: unknown) => {
+      console.error(`[QuizBlock] Could not check prior attempt for quiz "${quiz.id}":`, error);
+    });
+    return () => {
+      active = false;
+    };
   }, [user, quiz.id]);
+
+  useEffect(() => {
+    if (!showShareCard) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowShareCard(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [showShareCard]);
 
   const handleSelect = async (optionId: string) => {
     if (answered || loading) return;
@@ -46,8 +71,10 @@ export function QuizBlock({ quiz, onResult }: { quiz: Quiz; onResult?: (xp: numb
         }
       }
       setAnswered(true);
-    } catch {
+    } catch (error) {
+      console.error(`[QuizBlock] Could not submit attempt for quiz "${quiz.id}":`, error);
       showToast('Could not submit quiz attempt', 'error');
+      setSelectedOption(null);
     } finally {
       setLoading(false);
     }
@@ -94,6 +121,7 @@ export function QuizBlock({ quiz, onResult }: { quiz: Quiz; onResult?: (xp: numb
               <button
                 onClick={() => handleSelect(option.id)}
                 disabled={answered || loading}
+                aria-busy={loading}
                 className="w-full text-left p-4 rounded-xl transition-all disabled:cursor-default"
                 style={{ background: bg, border: `1px solid ${border}` }}
               >
@@ -134,6 +162,46 @@ export function QuizBlock({ quiz, onResult }: { quiz: Quiz; onResult?: (xp: numb
           );
         })}
       </div>
+
+      {answered && (
+        <button
+          type="button"
+          onClick={() => setShowShareCard(true)}
+          className="btn-secondary mt-5 inline-flex items-center gap-2 rounded-xl border border-default px-4 py-2.5 text-sm font-medium"
+        >
+          <Award className="h-4 w-4" />
+          Create quiz share card
+        </button>
+      )}
+
+      {showShareCard && (
+        <div
+          className="fixed inset-0 z-[350] flex items-center justify-center overflow-y-auto p-4"
+          role="presentation"
+          onClick={() => setShowShareCard(false)}
+        >
+          <div
+            className="absolute inset-0"
+            style={{ background: 'var(--modal-overlay)', backdropFilter: 'blur(10px)' }}
+          />
+          <div
+            className="relative z-10 w-full max-w-lg py-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Quiz completion share card"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <CompletionCard
+              username={profile?.display_name || user?.email || 'Reader'}
+              articleTitle={quiz.title || quiz.question}
+              articleId={articleId}
+              xpGained={xpEarned}
+              cardType="quiz"
+              onClose={() => setShowShareCard(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -200,7 +200,7 @@
     padding: 0.625rem 1.5rem;
     font-family: 'Alata', sans-serif;
     cursor: pointer;
-    transition: all 0.25s ease;
+    transition: background-color 0.25s ease, color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
   }
 
   .btn-primary:hover {
@@ -217,7 +217,7 @@
     padding: 0.625rem 1.5rem;
     font-family: 'Alata', sans-serif;
     cursor: pointer;
-    transition: all 0.25s ease;
+    transition: background-color 0.25s ease, color 0.25s ease, transform 0.25s ease;
   }
 
   .btn-secondary:hover {
@@ -428,11 +428,13 @@ main {
 
   0%,
   100% {
-    box-shadow: 0 0 20px var(--glow-primary);
+    opacity: 0.85;
+    transform: scale(1);
   }
 
   50% {
-    box-shadow: 0 0 40px var(--glow-primary);
+    opacity: 1;
+    transform: scale(1.08);
   }
 }
 
@@ -475,21 +477,26 @@ main {
   }
 }
 
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-
-  100% {
-    background-position: 200% 0;
-  }
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--border-subtle);
+  border-radius: 0.5rem;
 }
 
-.skeleton {
-  background: linear-gradient(90deg, var(--border-subtle) 25%, var(--border-default) 50%, var(--border-subtle) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  border-radius: 0.5rem;
+.skeleton::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--border-default), transparent);
+  content: '';
+  transform: translateX(-100%);
+  animation: skeletonShimmer 1.5s infinite;
+}
+
+@keyframes skeletonShimmer {
+  to {
+    transform: translateX(100%);
+  }
 }
 
 /* Custom scrollbar */
@@ -509,34 +516,6 @@ main {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
-}
-
-@keyframes glowTrace {
-  0% {
-    background-position: 0% 50%;
-  }
-
-  50% {
-    background-position: 100% 50%;
-  }
-
-  100% {
-    background-position: 0% 50%;
-  }
-}
-
-@keyframes cardGradientShift {
-  0% {
-    background-position: 0% 50%;
-  }
-
-  50% {
-    background-position: 100% 50%;
-  }
-
-  100% {
-    background-position: 0% 50%;
-  }
 }
 
 @keyframes tabBump {
@@ -648,5 +627,20 @@ main {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }

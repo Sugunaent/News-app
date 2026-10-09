@@ -11,10 +11,10 @@ import type { MediaItem } from '@/lib/admin/adminTypes';
 
 const empty = { title: '', description: '', image_source: 'media', image_media_id: '', external_image_url: '', external_url: '', date_time: '', active: true };
 
-function isHttpsImageUrl(value: string): boolean {
+function isHttpImageUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' && Boolean(url.hostname);
+    return (url.protocol === 'https:' || url.protocol === 'http:') && Boolean(url.hostname);
   } catch {
     return false;
   }
@@ -25,6 +25,7 @@ export function PromotionsSection(): JSX.Element {
   const [items, setItems] = useState<AdminPromotion[]>([]);
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<AdminPromotion | null>(null);
   const [form, setForm] = useState<Record<string, string | boolean>>(empty);
@@ -32,15 +33,26 @@ export function PromotionsSection(): JSX.Element {
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setItems(await fetchPromotions()); }
-    catch { showToast('Failed to load promotions', 'error'); }
+    setLoadError(false);
+    try {
+      setItems(await fetchPromotions());
+    } catch (error) {
+      console.error('[PromotionsSection] Failed to load promotions:', error);
+      setLoadError(true);
+      showToast('Failed to load promotions', 'error');
+    }
     finally { setLoading(false); }
   }, [showToast]);
 
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
-    fetchMedia().then(setMedia).catch(() => setMedia([]));
+    fetchMedia()
+      .then(setMedia)
+      .catch((error) => {
+        console.error('[PromotionsSection] Failed to load media options:', error);
+        setMedia([]);
+      });
   }, []);
 
   const openAdd = () => { setEditing(null); setForm(empty); setModalOpen(true); };
@@ -72,8 +84,8 @@ export function PromotionsSection(): JSX.Element {
       showToast('Title, description, image, and destination URL are required', 'error');
       return;
     }
-    if (imageSource === 'url' && !isHttpsImageUrl(externalImageUrl)) {
-      showToast('Enter a valid HTTPS image URL from any host', 'error');
+    if (imageSource === 'url' && !isHttpImageUrl(externalImageUrl)) {
+      showToast('Enter a valid HTTP or HTTPS image URL', 'error');
       return;
     }
     try {
@@ -105,13 +117,19 @@ export function PromotionsSection(): JSX.Element {
       }
       showToast('Promotion saved', 'success');
       setModalOpen(false);
-    } catch { showToast('Failed to save', 'error'); }
+    } catch (error) {
+      console.error('[PromotionsSection] Failed to save promotion:', error);
+      showToast('Failed to save', 'error');
+    }
   };
 
   const confirmDelete = async () => {
     if (!deleteId) return;
     try { await deletePromotion(deleteId); setItems((p) => p.filter((x) => x.id !== deleteId)); showToast('Deleted', 'success'); }
-    catch { showToast('Failed to delete', 'error'); }
+    catch (error) {
+      console.error('[PromotionsSection] Failed to delete promotion:', error);
+      showToast('Failed to delete', 'error');
+    }
     finally { setDeleteId(null); }
   };
 
@@ -124,6 +142,11 @@ export function PromotionsSection(): JSX.Element {
 
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--brand-primary)' }} /></div>
+      ) : loadError ? (
+        <div className="space-y-3 py-12 text-center">
+          <p className="font-body text-sm" style={{ color: 'var(--text-muted)' }}>Promotions could not be loaded.</p>
+          <Button variant="secondary" onClick={() => void load()}>Try again</Button>
+        </div>
       ) : items.length === 0 ? (
         <p className="text-center py-16 font-body" style={{ color: 'var(--text-muted)' }}>No promotions yet.</p>
       ) : (
@@ -151,7 +174,7 @@ export function PromotionsSection(): JSX.Element {
                 </p>
               )}
               {p.external_url && (
-                <a href={p.external_url} target="_blank" rel="noreferrer" className="font-body text-xs flex items-center gap-1.5 hover:underline" style={{ color: 'var(--brand-primary)' }}>
+                <a href={p.external_url} target="_blank" rel="sponsored noopener noreferrer" className="font-body text-xs flex items-center gap-1.5 hover:underline" style={{ color: 'var(--brand-primary)' }}>
                   <ExternalLink className="w-3.5 h-3.5" /> Visit link
                 </a>
               )}
@@ -215,13 +238,13 @@ export function PromotionsSection(): JSX.Element {
               ) : (
                 <>
                   <Input
-                    label="HTTPS image URL"
+                    label="Image URL"
                     value={String(form.external_image_url)}
                     onChange={(e) => setForm((p) => ({ ...p, external_image_url: e.target.value }))}
                     placeholder="https://any-image-host.example/banner.jpg"
                   />
-                  <p className="mt-1 text-xs text-muted">Any HTTPS host is supported. The URL must point directly to an image.</p>
-                  {String(form.external_image_url).trim() && isHttpsImageUrl(String(form.external_image_url).trim()) && (
+                  <p className="mt-1 text-xs text-muted">HTTP or HTTPS image URLs from any host are supported.</p>
+                  {String(form.external_image_url).trim() && isHttpImageUrl(String(form.external_image_url).trim()) && (
                     <img
                       key={String(form.external_image_url)}
                       src={String(form.external_image_url)}

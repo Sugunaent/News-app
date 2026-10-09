@@ -3,7 +3,7 @@ export interface PublicCardData {
   articleTitle: string;
   articleId?: string;
   xpGained: number;
-  cardType: 'completion' | 'opinion';
+  cardType: 'completion' | 'opinion' | 'quiz';
   opinionText?: string;
   date?: string;
 }
@@ -94,7 +94,11 @@ export function parseCardShareUrl(search: string): PublicCardData {
         articleTitle: parsed.articleTitle || 'The Modern Stories',
         articleId: parsed.articleId || '',
         xpGained: Number(parsed.xpGained) || 30,
-        cardType: parsed.cardType === 'opinion' ? 'opinion' : 'completion',
+        cardType: parsed.cardType === 'opinion'
+          ? 'opinion'
+          : parsed.cardType === 'quiz'
+          ? 'quiz'
+          : 'completion',
         opinionText: parsed.opinionText || undefined,
         date: parsed.date || undefined,
       };
@@ -108,7 +112,8 @@ export function parseCardShareUrl(search: string): PublicCardData {
   const articleId = params.get('id')?.trim() || '';
   const parsedXp = parseInt(params.get('xp') || '30', 10);
   const xpGained = isNaN(parsedXp) ? 30 : parsedXp;
-  const cardType = params.get('type') === 'opinion' ? 'opinion' : 'completion';
+  const parsedType = params.get('type');
+  const cardType = parsedType === 'opinion' || parsedType === 'quiz' ? parsedType : 'completion';
   const opinionText = params.get('quote')?.trim() || undefined;
   const date = params.get('d')?.trim() || undefined;
 

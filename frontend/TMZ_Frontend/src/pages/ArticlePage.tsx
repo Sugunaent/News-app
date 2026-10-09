@@ -4,6 +4,7 @@ import { ArrowLeft, Home, Layers, Loader2, User } from 'lucide-react';
 import type { ArticleWithBlocks, Level, Badge, Article } from '@/types';
 import { useAuth } from '@/lib/useAuth';
 import { useAuthPrompt } from '@/lib/authPromptContext';
+import { useToast } from '@/lib/toast';
 import { fireCelebrationConfetti } from '@/lib/confetti';
 import {
   fetchArticleById,
@@ -71,6 +72,7 @@ export function ArticlePage() {
   const navigate = useNavigate();
   const { user, profile, refreshProfile } = useAuth();
   const { requestLogin } = useAuthPrompt();
+  const { showToast } = useToast();
   const { currentLang } = useLanguage();
 
   const [article, setArticle] = useState<ArticleWithBlocks | null>(null);
@@ -644,18 +646,20 @@ export function ArticlePage() {
     }
     try {
       await createOpinionCard(user.id, article.id, displayTitle, opinionText, xpEarned);
-      await refreshProfile();
-      setOpinionModalData({
-        opinionText,
-        xpGained: xpEarned,
-      });
-    } catch {
-      setOpinionModalData({
-        opinionText,
-        xpGained: xpEarned,
-      });
+    } catch (error) {
+      console.error('[ArticlePage] Opinion was submitted, but its share card could not be saved:', error);
+      showToast('Your opinion was saved, but the share card could not be added to your profile.', 'error');
     }
-  }, [user, article, slugOrId, refreshProfile, displayTitle, requestLogin]);
+    try {
+      await refreshProfile();
+    } catch (error) {
+      console.error('[ArticlePage] Could not refresh profile after opinion submission:', error);
+    }
+    setOpinionModalData({
+      opinionText,
+      xpGained: xpEarned,
+    });
+  }, [user, article, slugOrId, refreshProfile, displayTitle, requestLogin, showToast]);
 
   const handleBack = useCallback((e?: React.MouseEvent) => {
     if (e) {
@@ -877,6 +881,7 @@ export function ArticlePage() {
                   <ArticleBlockRenderer
                     key={block.id}
                     block={block}
+                    articleId={article.id}
                     onQuizResult={handleQuizResult}
                     onOpinionSubmit={handleOpinionSubmit}
                   />

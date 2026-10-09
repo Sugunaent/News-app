@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 export interface GlowingEffectProps {
   blur?: number;
@@ -34,11 +34,6 @@ export function GlowingEffect({
   children,
 }: GlowingEffectProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useEffect(() => {
     if (disabled) return;
@@ -48,100 +43,85 @@ export function GlowingEffect({
     const parent = container.parentElement;
     if (!parent) return;
 
-    let rafId: number;
+    if (
+      window.matchMedia('(pointer: coarse)').matches
+      || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      container.style.setProperty('--glow-opacity', glow ? '0.2' : '0.12');
+      return;
+    }
+
+    let rafId: number | undefined;
     let currentAngle = 0;
     let targetAngle = 0;
     let currentX = 0;
     let currentY = 0;
     let targetX = 0;
     let targetY = 0;
-    let isHovered = false;
-    let lastTime = performance.now();
-
-    // Lerp factor based on movementDuration (default 1.5s -> smooth responsive tracking)
     const lerpSpeed = Math.min(0.25, Math.max(0.05, 0.18 / Math.max(0.5, movementDuration)));
 
     const handlePointerMove = (e: PointerEvent) => {
       const rect = parent.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+      if (
+        x < -proximity
+        || x > rect.width + proximity
+        || y < -proximity
+        || y > rect.height + proximity
+      ) return;
 
-      // Check proximity beyond parent bounds
-      const near =
-        x >= -proximity &&
-        x <= rect.width + proximity &&
-        y >= -proximity &&
-        y <= rect.height + proximity;
-
-      isHovered = near;
-
-      if (near) {
-        targetX = Math.max(0, Math.min(rect.width, x));
-        targetY = Math.max(0, Math.min(rect.height, y));
-
-        const centerX = rect.width / 2;
-        const centerY = rect.height / 2;
-        const dx = x - centerX;
-        const dy = y - centerY;
-        const dist = Math.hypot(dx, dy);
-        const maxDist = Math.hypot(centerX, centerY);
-
-        // Angle from center towards pointer
-        let angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
-        if (angle < 0) angle += 360;
-        targetAngle = angle;
-
-        // Inactive zone dampening near center
-        if (inactiveZone > 0 && maxDist > 0 && dist < maxDist * inactiveZone) {
-          isHovered = false;
-        }
+      targetX = Math.max(0, Math.min(rect.width, x));
+      targetY = Math.max(0, Math.min(rect.height, y));
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const dist = Math.hypot(dx, dy);
+      const maxDist = Math.hypot(centerX, centerY);
+      if (inactiveZone > 0 && maxDist > 0 && dist < maxDist * inactiveZone) {
+        container.style.setProperty('--glow-opacity', '0.18');
+        return;
       }
+
+      let angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+      if (angle < 0) angle += 360;
+      targetAngle = angle;
+      container.style.setProperty('--glow-opacity', '1');
+      if (rafId === undefined) rafId = requestAnimationFrame(animate);
     };
 
     const handlePointerLeave = () => {
-      isHovered = false;
+      container.style.setProperty('--glow-opacity', glow ? '0.2' : '0.12');
+      if (rafId !== undefined) cancelAnimationFrame(rafId);
+      rafId = undefined;
     };
 
-    const animate = (time: number) => {
-      const dt = (time - lastTime) / 1000;
-      lastTime = time;
+    const animate = () => {
+      let diff = ((targetAngle - currentAngle + 180) % 360) - 180;
+      if (diff < -180) diff += 360;
+      currentAngle = (currentAngle + diff * lerpSpeed + 360) % 360;
+      currentX += (targetX - currentX) * lerpSpeed;
+      currentY += (targetY - currentY) * lerpSpeed;
 
-      if (isHovered) {
-        // Smoothly interpolate angle with wrap-around
-        let diff = ((targetAngle - currentAngle + 180) % 360) - 180;
-        if (diff < -180) diff += 360;
-        currentAngle += diff * lerpSpeed;
-        currentAngle = (currentAngle + 360) % 360;
+      container.style.setProperty('--glow-angle', `${currentAngle.toFixed(2)}deg`);
+      container.style.setProperty('--glow-x', `${currentX.toFixed(1)}px`);
+      container.style.setProperty('--glow-y', `${currentY.toFixed(1)}px`);
 
-        currentX += (targetX - currentX) * lerpSpeed;
-        currentY += (targetY - currentY) * lerpSpeed;
-
-        container.style.setProperty('--glow-angle', `${currentAngle.toFixed(2)}deg`);
-        container.style.setProperty('--glow-x', `${currentX.toFixed(1)}px`);
-        container.style.setProperty('--glow-y', `${currentY.toFixed(1)}px`);
-        container.style.setProperty('--glow-opacity', '1');
-      } else {
-        // Subtle ambient continuous rotation when idle
-        currentAngle = (currentAngle + dt * 45) % 360;
-        container.style.setProperty('--glow-angle', `${currentAngle.toFixed(2)}deg`);
-        container.style.setProperty('--glow-opacity', glow ? '0.3' : '0.15');
-      }
-
-      rafId = requestAnimationFrame(animate);
+      const settled = Math.abs(diff) < 0.1
+        && Math.abs(targetX - currentX) < 0.1
+        && Math.abs(targetY - currentY) < 0.1;
+      rafId = settled ? undefined : requestAnimationFrame(animate);
     };
 
-    // Attach listeners
     parent.addEventListener('pointermove', handlePointerMove, { passive: true });
     parent.addEventListener('pointerleave', handlePointerLeave, { passive: true });
-    window.addEventListener('pointermove', handlePointerMove, { passive: true });
-
-    rafId = requestAnimationFrame(animate);
+    container.style.setProperty('--glow-opacity', glow ? '0.2' : '0.12');
 
     return () => {
-      cancelAnimationFrame(rafId);
+      if (rafId !== undefined) cancelAnimationFrame(rafId);
       parent.removeEventListener('pointermove', handlePointerMove);
       parent.removeEventListener('pointerleave', handlePointerLeave);
-      window.removeEventListener('pointermove', handlePointerMove);
     };
   }, [disabled, proximity, inactiveZone, movementDuration, glow]);
 
@@ -179,7 +159,7 @@ export function GlowingEffect({
       aria-hidden="true"
       className={`pointer-events-none absolute inset-0 rounded-[inherit] overflow-visible transition-opacity duration-300 z-10 ${className}`}
       style={{
-        opacity: mounted ? 'var(--glow-opacity, 0.3)' : '0',
+        opacity: 'var(--glow-opacity, 0.2)',
       }}
     >
       {/* Optional ultra-subtle neon bloom strictly on border line */}
@@ -219,4 +199,3 @@ export function GlowingEffect({
 
   return glowElement;
 }
-

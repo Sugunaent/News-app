@@ -7,18 +7,19 @@ import { PodcastBlock } from './blocks/PodcastBlock';
 
 interface ArticleBlockRendererProps {
   block: ArticleBlock;
+  articleId?: string;
   onQuizResult?: (xp: number) => void;
   onOpinionSubmit?: (opinionText: string, xpEarned: number) => void;
 }
 
-export function ArticleBlockRenderer({ block, onQuizResult, onOpinionSubmit }: ArticleBlockRendererProps) {
+export function ArticleBlockRenderer({ block, articleId, onQuizResult, onOpinionSubmit }: ArticleBlockRendererProps) {
   switch (block.block_type) {
     case 'TEXT':
       return <TextBlock content={block.content} />;
     case 'IMAGE':
       return <ImageBlock imageUrl={block.image_url} caption={block.image_caption} />;
     case 'QUIZ':
-      return block.quiz ? <QuizBlock quiz={block.quiz} onResult={onQuizResult} /> : null;
+      return block.quiz ? <QuizBlock quiz={block.quiz} articleId={articleId} onResult={onQuizResult} /> : null;
     case 'OPINION':
       return block.opinion ? <OpinionBlock opinion={block.opinion} onSubmit={onOpinionSubmit} /> : null;
     case 'PODCAST':

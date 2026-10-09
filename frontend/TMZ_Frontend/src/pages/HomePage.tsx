@@ -16,6 +16,7 @@ import { GlowingEffect } from '@/components/articles/GlowingEffect';
 import { ContactSection } from '@/components/common/ContactSection';
 import { canonicalUrl, removeJsonLd, upsertJsonLd } from '@/lib/seo';
 import { ExternalImage } from '@/components/articles/ExternalImage';
+import { PromotionCarouselBoundary } from '@/components/ui/PromotionCarouselBoundary';
 import { useLanguage } from '@/lib/language';
 import { getLocalizedArticleFields, useTranslatedArticle } from '@/lib/translations';
 import { Loader2 } from 'lucide-react';
@@ -205,12 +206,14 @@ export function HomePage() {
       {/* Dynamic promotional banners and featured published articles */}
       {carouselItems.length > 0 && (
         <section className="w-full">
-          <ConnectedCarousel
-            items={carouselItems}
-            autoplay
-            autoplayDelay={5000}
-            onCtaClick={handleCarouselCta}
-          />
+          <PromotionCarouselBoundary items={carouselItems} onCtaClick={handleCarouselCta}>
+            <ConnectedCarousel
+              items={carouselItems}
+              autoplay
+              autoplayDelay={5000}
+              onCtaClick={handleCarouselCta}
+            />
+          </PromotionCarouselBoundary>
         </section>
       )}
 
@@ -259,14 +262,16 @@ export function HomePage() {
 
       {promotionCarouselItems.length > 0 && (
         <section className="w-full">
-          <Suspense fallback={<div className="h-48 animate-pulse rounded-md bg-slate-100 dark:bg-slate-800" />}>
-            <StackedPromotionsCarousel
-              items={promotionCarouselItems}
-              autoplay
-              autoplayDelay={5000}
-              onCtaClick={handleCarouselCta}
-            />
-          </Suspense>
+          <PromotionCarouselBoundary items={promotionCarouselItems} onCtaClick={handleCarouselCta}>
+            <Suspense fallback={<div className="h-48 animate-pulse rounded-md bg-slate-100 dark:bg-slate-800" />}>
+              <StackedPromotionsCarousel
+                items={promotionCarouselItems}
+                autoplay
+                autoplayDelay={5000}
+                onCtaClick={handleCarouselCta}
+              />
+            </Suspense>
+          </PromotionCarouselBoundary>
         </section>
       )}
 
@@ -318,6 +323,8 @@ function AuthorsPickCard({ article, onClick }: { article: Article; onClick: () =
           src={article.cover_image_url}
           alt={title}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          width={640}
+          height={560}
           loading="lazy"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
@@ -505,7 +512,9 @@ function LatestMarqueeCard({
           src={article.cover_image_url}
           alt={title}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-          fallbackSrc="/modern_stories_hero.jpg"
+          fallbackSrc="/modern_stories_hero.webp"
+          width={640}
+          height={560}
           loading={index === 0 ? 'eager' : 'lazy'}
           fetchPriority={index === 0 ? 'high' : 'auto'}
         />

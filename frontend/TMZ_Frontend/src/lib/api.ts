@@ -273,7 +273,7 @@ export interface HeroConfig {
 }
 
 export const DEFAULT_HERO_CONFIG: HeroConfig = {
-  imageUrl: '/modern_stories_hero.jpg',
+  imageUrl: '/modern_stories_hero.webp',
   title: 'Human stories & modern ideas',
   subtitle: 'A sanctuary to read, write, and deepen your understanding across technology, science, culture, and human ingenuity.',
   badgeText: 'The Modern Stories • Curated Editorial',
@@ -338,6 +338,9 @@ export async function fetchHeroConfig(): Promise<HeroConfig> {
 export async function fetchPromotions(): Promise<Promotion[]> {
   try {
     const rows = await apiFetchJson<any[]>('/api/v1/promotions', { cache: 'no-store' });
+    if (!Array.isArray(rows)) {
+      throw new Error('Promotions API returned an unexpected response.');
+    }
     return asArray<any>(rows).map((item) => ({
       id: String(item.id),
       title: item.title ?? 'Promotion',
@@ -1016,7 +1019,10 @@ export async function fetchPublicAdvertisements(slot?: string): Promise<any[]> {
   const query = slot ? `?slot=${encodeURIComponent(slot)}` : '';
   const request = apiFetchJson<any[]>(`/api/v1/advertisements${query}`)
     .then((data) => {
-      const items = Array.isArray(data) ? data : [];
+      if (!Array.isArray(data)) {
+        throw new Error('Advertisements API returned an unexpected response.');
+      }
+      const items = data;
       publicAdvertisementsCache.set(cacheKey, { items, expiresAt: Date.now() + 60_000 });
       return items;
     })
@@ -1035,11 +1041,13 @@ export async function fetchProfile(userId?: string): Promise<UserProfile | null>
       email: aggregate.email,
       display_name: aggregate.display_name ?? 'Reader',
       avatar_url: aggregate.avatar_url ?? null,
+      role: aggregate.role,
       xp: Number(data?.total_xp ?? 0),
       level: Number(level?.display_order ?? 1),
       bio: aggregate.bio ?? null,
     };
-  } catch {
+  } catch (error) {
+    console.error('[api] Failed to load user profile:', error);
     return null;
   }
 }

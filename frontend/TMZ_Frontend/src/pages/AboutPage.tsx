@@ -21,7 +21,7 @@ const TEAM_MEMBERS: TeamMemberItem[] = [
     name: 'Tolety Mohana Shyam',
     role: 'Founder',
     bio: 'At The Modern Stories, we look past the obvious to bring you the conversations that truly matter. Step beyond the bias, think critically, and see the world from a different lens.',
-    image_url: '/Shyam-PP.png',
+    image_url: '/Shyam-PP.webp',
     object_position: 'center 20%', // Keeps head centered
   },
   {
@@ -29,7 +29,7 @@ const TEAM_MEMBERS: TeamMemberItem[] = [
     name: 'Chinta Suguna Vanditha',
     role: 'Content Writer',
     bio: 'The Modern Stories explores the overlooked narratives of our world with honesty and nuance. Rather than telling you what to think, it invites you to look closer and see every story differently.',
-    image_url: '/Suguna-PP.png',
+    image_url: '/Suguna-PP.webp',
     object_position: 'center 20%', // Focuses on face
   },
   {
@@ -45,7 +45,7 @@ const TEAM_MEMBERS: TeamMemberItem[] = [
     name: 'Indira Pagadala',
     role: 'AI-ML Engineer',
     bio: "Built with thoughtful journalism in mind, The Modern Stories is the perfect way to stay updated in today's world",
-    image_url: '/Indira-PP.JPG',
+    image_url: '/Indira-PP.webp',
     object_position: '52% 25%', // Centers directly on Indira in the wide classroom photo
   },
 ];
@@ -257,9 +257,13 @@ export function AboutPage() {
                   <img
                     src={member.image_url}
                     alt={member.name}
+                    width={900}
+                    height={1125}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     style={{ objectPosition: member.object_position || 'center top' }}
                     loading="lazy"
+                    decoding="async"
+                    fetchPriority="low"
                   />
                 )}
               </div>

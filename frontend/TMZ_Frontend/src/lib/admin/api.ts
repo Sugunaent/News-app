@@ -34,7 +34,7 @@ const toArray = <T>(value: unknown): T[] => {
   if (value && typeof value === 'object' && Array.isArray((value as { items?: T[] }).items)) {
     return (value as { items: T[] }).items;
   }
-  return [];
+  throw new Error('Admin API returned an unexpected list response.');
 };
 
 const normalizeArticleType = (value: string | null | undefined): AdminArticle['article_type'] => {

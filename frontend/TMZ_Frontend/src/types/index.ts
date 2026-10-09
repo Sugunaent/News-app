@@ -160,6 +160,7 @@ export interface UserProfile {
   email: string;
   display_name: string;
   avatar_url: string | null;
+  role?: string;
   xp: number;
   level: number;
   bio: string | null;

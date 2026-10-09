@@ -1,30 +1,15 @@
-import { useEffect, useState } from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { ExternalImage } from '@/components/articles/ExternalImage';
 import { BookOpen, Sparkles, ArrowRight, Compass } from 'lucide-react';
 import { parseCardShareUrl, PublicCardData } from '@/lib/cardShare';
 import { CompletionCard } from '@/components/articles/CompletionCard';
-import { fetchArticleById, getArticleRoute } from '@/lib/api';
-import type { ArticleWithBlocks } from '@/types';
+import { getArticleRoute } from '@/lib/api';
 
 export function CardPage() {
   const location = useLocation();
   const cardData: PublicCardData = parseCardShareUrl(location.search);
-  const [article, setArticle] = useState<ArticleWithBlocks | null>(null);
-
-  useEffect(() => {
-    if (cardData.articleId) {
-      fetchArticleById(cardData.articleId)
-        .then((art) => {
-          if (art) setArticle(art);
-        })
-        .catch(() => {
-          // Article might be custom or local, safe to ignore
-        });
-    }
-  }, [cardData.articleId]);
 
   const isOpinion = cardData.cardType === 'opinion';
+  const isQuiz = cardData.cardType === 'quiz';
 
   return (
     <div className="relative z-10 min-h-[calc(100vh-4rem)] flex flex-col items-center justify-center px-4">
@@ -42,7 +27,9 @@ export function CardPage() {
         {/* Intro Tag */}
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full mb-6 text-xs font-semibold uppercase tracking-wider bg-surface-secondary border border-border/80 text-secondary shadow-sm animate-fade-in">
           <Sparkles className="w-3.5 h-3.5 text-brand-primary" />
-          <span>{isOpinion ? 'Reader Perspective' : 'Reading Milestone Achieved'}</span>
+          <span>
+            {isOpinion ? 'Reader Perspective' : isQuiz ? 'Quiz Completed' : 'Reading Milestone Achieved'}
+          </span>
         </div>
 
         {/* 3D Interactive Card */}
@@ -97,30 +84,6 @@ export function CardPage() {
             </Link>
           </div>
 
-          {/* Optional context badge if article details were found */}
-          {article && (
-            <div className="mt-6 p-3.5 rounded-xl bg-surface-secondary/80 border border-border/60 text-left w-full flex items-center gap-3 text-xs">
-              <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-surface">
-                {article.cover_image_url ? (
-                  <ExternalImage
-                    src={article.cover_image_url}
-                    alt={article.title}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-muted">
-                    <BookOpen className="w-4 h-4" />
-                  </div>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-primary truncate">{article.title}</p>
-                <p className="text-muted text-[11px] truncate">
-                  {article.category?.name || 'Story'} • {article.reading_time_minutes} min read
-                </p>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

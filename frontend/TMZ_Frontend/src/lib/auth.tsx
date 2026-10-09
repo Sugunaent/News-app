@@ -157,7 +157,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.user) {
         setUser(data.user);
         setSession(data.session);
-        setProfile(mapUserToProfile(data.user as AppUser));
+        const profile = await fetchProfile(data.user.id);
+        setProfile(profile || mapUserToProfile(data.user as AppUser));
       }
     } else {
       const localUser: AppUser = {
@@ -193,7 +194,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.user) {
         setUser(data.user);
         setSession(data.session);
-        setProfile(mapUserToProfile(data.user as AppUser));
+        const profile = await fetchProfile(data.user.id);
+        setProfile(profile || mapUserToProfile(data.user as AppUser));
       }
     } else {
       const localUser: AppUser = {

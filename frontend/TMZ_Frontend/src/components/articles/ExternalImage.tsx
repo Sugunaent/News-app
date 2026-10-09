@@ -8,6 +8,9 @@ interface ExternalImageProps {
   fallbackSrc?: string;
   loading?: 'eager' | 'lazy';
   fetchPriority?: 'high' | 'low' | 'auto';
+  width?: number;
+  height?: number;
+  sizes?: string;
 }
 
 export function ExternalImage({
@@ -17,6 +20,9 @@ export function ExternalImage({
   fallbackSrc,
   loading = 'lazy',
   fetchPriority = 'auto',
+  width,
+  height,
+  sizes,
 }: ExternalImageProps) {
   const [failedSource, setFailedSource] = useState<string | null>(null);
   const source = src?.trim() || '';
@@ -41,6 +47,9 @@ export function ExternalImage({
       src={displaySource}
       alt={alt}
       className={className}
+      width={width}
+      height={height}
+      sizes={sizes}
       loading={loading}
       ref={(image) => {
         if (image) image.setAttribute('fetchpriority', fetchPriority);

@@ -55,6 +55,8 @@ export function ArticleCard({ article, showType = true, variant = 'default' }: A
             src={article.cover_image_url}
             alt={title}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            width={640}
+            height={440}
             loading="lazy"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
@@ -93,6 +95,8 @@ export function ArticleCard({ article, showType = true, variant = 'default' }: A
           src={article.cover_image_url}
           alt={title}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          width={720}
+          height={640}
           loading="lazy"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />

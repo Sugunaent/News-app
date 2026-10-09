@@ -1,6 +1,5 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useEffect } from 'react';
-import OneSignal from 'react-onesignal';
 import { canonicalUrl, setPageMetadata, upsertJsonLd } from '@/lib/seo';
 import { ThemeProvider } from '@/lib/theme';
 import { LanguageProvider } from '@/lib/language';
@@ -14,30 +13,34 @@ import { Footer } from '@/components/layout/Footer';
 
 const oneSignalAppId = import.meta.env.VITE_ONESIGNAL_APP_ID
   || '2003e8e9-3d0d-466e-9744-eecce89b5822';
-let oneSignalInitialization: Promise<void> | undefined;
+type OneSignalClient = typeof import('react-onesignal')['default'];
+let oneSignalInitialization: Promise<OneSignalClient> | undefined;
 
 function initializeOneSignal() {
   if (!oneSignalInitialization) {
-    oneSignalInitialization = OneSignal.init({
-      appId: oneSignalAppId,
-      allowLocalhostAsSecureOrigin: true,
-      serviceWorkerPath: '/OneSignalSDKWorker.js',
-      promptOptions: {
-        slidedown: {
-          prompts: [
-            {
-              type: 'push',
-              autoPrompt: false,
-              delay: { timeDelay: 0 },
-              text: {
-                actionMessage: 'Get the latest stories from The Modern Stories.',
-                acceptButton: 'Subscribe',
-                cancelButton: 'Not now',
+    oneSignalInitialization = import('react-onesignal').then(async ({ default: OneSignal }) => {
+      await OneSignal.init({
+        appId: oneSignalAppId,
+        allowLocalhostAsSecureOrigin: true,
+        serviceWorkerPath: '/OneSignalSDKWorker.js',
+        promptOptions: {
+          slidedown: {
+            prompts: [
+              {
+                type: 'push',
+                autoPrompt: false,
+                delay: { timeDelay: 0 },
+                text: {
+                  actionMessage: 'Get the latest stories from The Modern Stories.',
+                  acceptButton: 'Subscribe',
+                  cancelButton: 'Not now',
+                },
               },
-            },
-          ],
+            ],
+          },
         },
-      },
+      });
+      return OneSignal;
     });
   }
 
@@ -69,29 +72,31 @@ function AppLayout() {
   useEffect(() => {
     let isActive = true;
     let promptTimer: number | undefined;
+    const initializationTimer = window.setTimeout(() => {
+      void initializeOneSignal()
+        .then((OneSignal) => {
+          if (!isActive) return;
 
-    void initializeOneSignal()
-      .then(() => {
-        if (!isActive) return;
-
-        promptTimer = window.setTimeout(() => {
-          if (
-            isActive
-            && OneSignal.Notifications.isPushSupported()
-            && OneSignal.Notifications.permissionNative === 'default'
-          ) {
-            void OneSignal.Slidedown.promptPush().catch((error: unknown) => {
-              console.error('OneSignal subscription prompt failed to open:', error);
-            });
-          }
-        }, 5000);
-      })
-      .catch((error: unknown) => {
-        console.error('OneSignal failed to initialize:', error);
-      });
+          promptTimer = window.setTimeout(() => {
+            if (
+              isActive
+              && OneSignal.Notifications.isPushSupported()
+              && OneSignal.Notifications.permissionNative === 'default'
+            ) {
+              void OneSignal.Slidedown.promptPush().catch((error: unknown) => {
+                console.error('OneSignal subscription prompt failed to open:', error);
+              });
+            }
+          }, 5000);
+        })
+        .catch((error: unknown) => {
+          console.error('OneSignal failed to initialize:', error);
+        });
+    }, 1500);
 
     return () => {
       isActive = false;
+      window.clearTimeout(initializationTimer);
       if (promptTimer !== undefined) window.clearTimeout(promptTimer);
     };
   }, []);

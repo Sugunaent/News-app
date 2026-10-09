@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Share2, Copy, X, Quote, Check, ExternalLink, Download } from 'lucide-react';
-import { toBlob } from 'html-to-image';
 import { useToast } from '@/lib/toast';
 import { TMSLogo } from '@/components/brand/TMSLogo';
 import { buildCardShareUrl, buildCardRelativePath } from '@/lib/cardShare';
@@ -11,7 +10,7 @@ export interface CompletionCardProps {
   articleTitle: string;
   articleId?: string;
   xpGained: number;
-  cardType?: 'completion' | 'opinion';
+  cardType?: 'completion' | 'opinion' | 'quiz';
   opinionText?: string;
   className?: string;
   onClose?: () => void;
@@ -33,11 +32,16 @@ export function CompletionCard({
   const location = useLocation();
   const { showToast } = useToast();
   const [copied, setCopied] = useState(false);
-  const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const [isHovered, setIsHovered] = useState(false);
 
   const isOpinionCard = cardType === 'opinion';
+  const isQuizCard = cardType === 'quiz';
   const isAlreadyOnCardPage = location.pathname === '/card';
+  const shareText = isOpinionCard
+    ? `${username} voiced their opinion on "${articleTitle}" on The Modern Stories: "${opinionText || ''}"`
+    : isQuizCard
+    ? `${username} completed the quiz "${articleTitle}" on The Modern Stories and earned +${xpGained} XP!`
+    : `${username} completed reading "${articleTitle}" on The Modern Stories and earned +${xpGained} XP!`;
 
   const cardPayload = {
     username,
@@ -53,12 +57,12 @@ export function CompletionCard({
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
-    // Gentle 3D tilt: max 6 degrees
+    const centerX = Math.max(rect.width / 2, 1);
+    const centerY = Math.max(rect.height / 2, 1);
     const tiltX = -((y - centerY) / centerY) * 6;
     const tiltY = ((x - centerX) / centerX) * 6;
-    setTilt({ x: tiltX, y: tiltY });
+    e.currentTarget.style.transform = `perspective(1000px) rotateX(${tiltX}deg) rotateY(${tiltY}deg) scale3d(1.015, 1.015, 1.015)`;
+    e.currentTarget.style.transition = 'transform 0.08s ease-out';
   };
 
   const handleMouseEnter = () => {
@@ -68,7 +72,10 @@ export function CompletionCard({
   const handleMouseLeave = () => {
     if (interactive) {
       setIsHovered(false);
-      setTilt({ x: 0, y: 0 });
+      if (cardRef.current) {
+        cardRef.current.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)';
+        cardRef.current.style.transition = 'transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)';
+      }
     }
   };
 
@@ -85,6 +92,7 @@ export function CompletionCard({
   const generateBlob = async () => {
     if (!cardRef.current) return null;
     try {
+      const { toBlob } = await import('html-to-image');
       return await toBlob(cardRef.current, {
         filter: (node) => {
           if (node instanceof HTMLElement && node.dataset?.excludeFromExport === 'true') {
@@ -108,7 +116,7 @@ export function CompletionCard({
       a.href = url;
       a.download = `tms-share-card-${Date.now()}.png`;
       a.click();
-      URL.revokeObjectURL(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       showToast('Image downloaded!', 'success');
     } else {
       showToast('Failed to generate image', 'error');
@@ -117,9 +125,6 @@ export function CompletionCard({
 
   const handleShare = async () => {
     const shareUrl = getShareUrl();
-    const shareText = isOpinionCard
-      ? `${username} voiced their opinion on "${articleTitle}" on The Modern Stories: "${opinionText || ''}"`
-      : `${username} completed reading "${articleTitle}" on The Modern Stories and earned +${xpGained} XP!`;
 
     if (navigator.share) {
       try {
@@ -132,13 +137,23 @@ export function CompletionCard({
           url: shareUrl,
         };
 
-        if (files && navigator.canShare && navigator.canShare({ files })) {
+        if (files && navigator.canShare?.({ files })) {
           shareData.files = files;
         }
 
         await navigator.share(shareData);
       } catch (err) {
-        console.error('Share failed', err);
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        console.error('[CompletionCard] Native sharing failed:', err);
+        try {
+          await navigator.clipboard.writeText(`${shareText}\n${shareUrl}`);
+          setCopied(true);
+          showToast('Card link copied to clipboard!', 'success');
+          window.setTimeout(() => setCopied(false), 2500);
+        } catch (clipboardError) {
+          console.error('[CompletionCard] Could not copy the card link:', clipboardError);
+          showToast('Could not share or copy the card link', 'error');
+        }
       }
     } else {
       try {
@@ -146,7 +161,8 @@ export function CompletionCard({
         setCopied(true);
         showToast('Card link copied to clipboard!', 'success');
         setTimeout(() => setCopied(false), 2500);
-      } catch {
+      } catch (error) {
+        console.error('[CompletionCard] Could not copy card link:', error);
         showToast('Could not copy to clipboard', 'error');
       }
     }
@@ -158,11 +174,14 @@ export function CompletionCard({
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
       showToast('Card link copied to clipboard!', 'success');
-      setTimeout(() => setCopied(false), 2500);
-    } catch {
+      window.setTimeout(() => setCopied(false), 2500);
+    } catch (error) {
+      console.error('[CompletionCard] Could not copy card link:', error);
       showToast('Could not copy to clipboard', 'error');
     }
   };
+
+  const shareUrl = getShareUrl();
 
   return (
     <div
@@ -170,22 +189,14 @@ export function CompletionCard({
       onMouseMove={handleMouseMove}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      style={{
-        transform: interactive
-          ? `perspective(1000px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) ${isHovered ? 'scale3d(1.015, 1.015, 1.015)' : 'scale3d(1, 1, 1)'}`
-          : undefined,
-        transition: isHovered ? 'transform 0.08s ease-out' : 'transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)',
-        transformStyle: 'preserve-3d',
-      }}
+      style={{ transformStyle: 'preserve-3d' }}
       className={`relative rounded-[28px] p-[2px] max-w-lg w-full mx-auto select-none transition-shadow duration-300 ${className}`}
     >
-      {/* Subtle animated gradient border */}
+      {/* Subtle gradient border */}
       <div
         className="absolute inset-0 rounded-[28px] pointer-events-none transition-opacity duration-300"
         style={{
           background: 'linear-gradient(135deg, rgba(0,119,182,0.45), rgba(0,189,72,0.4), rgba(144,224,239,0.45), rgba(0,119,182,0.45))',
-          backgroundSize: '250% 250%',
-          animation: 'cardGradientShift 8s ease infinite',
           opacity: isHovered ? 1 : 0.65,
           boxShadow: isHovered ? '0 12px 36px rgba(0, 119, 182, 0.16)' : '0 6px 20px rgba(0, 0, 0, 0.05)',
         }}
@@ -229,7 +240,7 @@ export function CompletionCard({
           </h3>
 
           <p className="text-xs sm:text-sm font-semibold text-muted uppercase tracking-wider mb-4">
-            {isOpinionCard ? 'voiced their opinion on' : 'Completed Reading'}
+            {isOpinionCard ? 'voiced their opinion on' : isQuizCard ? 'Completed a Quiz' : 'Completed Reading'}
           </p>
 
           <div className="w-12 h-0.5 mx-auto mb-4 rounded-full" style={{ background: 'var(--brand-accent)' }} />
@@ -293,6 +304,33 @@ export function CompletionCard({
                 </>
               )}
             </button>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-2 text-xs" aria-label="Share card directly">
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(`${shareText} ${shareUrl}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg px-3 py-2 text-brand-primary hover:bg-brand-primary/10 transition-colors"
+            >
+              WhatsApp
+            </a>
+            <a
+              href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg px-3 py-2 text-brand-primary hover:bg-brand-primary/10 transition-colors"
+            >
+              X
+            </a>
+            <a
+              href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg px-3 py-2 text-brand-primary hover:bg-brand-primary/10 transition-colors"
+            >
+              LinkedIn
+            </a>
           </div>
 
           {!isAlreadyOnCardPage && (

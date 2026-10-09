@@ -100,6 +100,8 @@ export function HeroBanner({
           <img
             src={article?.cover_image_url || heroImageUrl}
             alt={article?.title || config.title || 'The Modern Stories editorial banner'}
+            width={1376}
+            height={768}
             loading="eager"
             fetchPriority="high"
             decoding="async"
@@ -124,9 +126,6 @@ export function HeroBanner({
               </p>
             )}
           </div>
-
-          <GlowingEffect borderWidth={2} spread={50} glow={true} className="z-20 pointer-events-none" />
-
           <div className="absolute bottom-5 right-5 sm:bottom-7 sm:right-8 z-30 pointer-events-auto">
             <span className="inline-flex items-center gap-2 px-4 py-2 sm:px-5 sm:py-2.5 rounded-full bg-black/60 hover:bg-black/85 backdrop-blur-md text-white text-xs sm:text-sm font-medium border border-white/25 hover:border-white/50 shadow-2xl transition-all duration-300 group-hover/hero:border-white/60 group-hover/hero:bg-black/80">
               <span>{article ? 'Read story' : config.linkText || 'Know more'}</span>

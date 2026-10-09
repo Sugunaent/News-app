@@ -4,26 +4,38 @@ export function CursorFollower() {
   const dotRef = useRef<HTMLDivElement>(null);
   const ringRef = useRef<HTMLDivElement>(null);
   const [enabled, setEnabled] = useState(false);
-  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (window.matchMedia('(pointer: coarse)').matches) return;
+    if (
+      window.matchMedia('(pointer: coarse)').matches
+      || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) return;
     setEnabled(true);
 
-    let rafId = 0;
+    let rafId: number | undefined;
     let mouseX = window.innerWidth / 2;
     let mouseY = window.innerHeight / 2;
     let dotX = mouseX;
     let dotY = mouseY;
     let ringX = mouseX;
     let ringY = mouseY;
+    let visible = false;
 
     const onMove = (event: MouseEvent) => {
       mouseX = event.clientX;
       mouseY = event.clientY;
-      setVisible(true);
+      visible = true;
+      if (dotRef.current) dotRef.current.style.opacity = '1';
+      if (ringRef.current) ringRef.current.style.opacity = '0.9';
+      if (rafId === undefined) rafId = requestAnimationFrame(animate);
     };
-    const onLeave = () => setVisible(false);
+    const onLeave = () => {
+      visible = false;
+      if (rafId !== undefined) cancelAnimationFrame(rafId);
+      rafId = undefined;
+      if (dotRef.current) dotRef.current.style.opacity = '0';
+      if (ringRef.current) ringRef.current.style.opacity = '0';
+    };
 
     const animate = () => {
       dotX += (mouseX - dotX) * 0.32;
@@ -32,24 +44,29 @@ export function CursorFollower() {
       ringY += (mouseY - ringY) * 0.11;
       if (dotRef.current) {
         dotRef.current.style.transform = `translate(${dotX - 4}px, ${dotY - 4}px)`;
-        dotRef.current.style.opacity = visible ? '1' : '0';
       }
       if (ringRef.current) {
         ringRef.current.style.transform = `translate(${ringX - 18}px, ${ringY - 18}px)`;
-        ringRef.current.style.opacity = visible ? '0.9' : '0';
       }
-      rafId = requestAnimationFrame(animate);
+      const hasSettled = Math.abs(mouseX - dotX) < 0.1
+        && Math.abs(mouseY - dotY) < 0.1
+        && Math.abs(mouseX - ringX) < 0.1
+        && Math.abs(mouseY - ringY) < 0.1;
+      if (visible && !hasSettled) {
+        rafId = requestAnimationFrame(animate);
+      } else {
+        rafId = undefined;
+      }
     };
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseleave', onLeave);
-    rafId = requestAnimationFrame(animate);
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseleave', onLeave);
-      cancelAnimationFrame(rafId);
+      if (rafId !== undefined) cancelAnimationFrame(rafId);
     };
-  }, [visible]);
+  }, []);
 
   if (!enabled) return null;
 
