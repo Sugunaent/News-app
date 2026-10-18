@@ -37,7 +37,13 @@ export function MediaSection(): JSX.Element {
   const load = useCallback(async () => {
     setLoading(true);
     try { setItems(await fetchMedia()); }
-    catch { showToast('Failed to load media', 'error'); }
+    catch (error) {
+      console.error('[MediaSection] Failed to load media:', error);
+      showToast(
+        `Failed to load media: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'error',
+      );
+    }
     finally { setLoading(false); }
   }, [showToast]);
 
@@ -65,14 +71,26 @@ export function MediaSection(): JSX.Element {
         setItems((p) => [item, ...p]);
       }
       showToast(`${files.length} file(s) uploaded`, 'success');
-    } catch { showToast('Upload failed', 'error'); }
+    } catch (error) {
+      console.error('[MediaSection] Upload failed:', error);
+      showToast(
+        `Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'error',
+      );
+    }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
   const confirmDelete = async () => {
     if (!deleteId) return;
     try { await deleteMedia(deleteId); setItems((p) => p.filter((x) => x.id !== deleteId)); showToast('Deleted', 'success'); }
-    catch { showToast('Failed to delete', 'error'); }
+    catch (error) {
+      console.error('[MediaSection] Failed to delete media:', error);
+      showToast(
+        `Failed to delete: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'error',
+      );
+    }
     finally { setDeleteId(null); }
   };
 

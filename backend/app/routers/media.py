@@ -633,7 +633,7 @@ def delete_media_asset(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete media object from storage",
+            detail=f"Failed to delete media object from storage: {exc}",
         ) from exc
 
     # ---------------------------------------------------------
@@ -653,7 +653,7 @@ def delete_media_asset(
         # Do not silently pretend the operation succeeded.
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete media metadata",
+            detail=f"Failed to delete media metadata: {exc}",
         ) from exc
 
     record_audit(

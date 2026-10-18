@@ -109,6 +109,27 @@ def test_list_promotions_returns_empty_list_when_no_items():
     assert response.json() == []
 
 
+def test_list_promotions_returns_external_image_url():
+    item = promotion_data()
+    item.update(
+        image_media_id=None,
+        image_url="https://cdn.example.test/promo.webp",
+        image=None,
+    )
+    query = MagicMock()
+    query.select.return_value.eq.return_value.order.return_value.order.return_value.execute.return_value.data = [
+        item
+    ]
+
+    with patch("app.routers.promotions.supabase") as mock_supabase:
+        mock_supabase.table.return_value = query
+        response = client.get("/api/v1/promotions")
+
+    assert response.status_code == 200
+    assert response.json()[0]["image_url"] == "https://cdn.example.test/promo.webp"
+    assert response.json()[0]["image_media_id"] is None
+
+
 def test_list_promotions_excludes_future_items():
     query = MagicMock()
     query.select.return_value.eq.return_value.order.return_value.order.return_value.execute.return_value.data = [
