@@ -68,6 +68,9 @@ function AppLayout() {
   const location = useLocation();
   const isAuthPage = ['/auth', '/login', '/auth/callback'].includes(location.pathname);
   const usesPageSpacing = !isAuthPage && location.pathname !== '/superadmin';
+  const pageSpacing = location.pathname === '/'
+    ? 'pt-[25px] md:pt-[50px] pb-[50px] md:pb-[100px]'
+    : 'pt-[50px] md:pt-[100px] pb-[50px] md:pb-[100px]';
 
   useEffect(() => {
     let isActive = true;
@@ -156,7 +159,7 @@ function AppLayout() {
   return (
     <div className="relative flex min-h-screen w-full max-w-[100vw] min-w-0 flex-col">
       {!isAuthPage && <Header />}
-      <main className={`w-full max-w-[100vw] min-w-0 min-h-screen flex-1 ${usesPageSpacing ? 'pt-[50px] md:pt-[100px] pb-[50px] md:pb-[100px]' : ''}`}>
+      <main className={`w-full max-w-[100vw] min-w-0 min-h-screen flex-1 ${usesPageSpacing ? pageSpacing : ''}`}>
         <Suspense fallback={<div className="flex min-h-[50vh] items-center justify-center text-sm text-muted" role="status">Loading page…</div>}>
           <Routes>
             <Route path="/" element={<HomePage />} />
