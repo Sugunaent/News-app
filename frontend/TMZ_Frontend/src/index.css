@@ -400,6 +400,31 @@ main {
   }
 }
 
+.article-typewriter-heading,
+.article-typewriter-intro {
+  animation-name: articleTypewriterReveal;
+  animation-timing-function: steps(28, end);
+  animation-fill-mode: both;
+}
+
+.article-typewriter-heading {
+  animation-duration: 300ms;
+}
+
+.article-typewriter-intro {
+  animation-duration: 420ms;
+}
+
+@keyframes articleTypewriterReveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+
+  to {
+    clip-path: inset(0);
+  }
+}
+
 @keyframes slideUp {
   from {
     opacity: 0;
@@ -631,6 +656,12 @@ main {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .article-typewriter-heading,
+  .article-typewriter-intro {
+    animation: none;
+    clip-path: none;
+  }
+
   html {
     scroll-behavior: auto;
   }

@@ -218,9 +218,11 @@ def test_create_promotion_accepts_optional_event_date():
     }
 
     insert_query = MagicMock()
-    insert_query.insert.return_value.select.return_value.single.return_value.execute.return_value.data = promotion_data(
-        event_date="2026-09-15T18:30:00+00:00",
-    )
+    insert_query.insert.return_value.select.return_value.execute.return_value.data = [
+        promotion_data(
+            event_date="2026-09-15T18:30:00+00:00",
+        )
+    ]
 
     def table(name):
         if name == "media_assets":
@@ -252,8 +254,6 @@ def test_create_promotion_accepts_optional_event_date():
 
 
 def test_create_promotion_accepts_external_image_url_from_any_host():
-    import app.routers.promotions as promotions_module
-
     auth = make_auth_context(role="SUPERADMIN")
     auth.user.role = "SUPERADMIN"
     db = MagicMock()
@@ -263,20 +263,21 @@ def test_create_promotion_accepts_external_image_url_from_any_host():
         "image_url": "https://cdn.example.test/banners/promo.webp",
         "image": None,
     })
-    db.table.return_value.insert.return_value.select.return_value.execute.return_value.data = [created]
     auth.client = db
+    db.table.return_value.insert.return_value.select.return_value.execute.return_value.data = [
+        created
+    ]
 
     app.dependency_overrides[get_current_user] = lambda: auth
-    with patch.object(promotions_module, "supabase_admin", db):
-        response = client.post(
-            "/api/v1/promotions",
-            json={
-                "image_url": "https://cdn.example.test/banners/promo.webp",
-                "title": "Hosted image promotion",
-                "description": "A direct URL image.",
-                "external_url": "https://example.com/promotion",
-            },
-        )
+    response = client.post(
+        "/api/v1/promotions",
+        json={
+            "image_url": "https://cdn.example.test/banners/promo.webp",
+            "title": "Hosted image promotion",
+            "description": "A direct URL image.",
+            "external_url": "https://example.com/promotion",
+        },
+    )
 
     assert response.status_code == 201
     assert response.json()["image_url"] == "https://cdn.example.test/banners/promo.webp"
@@ -293,9 +294,9 @@ def test_create_promotion_allows_null_event_date():
     }
 
     insert_query = MagicMock()
-    insert_query.insert.return_value.select.return_value.single.return_value.execute.return_value.data = promotion_data(
-        event_date=None,
-    )
+    insert_query.insert.return_value.select.return_value.execute.return_value.data = [
+        promotion_data(event_date=None)
+    ]
 
     def table(name):
         if name == "media_assets":
@@ -426,6 +427,29 @@ def test_update_promotion_requires_superadmin():
     )
 
     assert response.status_code == 403
+
+
+def test_update_promotion_uses_authenticated_client_for_write():
+    auth = make_auth_context(role="SUPERADMIN")
+    query = MagicMock()
+    existing = promotion_data()
+    updated = {**existing, "title": "Updated promotion"}
+    query.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = existing
+    query.update.return_value.eq.return_value.select.return_value.execute.return_value.data = [
+        updated
+    ]
+    auth.client.table.return_value = query
+
+    app.dependency_overrides[get_current_user] = lambda: auth
+
+    response = client.patch(
+        f"/api/v1/promotions/{PROMOTION_ID}",
+        json={"title": "Updated promotion"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Updated promotion"
+    query.update.assert_called_once_with({"title": "Updated promotion"})
 
 
 def test_delete_promotion_requires_superadmin():

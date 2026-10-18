@@ -835,12 +835,12 @@ export function ArticlePage() {
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
-                  <h1 className="font-display text-2xl sm:text-3xl md:text-4xl leading-relaxed mb-3" style={{ color: 'var(--article-text)' }}>
+                  <h1 key={displayTitle} className="article-typewriter-heading font-display text-2xl sm:text-3xl md:text-4xl leading-relaxed mb-3" style={{ color: 'var(--article-text)' }}>
                     {displayTitle}
                   </h1>
                   {translatedArticle.isLoading && <Loader2 className="mt-2 h-5 w-5 shrink-0 animate-spin text-muted" aria-label="Translating article" />}
                 </div>
-                <p className="text-base sm:text-lg leading-relaxed" style={{ color: 'var(--article-muted)' }}>
+                <p key={displaySubtitle} className="article-typewriter-intro text-base sm:text-lg leading-relaxed" style={{ color: 'var(--article-muted)' }}>
                   {displaySubtitle}
                 </p>
               </div>
@@ -855,13 +855,13 @@ export function ArticlePage() {
                   <div className="mb-3 flex items-center gap-2">
                     <span className="text-xs uppercase tracking-[0.18em] font-semibold text-brand-primary">Article Summary</span>
                   </div>
-                  <p className="text-base md:text-lg leading-relaxed font-medium" style={{ color: 'var(--article-text)' }}>
+                  <p key={summaryText} className="article-typewriter-intro text-base md:text-lg leading-relaxed font-medium" style={{ color: 'var(--article-text)' }}>
                     {summaryText}
                   </p>
 
                   {keyTakeaways.length > 0 && (
                     <div className="mt-5">
-                      <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.12em] text-muted">Key Takeaways</h2>
+                      <h2 className="article-typewriter-heading mb-3 text-sm font-semibold uppercase tracking-[0.12em] text-muted">Key Takeaways</h2>
                       <ul className="space-y-2 text-sm md:text-base" style={{ color: 'var(--article-muted)' }}>
                         {keyTakeaways.map((takeaway) => (
                           <li key={takeaway} className="flex gap-2 leading-relaxed">

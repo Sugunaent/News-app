@@ -119,7 +119,10 @@ export function PromotionsSection(): JSX.Element {
       setModalOpen(false);
     } catch (error) {
       console.error('[PromotionsSection] Failed to save promotion:', error);
-      showToast('Failed to save', 'error');
+      showToast(
+        `Failed to save: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'error',
+      );
     }
   };
 

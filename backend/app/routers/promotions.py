@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.db_utils import extract_single_record
 from app.core.exceptions import AuthorizationError, NotFoundError
-from app.db.supabase import supabase, supabase_admin
+from app.db.supabase import supabase
 from app.dependencies.auth import AuthContext, get_current_user
 from app.schemas.promotions import (
     PromotionalItemCreate,
@@ -212,7 +212,7 @@ def create_promotion(
             media_filter = ("storage_path", str(payload.image_media_id).strip())
 
         media_result = (
-            supabase_admin.table("media_assets")
+            current_user.client.table("media_assets")
             .select("id, storage_path")
             .eq(*media_filter)
             .maybe_single()
@@ -230,7 +230,7 @@ def create_promotion(
 
     try:
         result = (
-            supabase_admin
+            current_user.client
             .table("promotional_items")
             .insert(data)
             .select(_build_select_query())
@@ -241,7 +241,7 @@ def create_promotion(
             raise
         fallback_data = {key: value for key, value in data.items() if key != "image_url"}
         result = (
-            supabase_admin
+            current_user.client
             .table("promotional_items")
             .insert(fallback_data)
             .select(_build_select_query(include_image_url=False))
@@ -382,7 +382,7 @@ def update_promotion(
 
     try:
         result = (
-            supabase_admin
+            current_user.client
             .table("promotional_items")
             .update(data)
             .eq("id", str(promotion_id))
@@ -394,7 +394,7 @@ def update_promotion(
             raise
         fallback_data = {key: value for key, value in data.items() if key != "image_url"}
         result = (
-            supabase_admin
+            current_user.client
             .table("promotional_items")
             .update(fallback_data)
             .eq("id", str(promotion_id))
