@@ -61,7 +61,10 @@ def _build_select_query(include_image_url: bool = True):
 
 def _is_missing_image_url_column(exc: Exception) -> bool:
     text = str(exc).lower()
-    return "image_url" in text and "does not exist" in text
+    return "image_url" in text and (
+        "does not exist" in text
+        or ("schema cache" in text and "could not find" in text)
+    )
 
 
 @router.get(

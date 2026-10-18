@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.dependencies.auth import get_current_user
 from app.main import app
+from app.routers.promotions import _is_missing_image_url_column
 from app.schemas.promotions import PromotionalItemCreate
 
 client = TestClient(app)
@@ -187,6 +188,14 @@ def test_promotion_schema_requires_exactly_one_image_source():
     assert len(data) == 1
     assert data[0]["title"] == "Upcoming Webinar"
     assert data[0]["event_date"].replace("+00:00", "Z") == "2026-09-15T18:30:00Z"
+
+
+def test_missing_image_url_column_recognizes_postgrest_schema_cache_error():
+    error = Exception(
+        "Could not find the 'image_url' column of 'promotional_items' in the schema cache"
+    )
+
+    assert _is_missing_image_url_column(error)
 
 
 def test_create_promotion_requires_superadmin():
