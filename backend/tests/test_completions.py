@@ -111,9 +111,21 @@ def test_get_completion_returns_404_when_article_not_found():
 
 
 @patch("app.routers.completions.award_badges_for_user")
+@patch("app.routers.completions.get_gamification_status")
 @patch("app.routers.completions.award_xp")
-def test_complete_article_creates_completion(mock_award_xp, mock_award_badges):
+def test_complete_article_creates_completion(
+    mock_award_xp,
+    mock_get_gamification_status,
+    mock_award_badges,
+):
     auth = make_auth_context()
+    mock_award_xp.return_value = {"amount": 30}
+    mock_get_gamification_status.return_value = {
+        "total_xp": 30,
+        "level": {"display_order": 2},
+        "badges": [],
+        "transactions": [],
+    }
 
     article_query = MagicMock()
     article_query.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value = MagicMock(
@@ -128,41 +140,34 @@ def test_complete_article_creates_completion(mock_award_xp, mock_award_badges):
             mock_table.select.return_value.eq.return_value.eq.return_value.maybe_single.return_value.execute.return_value = MagicMock(
                 data=None
             )
-            mock_table.insert.return_value.select.return_value.single.return_value.execute.return_value = MagicMock(
-                data={
+            mock_table.insert.return_value.select.return_value.execute.return_value = MagicMock(
+                data=[{
                     "article_id": ARTICLE_ID,
                     "completed_at": "2026-08-25T10:30:00+00:00",
-                }
+                }]
             )
             return mock_table
-        if name in ("user_xp", "user_awards", "profiles"):
-            return MagicMock()
         raise AssertionError(f"Unexpected table: {name}")
 
     auth.client.table.side_effect = table
-    auth.client.rpc.return_value.execute.return_value = MagicMock(
-        data={"xp_awarded": 10}
-    )
     app.dependency_overrides[get_current_user] = lambda: auth
 
     response = client.post(f"/api/v1/articles/{ARTICLE_ID}/completion")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "article_id": ARTICLE_ID,
-        "completed_at": "2026-08-25T10:30:00Z",
-    }
+    assert response.json()["article_id"] == ARTICLE_ID
+    assert response.json()["xp_earned"] == 30
+    assert response.json()["total_xp"] == 30
 
 
-@patch("app.routers.completions.supabase_admin")
 @patch("app.routers.completions.get_gamification_status")
 @patch("app.routers.completions.award_xp")
 def test_complete_article_retry_repairs_missing_xp_without_duplicate_completion(
     mock_award_xp,
     mock_get_gamification_status,
-    mock_supabase_admin,
 ):
     auth = make_auth_context()
+    mock_award_xp.return_value = {"amount": 30}
     mock_get_gamification_status.return_value = {
         "total_xp": 30,
         "level": {"display_order": 2},
@@ -193,13 +198,13 @@ def test_complete_article_retry_repairs_missing_xp_without_duplicate_completion(
         raise AssertionError(f"Unexpected table: {name}")
 
     auth.client.table.side_effect = table
-    mock_supabase_admin.table.side_effect = table
     app.dependency_overrides[get_current_user] = lambda: auth
 
     response = client.post(f"/api/v1/articles/{ARTICLE_ID}/completion")
 
     assert response.status_code == 200
     assert response.json()["article_id"] == ARTICLE_ID
+    assert response.json()["xp_earned"] == 30
     assert response.json()["total_xp"] == 30
     assert response.json()["already_completed"] is True
     completion_query.insert.assert_not_called()

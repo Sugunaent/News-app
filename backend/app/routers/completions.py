@@ -94,7 +94,7 @@ async def complete_article(
 
     if existing_response and getattr(existing_response, "data", None):
         data = existing_response.data
-        award_xp(
+        xp_result = award_xp(
             user_id=auth.user.id,
             event_type="ARTICLE_COMPLETED",
             source_type="ARTICLE_COMPLETION",
@@ -106,6 +106,7 @@ async def complete_article(
         return ArticleCompletionResponse(
             article_id=data["article_id"],
             completed_at=data["completed_at"],
+            xp_earned=int((xp_result or {}).get("amount", 0)),
             total_xp=gamification["total_xp"],
             new_level=(gamification.get("level") or {}).get("display_order", 1),
             already_completed=True,
