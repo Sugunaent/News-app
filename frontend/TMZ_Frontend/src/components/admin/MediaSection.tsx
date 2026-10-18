@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Upload, Trash2, Loader2, FileText, Image, Film, Music, File } from 'lucide-react';
-import type { MediaItem } from '@/lib/admin/adminTypes';
-import { fetchMedia, uploadMedia, deleteMedia } from '@/lib/admin/api';
+import { Upload, Trash2, Loader2, FileText, Image, Film, Music, File, Link2 } from 'lucide-react';
+import type { MediaAssetDetail, MediaItem } from '@/lib/admin/adminTypes';
+import { fetchMedia, fetchMediaDetail, uploadMedia, deleteMedia } from '@/lib/admin/api';
 import { useToast } from '@/lib/toast';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Modal } from '@/components/ui/States';
@@ -23,6 +23,14 @@ function typeIcon(type: string): JSX.Element {
 }
 
 const PAGE_SIZE = 10;
+const referenceLabels: Record<string, string> = {
+  article_cover: 'Article cover',
+  article_block: 'Article image block',
+  promotional_item: 'Promotion',
+  advertisement: 'Advertisement',
+  profile_avatar: 'Profile avatar',
+  badge: 'Badge',
+};
 
 export function MediaSection(): JSX.Element {
   const { showToast } = useToast();
@@ -30,6 +38,9 @@ export function MediaSection(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [mediaDetail, setMediaDetail] = useState<MediaAssetDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [failedPreviews, setFailedPreviews] = useState<Set<string>>(() => new Set());
   const fileRef = useRef<HTMLInputElement>(null);
@@ -55,6 +66,20 @@ export function MediaSection(): JSX.Element {
 
   const handlePreviewError = (id: string) => {
     setFailedPreviews((current) => new Set(current).add(id));
+  };
+
+  const openMediaDetails = async (id: string) => {
+    setMediaDetail(null);
+    setDetailError(null);
+    setDetailLoading(true);
+    try {
+      setMediaDetail(await fetchMediaDetail(id));
+    } catch (error) {
+      console.error('[MediaSection] Failed to load media references:', error);
+      setDetailError(error instanceof Error ? error.message : 'Unknown error');
+    } finally {
+      setDetailLoading(false);
+    }
   };
 
   const handleUpload = async (files: FileList | null) => {
@@ -152,13 +177,21 @@ export function MediaSection(): JSX.Element {
                 </div>
                 <div className="space-y-2">
                   <input className="input-field text-[10px]" value={mediaUrl(m)} readOnly aria-label={`Media URL for ${m.filename}`} />
+                  <p className="text-[10px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                    Signed URL expires in 7 days. Choose this asset in an editor to keep a stable media reference.
+                  </p>
                   <button onClick={async () => { try { await navigator.clipboard.writeText(mediaUrl(m)); showToast('URL copied', 'success'); } catch { showToast('Copy failed', 'error'); } }} className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-body transition-colors hover:bg-white/10" style={{ color: 'var(--text-muted)' }}>
-                    Copy URL
+                    Copy temporary URL
                   </button>
                 </div>
-                <button onClick={() => setDeleteId(m.id)} className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-body transition-colors hover:bg-white/10" style={{ color: 'var(--text-muted)' }}>
-                  <Trash2 className="w-3.5 h-3.5" /> Delete
-                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => void openMediaDetails(m.id)} className="flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-body transition-colors hover:bg-white/10" style={{ color: 'var(--text-muted)' }}>
+                    <Link2 className="w-3.5 h-3.5" /> Usage
+                  </button>
+                  <button onClick={() => void openMediaDetails(m.id)} className="flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-body transition-colors hover:bg-white/10" style={{ color: 'var(--text-muted)' }}>
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                  </button>
+                </div>
               </GlassCard>
             ))}
           </div>
@@ -183,6 +216,47 @@ export function MediaSection(): JSX.Element {
             <Button variant="secondary" onClick={() => setDeleteId(null)}>Cancel</Button>
             <Button onClick={() => void confirmDelete()}>Delete</Button>
           </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={mediaDetail !== null || detailLoading || detailError !== null} onClose={() => { setMediaDetail(null); setDetailError(null); }}>
+        <div className="space-y-4">
+          <h3 className="font-display text-xl" style={{ color: 'var(--text-primary)' }}>Media Usage</h3>
+          {detailLoading ? (
+            <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 animate-spin" style={{ color: 'var(--brand-primary)' }} /></div>
+          ) : detailError ? (
+            <p className="font-body text-sm" style={{ color: 'var(--text-secondary)' }}>Could not load media usage: {detailError}</p>
+          ) : mediaDetail ? (
+            <>
+              <p className="font-body text-sm break-all" style={{ color: 'var(--text-secondary)' }}>{mediaDetail.filename}</p>
+              {mediaDetail.references.length === 0 ? (
+                <p className="font-body text-sm" style={{ color: 'var(--text-secondary)' }}>No resources currently use this file. It is safe to delete.</p>
+              ) : (
+                <>
+                  <p className="font-body text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    Replace or unlink this image in each listed resource before deleting it. The server will continue to protect any referenced media.
+                  </p>
+                  <ul className="space-y-2">
+                    {mediaDetail.references.map((reference) => (
+                      <li key={`${reference.resource_type}:${reference.resource_id}`} className="rounded-lg border border-subtle p-3">
+                        <p className="font-body text-sm" style={{ color: 'var(--text-primary)' }}>
+                          {referenceLabels[reference.resource_type] ?? reference.resource_type.replace(/_/g, ' ')}
+                          {reference.resource_label ? `: ${reference.resource_label}` : ''}
+                        </p>
+                        <p className="font-mono text-xs break-all" style={{ color: 'var(--text-muted)' }}>{reference.resource_id}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" onClick={() => setMediaDetail(null)}>Close</Button>
+                {mediaDetail.references.length === 0 && (
+                  <Button onClick={() => { setDeleteId(mediaDetail.id); setMediaDetail(null); }}>Delete Media</Button>
+                )}
+              </div>
+            </>
+          ) : null}
         </div>
       </Modal>
     </div>

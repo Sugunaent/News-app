@@ -12,6 +12,7 @@ from supabase import create_client
 from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.handlers import api_error_handler, app_exception_handler
+from app.db.supabase import supabase_admin
 from app.routers.advertisements import router as advertisements_router
 from app.routers.analytics import router as analytics_router
 from app.routers.articles import router as articles_router
@@ -175,8 +176,27 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 
 @app.get("/health")
-async def health_check():
-    return {"status": "ok"}
+async def health_check(response: Response):
+    checks = {"database": "ok", "storage": "ok"}
+
+    try:
+        supabase_admin.table("media_assets").select("id").limit(1).execute()
+    except Exception:
+        logger.exception("Supabase database health probe failed")
+        checks["database"] = "error"
+
+    try:
+        supabase_admin.storage.from_("article-media").list(
+            path="",
+            options={"limit": 1},
+        )
+    except Exception:
+        logger.exception("Supabase Storage health probe failed")
+        checks["storage"] = "error"
+
+    healthy = all(check == "ok" for check in checks.values())
+    response.status_code = 200 if healthy else 503
+    return {"status": "ok" if healthy else "degraded", "checks": checks}
 
 # Direct fallback route for preflight requests across all paths
 @app.options("/{full_path:path}")

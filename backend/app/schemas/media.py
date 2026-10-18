@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 class MediaReferenceResponse(BaseModel):
     resource_type: str
     resource_id: UUID
+    resource_label: str | None = None
 
 
 class MediaAssetResponse(BaseModel):

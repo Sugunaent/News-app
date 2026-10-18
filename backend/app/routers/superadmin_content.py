@@ -1016,12 +1016,14 @@ def update_article(
         if payload.is_featured is None and featured_from_type:
             updates["is_featured"] = True
 
-    if payload.cover_media_id is not None:
-        updates["cover_media_id"] = str(
-            payload.cover_media_id
+    if "cover_media_id" in payload.model_fields_set:
+        updates["cover_media_id"] = (
+            str(payload.cover_media_id)
+            if payload.cover_media_id
+            else None
         )
 
-    if payload.cover_image_url is not None:
+    if "cover_image_url" in payload.model_fields_set:
         updates["cover_image_url"] = payload.cover_image_url
 
     if payload.is_featured is not None:
@@ -1677,37 +1679,37 @@ def update_article_block(
 
     media_id = (
         payload.media_id
-        if payload.media_id is not None
+        if "media_id" in payload.model_fields_set
         else existing.get("media_id")
     )
 
     quiz_id = (
         payload.quiz_id
-        if payload.quiz_id is not None
+        if "quiz_id" in payload.model_fields_set
         else existing.get("quiz_id")
     )
 
     opinion_id = (
         payload.opinion_id
-        if payload.opinion_id is not None
+        if "opinion_id" in payload.model_fields_set
         else existing.get("opinion_id")
     )
 
     external_url = (
         payload.external_url
-        if payload.external_url is not None
+        if "external_url" in payload.model_fields_set
         else existing.get("external_url")
     )
 
     text_content = (
         payload.text_content
-        if payload.text_content is not None
+        if "text_content" in payload.model_fields_set
         else existing.get("text_content")
     )
 
     caption = (
         payload.caption
-        if payload.caption is not None
+        if "caption" in payload.model_fields_set
         else existing.get("caption")
     )
 
@@ -1742,30 +1744,38 @@ def update_article_block(
             display_order
         )
 
-    if payload.media_id is not None:
-        block_updates["media_id"] = str(
-            payload.media_id
+    if "media_id" in payload.model_fields_set:
+        block_updates["media_id"] = (
+            str(payload.media_id)
+            if payload.media_id
+            else None
         )
 
-    if payload.quiz_id is not None:
-        block_updates["quiz_id"] = str(
-            payload.quiz_id
+    if "quiz_id" in payload.model_fields_set:
+        block_updates["quiz_id"] = (
+            str(payload.quiz_id)
+            if payload.quiz_id
+            else None
         )
 
-    if payload.opinion_id is not None:
-        block_updates["opinion_id"] = str(
-            payload.opinion_id
+    if "opinion_id" in payload.model_fields_set:
+        block_updates["opinion_id"] = (
+            str(payload.opinion_id)
+            if payload.opinion_id
+            else None
         )
 
-    if payload.external_url is not None:
-        block_updates["external_url"] = str(
-            payload.external_url
+    if "external_url" in payload.model_fields_set:
+        block_updates["external_url"] = (
+            str(payload.external_url)
+            if payload.external_url
+            else None
         )
 
-    if payload.text_content is not None:
+    if "text_content" in payload.model_fields_set:
         block_updates["text_content"] = payload.text_content
 
-    if payload.caption is not None:
+    if "caption" in payload.model_fields_set:
         block_updates["caption"] = payload.caption
 
     if payload.title is not None:

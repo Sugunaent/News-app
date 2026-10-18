@@ -168,7 +168,7 @@ def _find_media_references(
     result = (
         client
         .table("articles")
-        .select("id")
+        .select("id, title")
         .eq("cover_media_id", media_id_string)
         .execute()
     )
@@ -178,6 +178,7 @@ def _find_media_references(
             MediaReferenceResponse(
                 resource_type="article_cover",
                 resource_id=UUID(str(row["id"])),
+                resource_label=row.get("title"),
             )
         )
 
@@ -188,7 +189,7 @@ def _find_media_references(
     result = (
         client
         .table("article_blocks")
-        .select("id")
+        .select("id, article_id")
         .eq("media_id", media_id_string)
         .execute()
     )
@@ -198,6 +199,7 @@ def _find_media_references(
             MediaReferenceResponse(
                 resource_type="article_block",
                 resource_id=UUID(str(row["id"])),
+                resource_label=f"Article block in {row.get('article_id')}",
             )
         )
 
@@ -208,7 +210,7 @@ def _find_media_references(
     result = (
         client
         .table("promotional_items")
-        .select("id")
+        .select("id, title")
         .eq("image_media_id", media_id_string)
         .execute()
     )
@@ -218,6 +220,7 @@ def _find_media_references(
             MediaReferenceResponse(
                 resource_type="promotional_item",
                 resource_id=UUID(str(row["id"])),
+                resource_label=row.get("title"),
             )
         )
 
@@ -228,7 +231,7 @@ def _find_media_references(
     result = (
         client
         .table("advertisements")
-        .select("id")
+        .select("id, title")
         .eq("image_media_id", media_id_string)
         .execute()
     )
@@ -238,6 +241,7 @@ def _find_media_references(
             MediaReferenceResponse(
                 resource_type="advertisement",
                 resource_id=UUID(str(row["id"])),
+                resource_label=row.get("title"),
             )
         )
 
@@ -248,7 +252,7 @@ def _find_media_references(
     result = (
         client
         .table("profiles")
-        .select("id")
+        .select("id, display_name")
         .eq("avatar_media_id", media_id_string)
         .execute()
     )
@@ -258,6 +262,7 @@ def _find_media_references(
             MediaReferenceResponse(
                 resource_type="profile_avatar",
                 resource_id=UUID(str(row["id"])),
+                resource_label=row.get("display_name"),
             )
         )
 
@@ -268,7 +273,7 @@ def _find_media_references(
     result = (
         client
         .table("badges")
-        .select("id")
+        .select("id, name")
         .eq("image_asset_id", media_id_string)
         .execute()
     )
@@ -278,6 +283,7 @@ def _find_media_references(
             MediaReferenceResponse(
                 resource_type="badge",
                 resource_id=UUID(str(row["id"])),
+                resource_label=row.get("name"),
             )
         )
 

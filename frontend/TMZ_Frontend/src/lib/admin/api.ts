@@ -20,7 +20,7 @@ import type {
   AdminArticle, AdminCategory, AdminQuiz, AdminOpinion, AdminComment,
   AdminBlock,
   AdminUser, XPRule, AdminLevel, AdminBadge, AdminPromotion,
-  Advertisement, AdSlot, MediaItem, AnalyticsData, FeedbackItem,
+  Advertisement, AdSlot, MediaItem, MediaAssetDetail, MediaReference, AnalyticsData, FeedbackItem,
   BusinessEnquiry, AuditLog, ArticleStatus,
 } from './adminTypes';
 import {
@@ -122,6 +122,7 @@ const toAdminArticle = (item: any): AdminArticle => ({
   category_name: item.category?.name ?? item.category_name ?? undefined,
   article_type: normalizeArticleType(item.article_type ?? item.type),
   status: normalizeArticleStatus(item.status),
+  cover_media_id: item.cover_media_id ?? null,
   cover_image_url: normalizeStoredUrl(item.cover_image_url ?? item.cover?.signed_url ?? item.cover?.url),
   author_name: item.author_name ?? null,
   is_featured: Boolean(item.is_featured),
@@ -236,6 +237,7 @@ const toAdminBlock = (item: any): AdminBlock => ({
   article_id: String(item.article_id),
   block_type: item.block_type,
   order_index: Number(item.display_order ?? item.order_index ?? 0),
+  media_id: item.media_id ?? null,
   content: item.text_content ?? item.content ?? null,
   external_url: item.external_url ?? null,
   image_url: item.image_url ?? item.external_url ?? item.media?.signed_url ?? null,
@@ -393,6 +395,7 @@ export async function createArticle(data: Partial<AdminArticle>): Promise<AdminA
     slug: undefined,
     article_type: data.article_type ?? 'ARTICLE',
     status: data.status ?? 'DRAFT',
+    cover_media_id: data.cover_media_id ?? null,
     cover_image_url: data.cover_image_url ?? undefined,
     is_featured: Boolean(data.is_featured),
     is_author_pick: Boolean(data.is_authors_pick),
@@ -421,6 +424,7 @@ export async function updateArticle(id: string, updates: Partial<AdminArticle>):
   if (updates.is_manual_translation !== undefined) payload.is_manual_translation = updates.is_manual_translation;
   if (updates.category_id !== undefined) payload.category_id = updates.category_id;
   if (updates.article_type !== undefined) payload.article_type = updates.article_type;
+  if (updates.cover_media_id !== undefined) payload.cover_media_id = updates.cover_media_id;
   if (updates.cover_image_url !== undefined) payload.cover_image_url = updates.cover_image_url;
   if (updates.is_featured !== undefined) payload.is_featured = updates.is_featured;
   if (updates.is_authors_pick !== undefined) payload.is_author_pick = updates.is_authors_pick;
@@ -488,9 +492,9 @@ export async function updateArticleBlock(articleId: string, blockId: string, blo
   const payload: Record<string, unknown> = { display_order: block.order_index };
   if (block.block_type === 'TEXT') payload.text_content = block.content;
   if (block.block_type === 'IMAGE') {
-    if (block.media_id) payload.media_id = block.media_id;
-    if (block.external_url) payload.external_url = block.external_url;
-    if (block.image_caption) payload.caption = block.image_caption;
+    payload.media_id = block.media_id || null;
+    payload.external_url = block.external_url?.trim() || null;
+    payload.caption = block.image_caption?.trim() || null;
   }
   if (block.block_type === 'QUIZ') payload.quiz_id = block.quiz_id;
   if (block.block_type === 'OPINION') payload.opinion_id = block.opinion_id;
@@ -1061,6 +1065,14 @@ export async function deleteAdSlot(id: string): Promise<void> {
 export async function fetchMedia(): Promise<MediaItem[]> {
   const rows = await apiFetchJson<any[]>(`/api/v1/media/admin`);
   return toArray<any>(rows).map(toMediaItem);
+}
+
+export async function fetchMediaDetail(id: string): Promise<MediaAssetDetail> {
+  const row = await apiFetchJson<any>(`/api/v1/media/admin/${id}`);
+  return {
+    ...toMediaItem(row),
+    references: toArray<MediaReference>(row.references),
+  };
 }
 
 export async function uploadMedia(file: File): Promise<MediaItem> {

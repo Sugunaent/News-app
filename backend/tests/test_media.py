@@ -105,13 +105,21 @@ def test_superadmin_can_get_media_detail():
         media_table_mock.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data
     ) = _media()
 
-    ref_table_mock = MagicMock()
-    ref_table_mock.select.return_value.eq.return_value.execute.return_value.data = []
-
     def table_side_effect(name):
         if name == "media_assets":
             return media_table_mock
-        return ref_table_mock
+        reference_table = MagicMock()
+        reference_table.select.return_value.eq.return_value.execute.return_value.data = (
+            [
+                {
+                    "id": str(USER_ID),
+                    "display_name": "Sample profile",
+                }
+            ]
+            if name == "profiles"
+            else []
+        )
+        return reference_table
 
     mock_client.table.side_effect = table_side_effect
 
@@ -129,7 +137,13 @@ def test_superadmin_can_get_media_detail():
 
         data = response.json()
         assert data["id"] == str(MEDIA_ID)
-        assert data["references"] == []
+        assert data["references"] == [
+            {
+                "resource_type": "profile_avatar",
+                "resource_id": str(USER_ID),
+                "resource_label": "Sample profile",
+            }
+        ]
     finally:
         app.dependency_overrides.clear()
 

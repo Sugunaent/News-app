@@ -299,6 +299,54 @@ def test_create_image_block_requires_media():
     assert response.status_code == 422
 
 
+def test_update_image_block_can_replace_media_with_external_url():
+    from unittest.mock import patch
+
+    from app.routers import superadmin_content
+    from app.schemas.superadmin_content import SuperadminArticleBlockUpdate
+
+    auth = make_auth_context()
+    existing_block = {
+        "id": str(BLOCK_ID),
+        "article_id": str(ARTICLE_ID),
+        "block_type": "IMAGE",
+        "display_order": 0,
+        "media_id": str(UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")),
+        "quiz_id": None,
+        "opinion_id": None,
+        "external_url": None,
+        "text_content": None,
+        "caption": None,
+        "title": None,
+    }
+    update_query = auth.client.table.return_value.update.return_value
+    update_query.eq.return_value.eq.return_value.execute.return_value = MagicMock()
+
+    with (
+        patch.object(superadmin_content, "_get_article_block", return_value=existing_block),
+        patch.object(superadmin_content, "_map_block", return_value=existing_block),
+        patch.object(superadmin_content, "record_audit"),
+    ):
+        result = superadmin_content.update_article_block(
+            article_id=ARTICLE_ID,
+            block_id=BLOCK_ID,
+            payload=SuperadminArticleBlockUpdate(
+                media_id=None,
+                external_url="https://images.example.com/photo.jpg",
+            ),
+            current_user=auth,
+        )
+
+    assert result == existing_block
+    auth.client.table.assert_called_once_with("article_blocks")
+    auth.client.table.return_value.update.assert_called_once_with(
+        {
+            "media_id": None,
+            "external_url": "https://images.example.com/photo.jpg",
+        }
+    )
+
+
 def test_create_quiz_block_requires_quiz():
     auth = make_auth_context(
         role="SUPERADMIN"

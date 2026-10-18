@@ -246,7 +246,7 @@ export function PromotionsSection(): JSX.Element {
                     onChange={(e) => setForm((p) => ({ ...p, external_image_url: e.target.value }))}
                     placeholder="https://any-image-host.example/banner.jpg"
                   />
-                  <p className="mt-1 text-xs text-muted">HTTP or HTTPS image URLs from any host are supported.</p>
+                  <p className="mt-1 text-xs text-muted">Use a direct image-file URL. Social post pages and Google Images result pages are not image URLs, and some hosts block hotlinking.</p>
                   {String(form.external_image_url).trim() && isHttpImageUrl(String(form.external_image_url).trim()) && (
                     <img
                       key={String(form.external_image_url)}

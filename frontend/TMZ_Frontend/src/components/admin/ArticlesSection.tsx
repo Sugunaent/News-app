@@ -16,10 +16,10 @@ import {
   fetchArticles, fetchCategories, createArticle, updateArticle, deleteArticle,
   fetchArticleBlocks, createArticleBlock, updateArticleBlock, deleteArticleBlock,
   reorderArticleBlocks, fetchQuizzes, fetchOpinions, createQuiz, updateQuiz, createOpinion, updateOpinion, createOpinionOption, replaceOpinionOptions,
-  type ArticleFilters,
+  fetchMedia, type ArticleFilters,
 } from '@/lib/admin/api';
 import type {
-  AdminArticle, AdminCategory, ArticleStatus, BlockType,
+  AdminArticle, AdminCategory, ArticleStatus, BlockType, MediaItem,
 } from '@/lib/admin/adminTypes';
 
 interface ArticlesSectionProps {
@@ -312,6 +312,7 @@ interface EditorBlock {
   order_index: number;
   content: string;
   image_url: string;
+  media_id: string;
   image_caption: string;
   quiz_title: string;
   quiz_question: string;
@@ -332,6 +333,7 @@ function createEmptyBlock(type: BlockType, order: number): EditorBlock {
     order_index: order,
     content: '',
     image_url: '',
+    media_id: '',
     image_caption: '',
     quiz_title: '',
     quiz_question: '',
@@ -390,12 +392,32 @@ function ArticleEditor({
   const [articleType, setArticleType] = useState(article?.article_type ?? 'ARTICLE');
   const [isAuthorsPick, setIsAuthorsPick] = useState(article?.is_authors_pick ?? false);
   const [coverImage, setCoverImage] = useState(article?.cover_image_url ?? '');
+  const [coverMediaId, setCoverMediaId] = useState(article?.cover_media_id ?? '');
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [articleId] = useState(article?.id ?? crypto.randomUUID());
   const [status] = useState<ArticleStatus>(article?.status ?? 'DRAFT');
   const [blocks, setBlocks] = useState<EditorBlock[]>([]);
   const [showBlockPicker, setShowBlockPicker] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [scheduleAt, setScheduleAt] = useState(article?.scheduled_at?.slice(0, 16) ?? '');
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchMedia()
+      .then((media) => {
+        if (!cancelled) setMediaItems(media.filter((item) => item.file_type.startsWith('image/')));
+      })
+      .catch((error: unknown) => {
+        console.error('[ArticleEditor] Failed to load media options:', error);
+        if (!cancelled) {
+          showToast(
+            `Failed to load media options: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            'error',
+          );
+        }
+      });
+    return () => { cancelled = true; };
+  }, [showToast]);
 
   useEffect(() => {
     if (!article) return;
@@ -424,7 +446,8 @@ function ArticleEditor({
             block_type: serverBlock.block_type,
             order_index: serverBlock.order_index,
             content: serverBlock.content ?? '',
-            image_url: serverBlock.image_url ?? '',
+            image_url: serverBlock.external_url ?? '',
+            media_id: serverBlock.media_id ?? '',
             image_caption: serverBlock.image_caption ?? '',
             quiz_title: quiz?.title ?? '',
             quiz_question: quiz?.question ?? '',
@@ -535,7 +558,7 @@ function ArticleEditor({
       showToast('Category is required', 'error');
       return;
     }
-    if (coverImage.trim() && !isSafeMediaUrl(coverImage.trim())) {
+    if (!coverMediaId && coverImage.trim() && !isSafeMediaUrl(coverImage.trim())) {
       showToast('Cover image must be a valid HTTPS URL or media storage path', 'error');
       return;
     }
@@ -558,7 +581,8 @@ function ArticleEditor({
         is_featured: false,
         is_authors_pick: isAuthorsPick,
         reading_time_minutes: null,
-        cover_image_url: coverImage || null,
+        cover_media_id: coverMediaId || null,
+        cover_image_url: coverMediaId ? null : coverImage || null,
         status: 'DRAFT',
       };
       for (const [index, block] of blocks.entries()) {
@@ -567,8 +591,8 @@ function ArticleEditor({
         }
         if (block.block_type === 'IMAGE') {
           const imageUrl = block.image_url.trim();
-          if (!imageUrl) throw new Error(`Image block ${index + 1} needs an image URL`);
-          if (!isSafeMediaUrl(imageUrl)) {
+          if (!block.media_id && !imageUrl) throw new Error(`Image block ${index + 1} needs an image or Media Library selection`);
+          if (!block.media_id && !isSafeMediaUrl(imageUrl)) {
             throw new Error(`Image block ${index + 1} needs a valid HTTPS URL from any host or media storage path`);
           }
         }
@@ -658,8 +682,10 @@ function ArticleEditor({
           content: block.block_type === 'PODCAST' ? block.podcast_description : block.content,
           title: block.block_type === 'PODCAST' ? block.podcast_title : null,
           image_caption: block.image_caption || null,
-          external_url: block.block_type === 'IMAGE' ? block.image_url || null : block.block_type === 'PODCAST' ? block.podcast_audio_url || null : null,
-          media_id: block.block_type === 'PODCAST' ? undefined : undefined,
+          external_url: block.block_type === 'IMAGE'
+            ? block.media_id ? null : block.image_url.trim() || null
+            : block.block_type === 'PODCAST' ? block.podcast_audio_url || null : null,
+          media_id: block.block_type === 'IMAGE' ? block.media_id || null : undefined,
           ...reference,
         };
 
@@ -877,12 +903,30 @@ function ArticleEditor({
         </div>
         <div className="grid grid-cols-1 gap-4">
           <div className="space-y-2">
-            <Input label="Cover Image URL" value={coverImage} onChange={(e) => setCoverImage(e.target.value)} placeholder="https://any-image-host.example/image.jpg" />
-            <p className="text-xs text-muted">Use an HTTPS image URL from any host, or a media storage path.</p>
-            {coverImage && (
+            <label className="block text-sm text-secondary font-body mb-1.5">Cover image from Media Library</label>
+            <select
+              className="input-field"
+              value={coverMediaId}
+              onChange={(event) => {
+                setCoverMediaId(event.target.value);
+                if (event.target.value) setCoverImage('');
+              }}
+            >
+              <option value="">Use an external image URL</option>
+              {mediaItems.map((item) => <option key={item.id} value={item.id}>{item.filename}</option>)}
+            </select>
+            {!coverMediaId && (
+              <>
+                <Input label="Cover Image URL" value={coverImage} onChange={(e) => setCoverImage(e.target.value)} placeholder="https://images.example.com/image.jpg" />
+                <p className="text-xs text-muted">Use a direct HTTPS image URL. Social post pages and Google Images result pages are not direct image URLs.</p>
+              </>
+            )}
+            {(coverMediaId
+              ? mediaItems.find((item) => item.id === coverMediaId)?.signed_url
+              : coverImage) && (
               <img
-                key={coverImage}
-                src={coverImage}
+                key={coverMediaId || coverImage}
+                src={coverMediaId ? mediaItems.find((item) => item.id === coverMediaId)?.signed_url ?? '' : coverImage}
                 alt="Cover image preview"
                 className="max-h-48 w-full rounded-lg border border-subtle object-contain"
                 referrerPolicy="no-referrer"
@@ -913,6 +957,7 @@ function ArticleEditor({
             <BlockEditor
               key={block.id}
               block={block}
+              mediaItems={mediaItems}
               index={index}
               total={blocks.length}
               onUpdate={(updates) => updateBlock(block.id, updates)}
@@ -980,11 +1025,12 @@ function ArticleEditor({
 /* ===== Block Editor ===== */
 
 function BlockEditor({
-  block, index, total, onUpdate, onRemove, onMove,
+  block, index, total, mediaItems, onUpdate, onRemove, onMove,
 }: {
   block: EditorBlock;
   index: number;
   total: number;
+  mediaItems: MediaItem[];
   onUpdate: (updates: Partial<EditorBlock>) => void;
   onRemove: () => void;
   onMove: (dir: 'up' | 'down') => void;
@@ -1026,12 +1072,27 @@ function BlockEditor({
 
       {block.block_type === 'IMAGE' && (
         <div className="space-y-3">
-          <Input label="Image URL" value={block.image_url} onChange={(e) => onUpdate({ image_url: e.target.value })} placeholder="https://any-image-host.example/image.jpg" />
-          <p className="text-xs text-muted">Use an HTTPS image URL from any host, or a media storage path.</p>
-          {block.image_url && (
+          <label className="block text-sm text-secondary font-body mb-1.5">Image from Media Library</label>
+          <select
+            className="input-field"
+            value={block.media_id}
+            onChange={(event) => onUpdate({ media_id: event.target.value, image_url: '' })}
+          >
+            <option value="">Use an external image URL</option>
+            {mediaItems.map((item) => <option key={item.id} value={item.id}>{item.filename}</option>)}
+          </select>
+          {!block.media_id && (
+            <>
+              <Input label="Image URL" value={block.image_url} onChange={(e) => onUpdate({ media_id: '', image_url: e.target.value })} placeholder="https://images.example.com/image.jpg" />
+              <p className="text-xs text-muted">Use a direct HTTPS image URL. Social post pages and Google Images result pages are not direct image URLs.</p>
+            </>
+          )}
+          {(block.media_id
+            ? mediaItems.find((item) => item.id === block.media_id)?.signed_url
+            : block.image_url) && (
             <img
-              key={block.image_url}
-              src={block.image_url}
+              key={block.media_id || block.image_url}
+              src={block.media_id ? mediaItems.find((item) => item.id === block.media_id)?.signed_url ?? '' : block.image_url}
               alt={block.image_caption || 'Article image preview'}
               className="max-h-56 w-full rounded-lg border border-subtle object-contain"
               referrerPolicy="no-referrer"

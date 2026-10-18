@@ -45,6 +45,7 @@ export interface AdminArticle {
   category_name?: string;
   article_type: ArticleType;
   status: ArticleStatus;
+  cover_media_id?: string | null;
   cover_image_url: string | null;
   author_name: string | null;
   is_featured: boolean;
@@ -205,6 +206,16 @@ export interface MediaItem {
   file_size: number;
   uploaded_by: string | null;
   created_at: string;
+}
+
+export interface MediaReference {
+  resource_type: string;
+  resource_id: string;
+  resource_label?: string | null;
+}
+
+export interface MediaAssetDetail extends MediaItem {
+  references: MediaReference[];
 }
 
 export interface AnalyticsData {
