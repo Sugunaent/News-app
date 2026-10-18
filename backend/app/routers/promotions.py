@@ -242,6 +242,14 @@ def create_promotion(
     except Exception as exc:
         if not _is_missing_image_url_column(exc):
             raise
+        if payload.image_url is not None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "External promotion images are not enabled in the database yet. "
+                    "Apply the latest promotional image migration and retry."
+                ),
+            ) from exc
         fallback_data = {key: value for key, value in data.items() if key != "image_url"}
         result = (
             current_user.client
@@ -395,6 +403,14 @@ def update_promotion(
     except Exception as exc:
         if not _is_missing_image_url_column(exc):
             raise
+        if payload_image_url is not None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "External promotion images are not enabled in the database yet. "
+                    "Apply the latest promotional image migration and retry."
+                ),
+            ) from exc
         fallback_data = {key: value for key, value in data.items() if key != "image_url"}
         result = (
             current_user.client

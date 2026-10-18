@@ -198,6 +198,30 @@ def test_missing_image_url_column_recognizes_postgrest_schema_cache_error():
     assert _is_missing_image_url_column(error)
 
 
+def test_create_external_image_does_not_retry_without_image_url():
+    auth = make_auth_context(role="SUPERADMIN")
+    query = MagicMock()
+    query.insert.return_value.select.return_value.execute.side_effect = Exception(
+        "Could not find the 'image_url' column of 'promotional_items' in the schema cache"
+    )
+    auth.client.table.return_value = query
+    app.dependency_overrides[get_current_user] = lambda: auth
+
+    response = client.post(
+        "/api/v1/promotions",
+        json={
+            "image_url": "https://cdn.example.test/banners/promo.webp",
+            "title": "Hosted image promotion",
+            "description": "A direct URL image.",
+            "external_url": "https://example.com/promotion",
+        },
+    )
+
+    assert response.status_code == 503
+    assert "Apply the latest promotional image migration" in response.json()["detail"]
+    query.insert.return_value.select.return_value.execute.assert_called_once()
+
+
 def test_create_promotion_requires_superadmin():
     auth = make_auth_context(role="USER")
 
@@ -291,6 +315,9 @@ def test_create_promotion_accepts_external_image_url_from_any_host():
     assert response.status_code == 201
     assert response.json()["image_url"] == "https://cdn.example.test/banners/promo.webp"
     assert response.json()["image_media_id"] is None
+    insert_payload = db.table.return_value.insert.call_args.args[0]
+    assert insert_payload["image_media_id"] is None
+    assert insert_payload["image_url"] == "https://cdn.example.test/banners/promo.webp"
 
 
 def test_create_promotion_allows_null_event_date():
@@ -436,6 +463,30 @@ def test_update_promotion_requires_superadmin():
     )
 
     assert response.status_code == 403
+
+
+def test_update_external_image_does_not_retry_without_image_url():
+    auth = make_auth_context(role="SUPERADMIN")
+    query = MagicMock()
+    query.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = (
+        promotion_data()
+    )
+    query.update.return_value.eq.return_value.select.return_value.execute.side_effect = (
+        Exception(
+            "Could not find the 'image_url' column of 'promotional_items' in the schema cache"
+        )
+    )
+    auth.client.table.return_value = query
+    app.dependency_overrides[get_current_user] = lambda: auth
+
+    response = client.patch(
+        f"/api/v1/promotions/{PROMOTION_ID}",
+        json={"image_url": "https://cdn.example.test/banners/promo.webp"},
+    )
+
+    assert response.status_code == 503
+    assert "Apply the latest promotional image migration" in response.json()["detail"]
+    query.update.return_value.eq.return_value.select.return_value.execute.assert_called_once()
 
 
 def test_update_promotion_uses_authenticated_client_for_write():
