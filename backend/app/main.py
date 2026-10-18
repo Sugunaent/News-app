@@ -177,13 +177,27 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 @app.get("/health")
 async def health_check(response: Response):
-    checks = {"database": "ok", "storage": "ok"}
+    checks = {"database": "ok", "promotion_images": "ok", "storage": "ok"}
 
     try:
         supabase_admin.table("media_assets").select("id").limit(1).execute()
     except Exception:
         logger.exception("Supabase database health probe failed")
         checks["database"] = "error"
+
+    if checks["database"] == "ok":
+        try:
+            (
+                supabase_admin.table("promotional_items")
+                .select("image_media_id, image_url")
+                .limit(0)
+                .execute()
+            )
+        except Exception:
+            logger.exception("Promotional image schema health probe failed")
+            checks["promotion_images"] = "error"
+    else:
+        checks["promotion_images"] = "unavailable"
 
     try:
         supabase_admin.storage.from_("article-media").list(
