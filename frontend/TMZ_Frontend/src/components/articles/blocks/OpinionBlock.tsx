@@ -9,9 +9,11 @@ import { useAuthPrompt } from '@/lib/authPromptContext';
 export function OpinionBlock({
   opinion,
   onSubmit,
+  onViewCard,
 }: {
   opinion: Opinion;
-  onSubmit?: (opinionText: string, xpEarned: number) => void;
+  onSubmit?: (opinionText: string, xpEarned: number, questionText: string) => void;
+  onViewCard?: (opinionText: string, xpEarned: number, questionText: string) => void;
 }) {
   const { user } = useAuth();
   const { requestLogin } = useAuthPrompt();
@@ -23,6 +25,7 @@ export function OpinionBlock({
   const [submittedText, setSubmittedText] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [submittedXp, setSubmittedXp] = useState(0);
+  const [submittedThisSession, setSubmittedThisSession] = useState(false);
 
   const allowsCustom = opinion.allow_custom_text !== false;
   const maxChars = 200;
@@ -68,8 +71,9 @@ export function OpinionBlock({
       setSubmitted(true);
       setSubmittedText(finalOpinion);
       setSubmittedXp(result.xp_earned ?? 0);
+      setSubmittedThisSession(true);
       showToast(`Your opinion has been recorded${result.xp_earned ? ` (+${result.xp_earned} XP)` : ''}!`, 'success');
-      onSubmit?.(finalOpinion, result.xp_earned ?? 0);
+      onSubmit?.(finalOpinion, result.xp_earned ?? 0, opinion.question);
     } catch (error) {
       console.error(`[OpinionBlock] Could not submit opinion "${opinion.id}":`, error);
       showToast('Could not submit opinion', 'error');
@@ -91,7 +95,7 @@ export function OpinionBlock({
         </div>
         <div className="px-2.5 py-1 rounded-full bg-brand-secondary/10 border border-brand-secondary/20 text-xs font-semibold text-brand-secondary flex items-center gap-1">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>+{opinion.xp_reward} XP</span>
+          <span>{submitted ? `+${submittedXp} XP` : 'XP on submission'}</span>
         </div>
       </div>
 
@@ -195,7 +199,7 @@ export function OpinionBlock({
           disabled={(!selected && (!isCustomMode || !customText.trim())) || loading}
           className="btn-primary mt-5 text-sm disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          {loading ? 'Submitting...' : `Submit Opinion & Earn Card (+${opinion.xp_reward} XP)`}
+          {loading ? 'Submitting...' : 'Submit Opinion'}
         </button>
       )}
 
@@ -213,10 +217,10 @@ export function OpinionBlock({
                 Your response has been saved and your custom Opinion Sharable Card has been generated.
               </p>
             </div>
-            {onSubmit && submittedText && (
+            {onViewCard && submittedThisSession && submittedText && (
               <button
                 type="button"
-                onClick={() => onSubmit(submittedText, submittedXp)}
+                onClick={() => onViewCard(submittedText, submittedXp, opinion.question)}
                 className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/20 hover:bg-white/30 transition-colors cursor-pointer"
                 style={{ color: 'var(--quiz-correct-text)' }}
               >

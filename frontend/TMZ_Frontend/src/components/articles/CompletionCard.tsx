@@ -9,8 +9,12 @@ export interface CompletionCardProps {
   username: string;
   articleTitle: string;
   articleId?: string;
+  articleImageUrl?: string;
   xpGained: number;
   cardType?: 'completion' | 'opinion' | 'quiz';
+  activityTitle?: string;
+  activityQuestion?: string;
+  activityAnswer?: string;
   opinionText?: string;
   className?: string;
   onClose?: () => void;
@@ -21,8 +25,12 @@ export function CompletionCard({
   username,
   articleTitle,
   articleId = '',
+  articleImageUrl,
   xpGained,
   cardType = 'completion',
+  activityTitle,
+  activityQuestion,
+  activityAnswer,
   opinionText,
   className = '',
   onClose,
@@ -38,17 +46,21 @@ export function CompletionCard({
   const isQuizCard = cardType === 'quiz';
   const isAlreadyOnCardPage = location.pathname === '/card';
   const shareText = isOpinionCard
-    ? `${username} voiced their opinion on "${articleTitle}" on The Modern Stories: "${opinionText || ''}"`
+    ? `${username} shared an opinion on "${articleTitle}" on The Modern Stories${activityTitle ? ` in response to "${activityTitle}"` : ''}: "${opinionText || ''}" (+${xpGained} XP).`
     : isQuizCard
-    ? `${username} completed the quiz "${articleTitle}" on The Modern Stories and earned +${xpGained} XP!`
+    ? `${username} answered "${activityTitle || 'a quiz'}" while reading "${articleTitle}" on The Modern Stories${activityQuestion ? ` — ${activityQuestion}` : ''}${activityAnswer ? `: "${activityAnswer}"` : ''} (+${xpGained} XP).`
     : `${username} completed reading "${articleTitle}" on The Modern Stories and earned +${xpGained} XP!`;
 
   const cardPayload = {
     username,
     articleTitle,
     articleId,
+    articleImageUrl,
     xpGained,
     cardType,
+    activityTitle,
+    activityQuestion,
+    activityAnswer,
     opinionText,
   };
 
@@ -92,7 +104,12 @@ export function CompletionCard({
   const generateBlob = async () => {
     if (!cardRef.current) return null;
     try {
-      const { toBlob } = await import('html-to-image');
+      const { getFontEmbedCSS, toBlob } = await import('html-to-image');
+      await document.fonts.ready;
+      const images = Array.from(cardRef.current.querySelectorAll('img'));
+      await Promise.all(images.map((image) => image.decode()));
+      const fontEmbedCSS = await getFontEmbedCSS(cardRef.current);
+
       return await toBlob(cardRef.current, {
         filter: (node) => {
           if (node instanceof HTMLElement && node.dataset?.excludeFromExport === 'true') {
@@ -100,6 +117,8 @@ export function CompletionCard({
           }
           return true;
         },
+        fontEmbedCSS,
+        preferredFontFormat: 'woff2',
         cacheBust: true,
       });
     } catch (err) {
@@ -133,8 +152,7 @@ export function CompletionCard({
         
         const shareData: ShareData = {
           title: 'The Modern Stories',
-          text: shareText,
-          url: shareUrl,
+          text: `${shareText}\n${shareUrl}`,
         };
 
         if (files && navigator.canShare?.({ files })) {
@@ -233,6 +251,15 @@ export function CompletionCard({
           </div>
         </div>
 
+        {articleImageUrl && (
+          <img
+            src={articleImageUrl}
+            alt=""
+            crossOrigin="anonymous"
+            className="mb-5 h-36 w-full rounded-2xl object-cover sm:h-44"
+          />
+        )}
+
         {/* Center: USERNAME in bold first, then subtitle, then article title, then opinion quote if applicable */}
         <div className="text-center py-4 sm:py-6">
           <h3 className="font-display font-bold text-2xl sm:text-3xl text-primary mb-1 tracking-tight">
@@ -248,6 +275,24 @@ export function CompletionCard({
           <h4 className="font-display font-bold text-lg sm:text-xl text-primary leading-snug px-2">
             {articleTitle}
           </h4>
+
+          {isQuizCard && activityTitle && (
+            <p className="mt-3 text-sm font-semibold text-muted">{activityTitle}</p>
+          )}
+
+          {isQuizCard && activityQuestion && (
+            <p className="mt-2 text-sm text-muted">{activityQuestion}</p>
+          )}
+
+          {isQuizCard && activityAnswer && (
+            <div className="mt-3 rounded-xl bg-brand-primary/5 px-4 py-3 text-left text-sm text-primary">
+              <span className="font-semibold">Your answer: </span>{activityAnswer}
+            </div>
+          )}
+
+          {isOpinionCard && activityTitle && (
+            <p className="mt-3 text-sm font-semibold text-muted">Question: {activityTitle}</p>
+          )}
 
           {/* Opinion quote box */}
           {isOpinionCard && opinionText && (

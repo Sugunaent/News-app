@@ -842,8 +842,6 @@ export async function submitQuizAttempt(
   quizId: string,
   _userId: string,
   _selectedOptionId: string,
-  isCorrect: boolean,
-  xpEarned: number,
 ): Promise<QuizAttemptResult> {
   const data = await apiFetchJson<any>(`/api/v1/quizzes/${encodeURIComponent(quizId)}/attempts`, {
     method: 'POST',
@@ -856,7 +854,7 @@ export async function submitQuizAttempt(
 
   return {
     attempt_id: data?.attempt?.question_id ?? `attempt-${Date.now()}`,
-    xp_earned: Number(data?.xp_earned ?? (isCorrect ? xpEarned : 0)),
+    xp_earned: Number(data?.xp_earned ?? 0),
     total_xp: Number(data?.total_xp ?? 0),
     new_level: Number(data?.new_level ?? 1),
     already_attempted: Boolean(data?.already_attempted),
@@ -1124,7 +1122,6 @@ export async function createCompletionCard(
     completionStatusCache.set(`${userId}:${articleId}`, { value: true, expiresAt: Date.now() + 60_000 });
     invalidateProfileAggregate(userId);
     const serverXp = Number(completion?.xp_earned ?? 0);
-    const profile = await fetchProfile(userId);
     const card: CompletionCard = {
       id: `completion-${articleId}`,
       user_id: userId,
@@ -1137,8 +1134,8 @@ export async function createCompletionCard(
     return {
       card_id: card.id,
       xp_gained: serverXp,
-      total_xp: Number(completion?.total_xp ?? profile?.xp ?? 0),
-      new_level: Number(completion?.new_level ?? profile?.level ?? 1),
+      total_xp: Number(completion?.total_xp ?? 0),
+      new_level: Number(completion?.new_level ?? 1),
       already_completed: Boolean(completion?.already_completed),
       card,
     };
