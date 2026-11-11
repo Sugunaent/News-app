@@ -45,6 +45,12 @@ export function CompletionCard({
   const isOpinionCard = cardType === 'opinion';
   const isQuizCard = cardType === 'quiz';
   const isAlreadyOnCardPage = location.pathname === '/card';
+  const articleCardImageUrl = articleId
+    && typeof window !== 'undefined'
+    && window.location.hostname !== 'localhost'
+    && window.location.hostname !== '127.0.0.1'
+    ? `/api/article-image?slug=${encodeURIComponent(articleId)}`
+    : articleImageUrl;
   const shareText = isOpinionCard
     ? `${username} shared an opinion on "${articleTitle}" on The Modern Stories${activityTitle ? ` in response to "${activityTitle}"` : ''}: "${opinionText || ''}" (+${xpGained} XP).`
     : isQuizCard
@@ -105,10 +111,29 @@ export function CompletionCard({
     if (!cardRef.current) return null;
     try {
       const { getFontEmbedCSS, toBlob } = await import('html-to-image');
+      await Promise.all([
+        document.fonts.load('400 16px Alata').catch((error) => {
+          console.warn('[CompletionCard] Alata font could not be loaded; using the CSS fallback:', error);
+        }),
+        document.fonts.load('400 16px "Momo Trust Display"').catch((error) => {
+          console.warn('[CompletionCard] Display font could not be loaded; using the CSS fallback:', error);
+        }),
+      ]);
       await document.fonts.ready;
       const images = Array.from(cardRef.current.querySelectorAll('img'));
-      await Promise.all(images.map((image) => image.decode()));
-      const fontEmbedCSS = await getFontEmbedCSS(cardRef.current);
+      const imageResults = await Promise.allSettled(images.map((image) => image.decode()));
+      imageResults.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.warn('[CompletionCard] Card image could not be decoded and will be omitted:', result.reason);
+          images[index].dataset.excludeFromExport = 'true';
+        }
+      });
+      let fontEmbedCSS = '';
+      try {
+        fontEmbedCSS = await getFontEmbedCSS(cardRef.current);
+      } catch (error) {
+        console.warn('[CompletionCard] Font embedding failed; using rendered font fallbacks:', error);
+      }
 
       return await toBlob(cardRef.current, {
         filter: (node) => {
@@ -251,9 +276,9 @@ export function CompletionCard({
           </div>
         </div>
 
-        {articleImageUrl && (
+        {articleCardImageUrl && (
           <img
-            src={articleImageUrl}
+            src={articleCardImageUrl}
             alt=""
             crossOrigin="anonymous"
             className="mb-5 h-36 w-full rounded-2xl object-cover sm:h-44"

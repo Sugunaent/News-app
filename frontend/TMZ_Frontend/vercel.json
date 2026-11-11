@@ -5,6 +5,17 @@
             "destination": "/api/article-redirect?articleId=:articleId"
         },
         {
+            "source": "/article/:slug",
+            "has": [
+                {
+                    "type": "header",
+                    "key": "user-agent",
+                    "value": ".*(WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Pinterestbot|Redditbot|Googlebot|bingbot|meta-externalagent|meta-externalfetcher).*"
+                }
+            ],
+            "destination": "/api/article-preview?slug=:slug"
+        },
+        {
             "source": "/sitemap.xml",
             "destination": "/api/sitemap.xml"
         },

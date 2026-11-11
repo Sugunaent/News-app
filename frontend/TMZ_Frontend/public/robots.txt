@@ -1,11 +1,13 @@
 User-agent: *
 Allow: /
+Allow: /card
+Allow: /api/card-image
+Allow: /api/article-image
 Disallow: /auth$
 Disallow: /auth/
 Disallow: /profile
 Disallow: /settings
 Disallow: /superadmin
-Disallow: /card
 Disallow: /api/v1/superadmin/
 
 User-agent: Googlebot
@@ -15,12 +17,14 @@ User-agent: GPTBot
 User-agent: ClaudeBot
 User-agent: OAI-SearchBot
 Allow: /
+Allow: /card
+Allow: /api/card-image
+Allow: /api/article-image
 Disallow: /auth$
 Disallow: /auth/
 Disallow: /profile
 Disallow: /settings
 Disallow: /superadmin
-Disallow: /card
 Disallow: /api/v1/superadmin/
 
 Sitemap: https://themodernstories.in/sitemap.xml

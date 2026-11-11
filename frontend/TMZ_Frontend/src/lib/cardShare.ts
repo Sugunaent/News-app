@@ -19,13 +19,27 @@ export interface PublicCardData {
  * Never outputs internal Google AI Studio or Cloud Run preview domains.
  */
 export function getCleanPublicOrigin(): string {
+  const normalizeOrigin = (value: string): string => {
+    try {
+      const url = new URL(value);
+      if (url.hostname.toLowerCase() === 'themodernstories.com'
+        || url.hostname.toLowerCase() === 'www.themodernstories.com') {
+        return 'https://www.themodernstories.in';
+      }
+      return url.origin.replace(/\/+$/, '');
+    } catch {
+      return '';
+    }
+  };
+
   // 1. Explicitly configured environment variable (recommended for production exports)
   const envUrl =
     (import.meta.env.VITE_SITE_URL as string | undefined) ||
     (import.meta.env.VITE_APP_URL as string | undefined);
 
   if (envUrl && typeof envUrl === 'string' && envUrl.trim().startsWith('http')) {
-    return envUrl.trim().replace(/\/+$/, '');
+    const origin = normalizeOrigin(envUrl.trim());
+    if (origin) return origin;
   }
 
   // 2. Inspect current browser window origin
@@ -40,15 +54,16 @@ export function getCleanPublicOrigin(): string {
       hostname.includes('run.app');
 
     if (!isSandboxHost && origin.startsWith('http')) {
-      return origin.replace(/\/+$/, '');
+      const normalizedOrigin = normalizeOrigin(origin);
+      if (normalizedOrigin) return normalizedOrigin;
     }
   }
 
   // 3. Fallback clean production domain for The Modern Stories
-  return 'https://themodernstories.in';
+  return 'https://www.themodernstories.in';
 }
 
-function getSafeCardImageUrl(value?: string): string | undefined {
+export function getSafeCardImageUrl(value?: string): string | undefined {
   if (!value || value.length > 2048) return undefined;
   try {
     const url = new URL(value);

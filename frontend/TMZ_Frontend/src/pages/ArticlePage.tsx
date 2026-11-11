@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/useAuth';
 import { useAuthPrompt } from '@/lib/authPromptContext';
 import { useToast } from '@/lib/toast';
 import { fireCelebrationConfetti } from '@/lib/confetti';
+import { getSafeCardImageUrl } from '@/lib/cardShare';
 import {
   fetchArticleById,
   getArticleRoute,
@@ -81,6 +82,7 @@ export function ArticlePage() {
   const [errorMessage, setErrorMessage] = useState('Article not found.');
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [unlockedPct, setUnlockedPct] = useState(0);
+  const [hasUserScrolled, setHasUserScrolled] = useState(false);
   const [showXp, setShowXp] = useState(false);
   const [totalXp, setTotalXp] = useState(0);
   const [_xpBreakdown, setXpBreakdown] = useState<{ label: string; amount: number }[]>([]);
@@ -146,7 +148,16 @@ export function ArticlePage() {
     { enabled: currentLang !== 'EN' },
   );
   const displayTitle = localizedTitle || translatedArticle.title || article?.title || '';
-  const articleImageUrl = article?.cover_image_url || article?.meta_image_url || undefined;
+  const articleImageUrl = useMemo(() => {
+    if (!article) return undefined;
+    return [
+      article.cover_image_url,
+      article.meta_image_url,
+      ...article.blocks.map((block) => block.image_url),
+    ]
+      .map((imageUrl) => getSafeCardImageUrl(imageUrl ?? undefined))
+      .find((imageUrl): imageUrl is string => Boolean(imageUrl));
+  }, [article]);
   const displaySubtitle = localizedSubtitle
     || translatedArticle.segments.subtitle
     || article?.subtitle
@@ -201,7 +212,6 @@ export function ArticlePage() {
   const lastSavedProgressRef = useRef<number>(-1);
   const lastSavedScrollRef = useRef<number>(-1);
   const quizXpRef = useRef<number>(0);
-  const userDidScrollRef = useRef<boolean>(false);
   const completionTriggeredRef = useRef<boolean>(false);
   const completionLoginPromptedRef = useRef<boolean>(false);
   const completionReachedAtRef = useRef<number | null>(null);
@@ -284,7 +294,8 @@ export function ArticlePage() {
     setShowCompletionModal(false);
     setOpinionModalData(null);
     completionTriggeredRef.current = false;
-    userDidScrollRef.current = false;
+    setHasUserScrolled(false);
+    completionReachedAtRef.current = null;
     setCompletionChecked(false);
     setAlreadyCompleted(false);
     setCommentsReady(false);
@@ -562,25 +573,42 @@ export function ArticlePage() {
       }
     };
 
-    const handleUserScroll = () => {
-      userDidScrollRef.current = true;
+    const markUserScrolled = () => {
+      setHasUserScrolled(true);
+    };
+
+    const handleKeyboardScroll = (event: KeyboardEvent) => {
+      if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) {
+        markUserScrolled();
+      }
+    };
+
+    const handleScrollEvent = () => {
       handleScroll();
     };
 
-    window.addEventListener('scroll', handleUserScroll, { passive: true });
+    window.addEventListener('scroll', handleScrollEvent, { passive: true });
+    window.addEventListener('wheel', markUserScrolled, { passive: true });
+    window.addEventListener('touchmove', markUserScrolled, { passive: true });
+    window.addEventListener('keydown', handleKeyboardScroll);
     // Run once on mount / update
     handleScroll();
-    return () => window.removeEventListener('scroll', handleUserScroll);
+    return () => {
+      window.removeEventListener('scroll', handleScrollEvent);
+      window.removeEventListener('wheel', markUserScrolled);
+      window.removeEventListener('touchmove', markUserScrolled);
+      window.removeEventListener('keydown', handleKeyboardScroll);
+    };
   }, [article, unlockedPct, user, slugOrId, commentsReady]);
 
   // Completion is recorded on the server first; the share card follows after a short celebration pause.
   useEffect(() => {
-    if (unlockedPct >= 100 && completionReachedAtRef.current === null) {
-      completionReachedAtRef.current = Date.now();
-    }
     if (!slugOrId || !article || unlockedPct < 100 || completionTriggeredRef.current) return;
     // Trigger ONLY after genuine article completion/reading progress, NOT on cold load
-    if (!userDidScrollRef.current) return;
+    if (!hasUserScrolled) return;
+    if (completionReachedAtRef.current === null) {
+      completionReachedAtRef.current = Date.now();
+    }
     if (!user) {
       if (!completionLoginPromptedRef.current) {
         completionLoginPromptedRef.current = true;
@@ -589,7 +617,7 @@ export function ArticlePage() {
       return;
     }
     completionLoginPromptedRef.current = false;
-    if (!completionChecked || alreadyCompleted) return;
+    if (!completionChecked) return;
 
     completionTriggeredRef.current = true;
     const completionStartedAt = completionReachedAtRef.current ?? Date.now();
@@ -606,16 +634,16 @@ export function ArticlePage() {
       }
 
       const completionReward = result.xp_gained;
-      setCompletionCardXp(completionReward);
+      setCompletionCardXp(result.already_completed ? 0 : completionReward);
       setTotalXp(completionReward);
 
-      if (!result.already_completed) {
-        completionPopupTimerRef.current = window.setTimeout(() => {
-          setShowCompletionModal(true);
-          fireCelebrationConfetti();
-          completionPopupTimerRef.current = null;
-        }, Math.max(0, 3000 - (Date.now() - completionStartedAt)));
+      completionPopupTimerRef.current = window.setTimeout(() => {
+        setShowCompletionModal(true);
+        fireCelebrationConfetti();
+        completionPopupTimerRef.current = null;
+      }, Math.max(0, 3000 - (Date.now() - completionStartedAt)));
 
+      if (!result.already_completed) {
         if (completionReward > 0) {
           setShowXp(true);
           window.setTimeout(() => setShowXp(false), 2000);
@@ -658,7 +686,7 @@ export function ArticlePage() {
 
     triggerCompletion();
 
-  }, [unlockedPct, user, slugOrId, article, displayTitle, completionChecked, alreadyCompleted, profile, refreshProfile, requestLogin, showToast]);
+  }, [unlockedPct, hasUserScrolled, user, slugOrId, article, displayTitle, completionChecked, profile, refreshProfile, requestLogin, showToast]);
 
   const handleQuizResult = useCallback((xp: number) => {
     quizXpRef.current += xp;
@@ -989,7 +1017,7 @@ export function ArticlePage() {
 
       {/* Completion Card Popup Modal */}
       {showCompletionModal && (
-        <div className="fixed inset-0 z-[350] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[450] flex items-center justify-center p-4">
           <div
             className="absolute inset-0 transition-opacity"
             style={{ background: 'var(--modal-overlay)', backdropFilter: 'blur(10px)' }}
