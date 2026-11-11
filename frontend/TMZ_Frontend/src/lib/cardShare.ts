@@ -2,8 +2,12 @@ export interface PublicCardData {
   username: string;
   articleTitle: string;
   articleId?: string;
+  articleImageUrl?: string;
   xpGained: number;
   cardType: 'completion' | 'opinion' | 'quiz';
+  activityTitle?: string;
+  activityQuestion?: string;
+  activityAnswer?: string;
   opinionText?: string;
   date?: string;
 }
@@ -44,6 +48,23 @@ export function getCleanPublicOrigin(): string {
   return 'https://themodernstories.in';
 }
 
+function getSafeCardImageUrl(value?: string): string | undefined {
+  if (!value || value.length > 2048) return undefined;
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    const allowedHost = hostname === 'themodernstories.in'
+      || hostname.endsWith('.themodernstories.in')
+      || hostname.endsWith('.supabase.co')
+      || hostname === 'images.pexels.com'
+      || hostname === 'images.unsplash.com';
+    if (url.protocol !== 'https:' || url.username || url.password || url.port || !allowedHost) return undefined;
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Builds query parameters for a card.
  */
@@ -52,8 +73,13 @@ export function buildCardQueryParams(card: PublicCardData): URLSearchParams {
   if (card.username) params.set('u', card.username);
   if (card.articleTitle) params.set('title', card.articleTitle);
   if (card.articleId) params.set('id', card.articleId);
+  const articleImageUrl = getSafeCardImageUrl(card.articleImageUrl);
+  if (articleImageUrl) params.set('image', articleImageUrl);
   if (card.xpGained !== undefined) params.set('xp', card.xpGained.toString());
   if (card.cardType) params.set('type', card.cardType);
+  if (card.activityTitle) params.set('activity', card.activityTitle);
+  if (card.activityQuestion) params.set('question', card.activityQuestion);
+  if (card.activityAnswer) params.set('answer', card.activityAnswer);
   if (card.opinionText) params.set('quote', card.opinionText);
   if (card.date) params.set('d', card.date);
   return params;
@@ -77,6 +103,12 @@ export function buildCardShareUrl(card: PublicCardData): string {
   return `${base}${path}`;
 }
 
+export function buildCardPreviewImageUrl(card: PublicCardData): string {
+  const imageUrl = new URL('/api/card-image', `${getCleanPublicOrigin()}/`);
+  buildCardQueryParams(card).forEach((value, key) => imageUrl.searchParams.set(key, value));
+  return imageUrl.toString();
+}
+
 /**
  * Parses card attributes from URL search parameters or encoded data.
  */
@@ -93,12 +125,16 @@ export function parseCardShareUrl(search: string): PublicCardData {
         username: parsed.username || 'A modern reader',
         articleTitle: parsed.articleTitle || 'The Modern Stories',
         articleId: parsed.articleId || '',
+        articleImageUrl: getSafeCardImageUrl(parsed.articleImageUrl),
         xpGained: Number(parsed.xpGained) || 30,
         cardType: parsed.cardType === 'opinion'
           ? 'opinion'
           : parsed.cardType === 'quiz'
           ? 'quiz'
           : 'completion',
+        activityTitle: parsed.activityTitle || undefined,
+        activityQuestion: parsed.activityQuestion || undefined,
+        activityAnswer: parsed.activityAnswer || undefined,
         opinionText: parsed.opinionText || undefined,
         date: parsed.date || undefined,
       };
@@ -110,10 +146,14 @@ export function parseCardShareUrl(search: string): PublicCardData {
   const username = params.get('u')?.trim() || 'A modern reader';
   const articleTitle = params.get('title')?.trim() || 'The Modern Stories';
   const articleId = params.get('id')?.trim() || '';
+  const articleImageUrl = getSafeCardImageUrl(params.get('image')?.trim());
   const parsedXp = parseInt(params.get('xp') || '30', 10);
   const xpGained = isNaN(parsedXp) ? 30 : parsedXp;
   const parsedType = params.get('type');
   const cardType = parsedType === 'opinion' || parsedType === 'quiz' ? parsedType : 'completion';
+  const activityTitle = params.get('activity')?.trim() || undefined;
+  const activityQuestion = params.get('question')?.trim() || undefined;
+  const activityAnswer = params.get('answer')?.trim() || undefined;
   const opinionText = params.get('quote')?.trim() || undefined;
   const date = params.get('d')?.trim() || undefined;
 
@@ -121,8 +161,12 @@ export function parseCardShareUrl(search: string): PublicCardData {
     username,
     articleTitle,
     articleId,
+    articleImageUrl,
     xpGained,
     cardType,
+    activityTitle,
+    activityQuestion,
+    activityAnswer,
     opinionText,
     date,
   };

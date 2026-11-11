@@ -98,8 +98,8 @@ export function ArticlePage() {
   const [opinionModalData, setOpinionModalData] = useState<{
     opinionText: string;
     xpGained: number;
+    activityTitle: string;
   } | null>(null);
-  const [scrolledThroughComments, setScrolledThroughComments] = useState(false);
   const [commentsReady, setCommentsReady] = useState(false);
   const [articleBounds, setArticleBounds] = useState<{ left: number; width: number } | null>(null);
   const [shareCopyState, setShareCopyState] = useState<'idle' | 'copied' | 'shared'>('idle');
@@ -146,6 +146,7 @@ export function ArticlePage() {
     { enabled: currentLang !== 'EN' },
   );
   const displayTitle = localizedTitle || translatedArticle.title || article?.title || '';
+  const articleImageUrl = article?.cover_image_url || article?.meta_image_url || undefined;
   const displaySubtitle = localizedSubtitle
     || translatedArticle.segments.subtitle
     || article?.subtitle
@@ -202,6 +203,17 @@ export function ArticlePage() {
   const quizXpRef = useRef<number>(0);
   const userDidScrollRef = useRef<boolean>(false);
   const completionTriggeredRef = useRef<boolean>(false);
+  const completionLoginPromptedRef = useRef<boolean>(false);
+  const completionReachedAtRef = useRef<number | null>(null);
+  const completionPopupTimerRef = useRef<number | null>(null);
+  const opinionPopupTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (completionPopupTimerRef.current !== null) window.clearTimeout(completionPopupTimerRef.current);
+    if (opinionPopupTimerRef.current !== null) window.clearTimeout(opinionPopupTimerRef.current);
+    completionLoginPromptedRef.current = false;
+    completionReachedAtRef.current = null;
+  }, [slugOrId]);
 
   // Measure article reading container bounds so overlay aligns strictly inside reading page
   const prevBoundsRef = useRef<{ left: number; width: number } | null>(null);
@@ -505,7 +517,6 @@ export function ArticlePage() {
     if (!article || !contentRef.current) return;
 
     const handleScroll = () => {
-      userDidScrollRef.current = true;
       if (!contentRef.current) return;
       const el = contentRef.current;
       const rect = el.getBoundingClientRect();
@@ -521,9 +532,6 @@ export function ArticlePage() {
         // Wait until the loaded comment target (first comment or composer) is visible.
         if (commentsReady && (commentsRect.top <= windowHeight * 0.88 || commentsRect.top <= windowHeight - 40)) {
           isAtComments = true;
-          setScrolledThroughComments(true);
-        } else {
-          setScrolledThroughComments(false);
         }
       }
 
@@ -554,43 +562,70 @@ export function ArticlePage() {
       }
     };
 
-    window.addEventListener('scroll', handleScroll, { passive: true });
+    const handleUserScroll = () => {
+      userDidScrollRef.current = true;
+      handleScroll();
+    };
+
+    window.addEventListener('scroll', handleUserScroll, { passive: true });
     // Run once on mount / update
     handleScroll();
-    return () => window.removeEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleUserScroll);
   }, [article, unlockedPct, user, slugOrId, commentsReady]);
 
-  // Completion — trigger confetti and show card immediately upon reaching completion criteria
+  // Completion is recorded on the server first; the share card follows after a short celebration pause.
   useEffect(() => {
-    if (!slugOrId || !article || unlockedPct < 100 || !scrolledThroughComments || completionTriggeredRef.current) return;
+    if (unlockedPct >= 100 && completionReachedAtRef.current === null) {
+      completionReachedAtRef.current = Date.now();
+    }
+    if (!slugOrId || !article || unlockedPct < 100 || completionTriggeredRef.current) return;
     // Trigger ONLY after genuine article completion/reading progress, NOT on cold load
     if (!userDidScrollRef.current) return;
     if (!user) {
-      completionTriggeredRef.current = true;
-      requestLogin('gamification');
+      if (!completionLoginPromptedRef.current) {
+        completionLoginPromptedRef.current = true;
+        requestLogin('gamification');
+      }
       return;
     }
+    completionLoginPromptedRef.current = false;
     if (!completionChecked || alreadyCompleted) return;
 
     completionTriggeredRef.current = true;
+    const completionStartedAt = completionReachedAtRef.current ?? Date.now();
 
     const triggerCompletion = async () => {
+      let result: Awaited<ReturnType<typeof createCompletionCard>>;
       try {
-        const result = await createCompletionCard(user.id, article.id, displayTitle, 0, 'completion');
-        const articleReward = result.xp_gained + quizXpRef.current + (opinionModalData?.xpGained || 0);
-        setCompletionCardXp(articleReward);
-        setTotalXp(articleReward);
-        fireCelebrationConfetti();
-        setShowCompletionModal(true);
+        result = await createCompletionCard(user.id, article.id, displayTitle, 0, 'completion');
+      } catch (error) {
+        console.error('[ArticlePage] Could not record article completion:', error);
+        completionTriggeredRef.current = false;
+        showToast('Could not record article completion. Please reload and try again.', 'error');
+        return;
+      }
 
-        if (!result.already_completed && user) {
-          if (articleReward > 0) {
-            setShowXp(true);
-            setTimeout(() => setShowXp(false), 2000);
-          }
-          await refreshProfile();
+      const completionReward = result.xp_gained;
+      setCompletionCardXp(completionReward);
+      setTotalXp(completionReward);
 
-          if (profile && result.new_level > profile.level) {
+      if (!result.already_completed) {
+        completionPopupTimerRef.current = window.setTimeout(() => {
+          setShowCompletionModal(true);
+          fireCelebrationConfetti();
+          completionPopupTimerRef.current = null;
+        }, Math.max(0, 3000 - (Date.now() - completionStartedAt)));
+
+        if (completionReward > 0) {
+          setShowXp(true);
+          window.setTimeout(() => setShowXp(false), 2000);
+        }
+        void refreshProfile().catch((error: unknown) => {
+          console.error('[ArticlePage] Could not refresh profile after article completion:', error);
+        });
+
+        if (profile && result.new_level > profile.level) {
+          try {
             const levels = await fetchLevels();
             const newLevel = levels.find((level) => level.level_number === result.new_level);
             const prevLevel = levels.find((level) => level.level_number === profile.level) ?? null;
@@ -601,8 +636,12 @@ export function ArticlePage() {
               setLevelUpNextXp(nextLevel?.xp_threshold ?? null);
               setLevelUpCurrentXp(result.total_xp);
             }
+          } catch (error) {
+            console.error('[ArticlePage] Could not load level details after article completion:', error);
           }
+        }
 
+        try {
           const badges = await fetchUserBadges(user.id);
           if (badges.length > 0 && badges[0].badge) {
             const recentBadge = badges[0];
@@ -611,21 +650,20 @@ export function ArticlePage() {
               setBadgePopup(recentBadge.badge ?? null);
             }
           }
+        } catch (error) {
+          console.error('[ArticlePage] Could not load badges after article completion:', error);
         }
-      } catch {
-        /* background sync fallback */
       }
     };
 
     triggerCompletion();
 
-  }, [unlockedPct, scrolledThroughComments, user, slugOrId, article, displayTitle, completionChecked, alreadyCompleted, profile, refreshProfile, opinionModalData, requestLogin]);
+  }, [unlockedPct, user, slugOrId, article, displayTitle, completionChecked, alreadyCompleted, profile, refreshProfile, requestLogin, showToast]);
 
   const handleQuizResult = useCallback((xp: number) => {
     quizXpRef.current += xp;
     setShowXp(true);
     setTotalXp((prev) => prev + xp);
-    setCompletionCardXp(30 + quizXpRef.current);
     setTimeout(() => setShowXp(false), 2000);
   }, []);
 
@@ -633,33 +671,38 @@ export function ArticlePage() {
     setCommentsReady(true);
   }, []);
 
-  const handleOpinionSubmit = useCallback(async (opinionText: string, xpEarned: number) => {
+  const handleOpinionSubmit = useCallback((opinionText: string, xpEarned: number, activityTitle: string) => {
     if (!article || !slugOrId) return;
     if (!user) {
       requestLogin('gamification');
       return;
     }
+    if (opinionPopupTimerRef.current !== null) window.clearTimeout(opinionPopupTimerRef.current);
+    opinionPopupTimerRef.current = window.setTimeout(() => {
+      setOpinionModalData({ opinionText, xpGained: xpEarned, activityTitle });
+      opinionPopupTimerRef.current = null;
+    }, 3000);
     if (xpEarned > 0) {
       setShowXp(true);
       setTotalXp(xpEarned);
       setTimeout(() => setShowXp(false), 2000);
     }
-    try {
-      await createOpinionCard(user.id, article.id, displayTitle, opinionText, xpEarned);
-    } catch (error) {
+    void createOpinionCard(user.id, article.id, displayTitle, opinionText, xpEarned).catch((error: unknown) => {
       console.error('[ArticlePage] Opinion was submitted, but its share card could not be saved:', error);
       showToast('Your opinion was saved, but the share card could not be added to your profile.', 'error');
-    }
-    try {
-      await refreshProfile();
-    } catch (error) {
+    });
+    void refreshProfile().catch((error: unknown) => {
       console.error('[ArticlePage] Could not refresh profile after opinion submission:', error);
-    }
-    setOpinionModalData({
-      opinionText,
-      xpGained: xpEarned,
     });
   }, [user, article, slugOrId, refreshProfile, displayTitle, requestLogin, showToast]);
+
+  const handleViewOpinionCard = useCallback((opinionText: string, xpEarned: number, activityTitle: string) => {
+    if (opinionPopupTimerRef.current !== null) {
+      window.clearTimeout(opinionPopupTimerRef.current);
+      opinionPopupTimerRef.current = null;
+    }
+    setOpinionModalData({ opinionText, xpGained: xpEarned, activityTitle });
+  }, []);
 
   const handleBack = useCallback((e?: React.MouseEvent) => {
     if (e) {
@@ -882,8 +925,11 @@ export function ArticlePage() {
                     key={block.id}
                     block={block}
                     articleId={article.id}
+                    articleTitle={displayTitle}
+                    articleImageUrl={articleImageUrl}
                     onQuizResult={handleQuizResult}
                     onOpinionSubmit={handleOpinionSubmit}
+                    onOpinionViewCard={handleViewOpinionCard}
                   />
                 ))}
               </div>
@@ -955,6 +1001,7 @@ export function ArticlePage() {
               username={profile?.display_name || user?.email || 'Reader'}
               articleTitle={displayTitle}
               articleId={article.id}
+              articleImageUrl={articleImageUrl}
               xpGained={completionCardXp}
               onClose={() => setShowCompletionModal(false)}
             />
@@ -976,8 +1023,10 @@ export function ArticlePage() {
               username={profile?.display_name || user?.email || 'Reader'}
               articleTitle={displayTitle}
               articleId={article.id}
+              articleImageUrl={articleImageUrl}
               xpGained={opinionModalData.xpGained}
               opinionText={opinionModalData.opinionText}
+              activityTitle={opinionModalData.activityTitle}
               onClose={() => setOpinionModalData(null)}
             />
           </div>

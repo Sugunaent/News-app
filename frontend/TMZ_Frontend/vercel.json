@@ -9,6 +9,28 @@
             "destination": "/api/sitemap.xml"
         },
         {
+            "source": "/card",
+            "has": [
+                {
+                    "type": "query",
+                    "key": "view",
+                    "value": "app"
+                }
+            ],
+            "destination": "/index.html"
+        },
+        {
+            "source": "/card",
+            "has": [
+                {
+                    "type": "header",
+                    "key": "user-agent",
+                    "value": ".*(WhatsApp|facebookexternalhit|Facebot|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Pinterestbot|Redditbot|Googlebot|bingbot|meta-externalagent|meta-externalfetcher).*"
+                }
+            ],
+            "destination": "/api/card-preview"
+        },
+        {
             "source": "/(.*)",
             "destination": "/index.html"
         }

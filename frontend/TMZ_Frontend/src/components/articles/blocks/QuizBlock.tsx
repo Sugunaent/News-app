@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle, XCircle, HelpCircle, Award } from 'lucide-react';
 import type { Quiz } from '@/types';
 import { useAuth } from '@/lib/useAuth';
@@ -10,10 +10,14 @@ import { CompletionCard } from '@/components/articles/CompletionCard';
 export function QuizBlock({
   quiz,
   articleId,
+  articleTitle,
+  articleImageUrl,
   onResult,
 }: {
   quiz: Quiz;
   articleId?: string;
+  articleTitle?: string;
+  articleImageUrl?: string | null;
   onResult?: (xp: number) => void;
 }) {
   const { user, profile } = useAuth();
@@ -24,6 +28,11 @@ export function QuizBlock({
   const [loading, setLoading] = useState(false);
   const [xpEarned, setXpEarned] = useState(0);
   const [showShareCard, setShowShareCard] = useState(false);
+  const popupTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (popupTimerRef.current !== null) window.clearTimeout(popupTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -58,19 +67,23 @@ export function QuizBlock({
     setLoading(true);
     const option = quiz.options.find((o) => o.id === optionId);
     const isCorrect = option?.is_correct ?? false;
-    const xp = isCorrect ? quiz.xp_reward : 0;
 
     try {
       if (!user && isCorrect) requestLogin('gamification');
       if (user) {
-        const result = await submitQuizAttempt(quiz.id, user.id, optionId, isCorrect, xp);
+        const result = await submitQuizAttempt(quiz.id, user.id, optionId);
+        setXpEarned(result.xp_earned);
         if (result.xp_earned > 0) {
-          setXpEarned(result.xp_earned);
           showToast(`+${result.xp_earned} XP earned!`, 'success');
           onResult?.(result.xp_earned);
         }
       }
       setAnswered(true);
+      if (popupTimerRef.current !== null) window.clearTimeout(popupTimerRef.current);
+      popupTimerRef.current = window.setTimeout(() => {
+        setShowShareCard(true);
+        popupTimerRef.current = null;
+      }, 3000);
     } catch (error) {
       console.error(`[QuizBlock] Could not submit attempt for quiz "${quiz.id}":`, error);
       showToast('Could not submit quiz attempt', 'error');
@@ -79,6 +92,8 @@ export function QuizBlock({
       setLoading(false);
     }
   };
+
+  const selectedAnswer = quiz.options.find((option) => option.id === selectedOption);
 
   return (
     <div className="article-surface p-6 md:p-8 my-8">
@@ -193,10 +208,16 @@ export function QuizBlock({
           >
             <CompletionCard
               username={profile?.display_name || user?.email || 'Reader'}
-              articleTitle={quiz.title || quiz.question}
+              articleTitle={articleTitle || quiz.title || quiz.question}
               articleId={articleId}
+              articleImageUrl={articleImageUrl || undefined}
               xpGained={xpEarned}
               cardType="quiz"
+              activityTitle={quiz.title || quiz.question}
+              activityQuestion={quiz.question}
+              activityAnswer={selectedAnswer
+                ? `${selectedAnswer.label} — ${selectedAnswer.is_correct ? 'Correct' : 'Not quite'}`
+                : undefined}
               onClose={() => setShowShareCard(false)}
             />
           </div>

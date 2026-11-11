@@ -104,7 +104,7 @@ export function CoverFlowCarousel({
       <div className="relative w-full max-w-7xl mx-auto px-2 sm:px-4 z-10 flex flex-col items-center">
         {/* Carousel Stage - Desktop Size Expanded */}
         <div
-          className="relative w-full h-[450px] md:h-[540px] lg:h-[560px] flex justify-center items-center"
+          className="relative w-full h-[510px] sm:h-[450px] md:h-[540px] lg:h-[560px] flex justify-center items-center"
           style={{ perspective: "1200px" }}
         >
           {items.map((item, idx) => {
@@ -141,7 +141,7 @@ export function CoverFlowCarousel({
               <div
                 key={idx}
                 onClick={() => !isCenter && goToSlide(idx)}
-                className={`absolute w-[330px] sm:w-[380px] md:w-[min(1100px,calc(100vw-6rem))] h-[420px] md:h-[500px] lg:h-[520px] overflow-visible !rounded-md shadow-xl transition-all duration-700 ease-out bg-white/95 dark:bg-[#0b0f17]/95 border border-slate-200/80 dark:border-slate-800/80 backdrop-blur-md ${offsetClass}`}
+                className={`absolute w-[min(380px,calc(100vw-2rem))] sm:w-[380px] md:w-[min(1100px,calc(100vw-6rem))] h-[480px] sm:h-[420px] md:h-[500px] lg:h-[520px] overflow-visible !rounded-md shadow-xl transition-all duration-700 ease-out bg-white/95 dark:bg-[#0b0f17]/95 border border-slate-200/80 dark:border-slate-800/80 backdrop-blur-md ${offsetClass}`}
                 style={{
                   transform,
                   opacity,
@@ -155,14 +155,14 @@ export function CoverFlowCarousel({
                 }}
               >
                 {/* Responsive Main Container */}
-                <div className="relative w-full h-full overflow-hidden !rounded-md flex flex-col md:flex-row items-center justify-between p-5 md:p-8 gap-6">
+                <div className="relative w-full h-full overflow-hidden !rounded-md flex flex-col md:flex-row items-center justify-between p-4 sm:p-5 md:p-8 gap-4 md:gap-6">
                   
                   {/* Image Block */}
-                  <div className="relative w-full md:w-1/2 h-[200px] md:h-full overflow-hidden !rounded-md bg-slate-100/80 dark:bg-black/40 flex items-center justify-center p-3 border border-slate-200/60 dark:border-slate-800/50">
+                  <div className="relative w-full md:w-1/2 h-[190px] sm:h-[200px] md:h-full shrink-0 overflow-hidden !rounded-md bg-slate-100/80 dark:bg-black/40 border border-slate-200/60 dark:border-slate-800/50">
                     <img
                       src={item.img}
                       alt={item.titleLine1}
-                      className="max-w-full max-h-full object-contain transform hover:scale-105 transition-transform duration-500"
+                      className="h-full w-full object-cover object-center transform hover:scale-105 transition-transform duration-500"
                       loading={isCenter ? 'eager' : 'lazy'}
                       fetchPriority={isCenter ? 'high' : 'auto'}
                       decoding="async"
@@ -172,7 +172,7 @@ export function CoverFlowCarousel({
 
                   {/* Content Block with Light/Dark Support */}
                   <div
-                    className={`relative w-full md:w-1/2 h-full flex flex-col justify-center text-center md:text-left z-20 transition-all duration-500 ${
+                    className={`relative w-full md:w-1/2 flex-1 md:h-full min-h-0 flex flex-col justify-center text-center md:text-left z-20 transition-all duration-500 ${
                       isCenter
                         ? "opacity-100 translate-y-0 pointer-events-auto"
                         : "opacity-0 translate-y-4 pointer-events-none"
@@ -187,7 +187,7 @@ export function CoverFlowCarousel({
 
                     {/* Content Details */}
                     <div className="flex flex-col items-center md:items-start gap-1.5 my-auto">
-                      <h2 className="text-2xl sm:text-3xl md:text-4xl font-black uppercase tracking-wide text-slate-900 dark:text-white m-0">
+                      <h2 className="text-lg leading-tight sm:text-3xl md:text-4xl font-black uppercase tracking-wide text-slate-900 dark:text-white m-0">
                         {item.titleLine1}
                       </h2>
 
@@ -212,7 +212,7 @@ export function CoverFlowCarousel({
                             onCtaClick(item);
                           }
                         }}
-                        className="inline-flex items-center justify-center gap-2 px-8 py-3 rounded-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 font-body text-xs font-bold tracking-widest uppercase text-white shadow-md hover:shadow-blue-500/20 transition-all active:scale-95"
+                        className="inline-flex items-center justify-center gap-2 px-6 py-2.5 md:px-8 md:py-3 rounded-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 font-body text-xs font-bold tracking-widest uppercase text-white shadow-md hover:shadow-blue-500/20 transition-all active:scale-95"
                       >
                         <span>{item.ctaText || "LEARN MORE"}</span>
                         <ArrowRight className="w-4 h-4" />
