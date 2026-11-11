@@ -48,7 +48,7 @@ export function getCleanPublicOrigin(): string {
   return 'https://themodernstories.in';
 }
 
-function getSafeCardImageUrl(value?: string): string | undefined {
+export function getSafeCardImageUrl(value?: string): string | undefined {
   if (!value || value.length > 2048) return undefined;
   try {
     const url = new URL(value);
