@@ -33,7 +33,16 @@ STRICT TRANSLATION RULES:
 5. PRESERVE STRUCTURE: Retain all bullet points, paragraph structures, and Markdown formatting cleanly.
 
 Translate into the requested target language. Return only a JSON object with string fields title and content, and a string-to-string segments object. Translate each segment value without changing its key. Keep fields that are empty in the input empty in the output."""
+TELUGU_TO_ENGLISH_SYSTEM_PROMPT = """You are an expert bilingual Telugu-English writer and editor for The Modern Stories (themodernstories.in). Telugu is the source of truth. First understand the source's local voice, cultural context, idioms, emotional subtext, and conversational flow; then adapt it into polished, natural, engaging contemporary English for global readers without losing the story's soul.
 
+STRICT EDITING RULES:
+1. Do not invent, omit, or change facts, events, or the author's intended meaning.
+2. Do not translate or alter the proper noun 'The Modern Stories' or the abbreviation 'TMS'.
+3. Use smooth, high-quality English that reads as if originally written for a contemporary global audience; avoid literal or machine-like translation.
+4. Preserve local tone, emotional depth, culturally meaningful details, and idiomatic intent. Render Telugu expressions naturally; add a concise explanation only when essential for comprehension, and never flatten or stereotype the culture.
+5. Keep the writing faithful to the source. Do not add editorial commentary, sensationalism, or unsupported context.
+6. Preserve paragraph structure and Markdown formatting, and make the result clean and ready to publish.
+7. Return only the refined English title and story in the requested JSON fields; do not include a cultural analysis, translator's note, or explanation in the story text."""
 
 class TranslationRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -42,6 +51,7 @@ class TranslationRequest(BaseModel):
     content: str = ""
     segments: dict[str, str] = Field(default_factory=dict)
     target_lang: str | None = Field(default=None, alias="targetLang")
+    source_lang: str = Field(default="English", alias="sourceLang")
 
 
 class TranslationContent(BaseModel):
@@ -57,13 +67,20 @@ async def _generate_for_model(
     content: str,
     segments: dict[str, str],
     target_lang: str,
+    source_lang: str = "English",
 ) -> TranslationContent:
+    system_prompt = (
+        TELUGU_TO_ENGLISH_SYSTEM_PROMPT
+        if source_lang.strip().casefold() == "telugu"
+        and target_lang.strip().casefold() == "english"
+        else TRANSLATION_SYSTEM_PROMPT
+    )
     response = await client.post(
         f"{GEMINI_API_URL}/{model_name}:generateContent",
         headers={"x-goog-api-key": settings.gemini_api_key},
         json={
             "systemInstruction": {
-                "parts": [{"text": TRANSLATION_SYSTEM_PROMPT}]
+                "parts": [{"text": system_prompt}]
             },
             "contents": [
                 {
@@ -71,7 +88,7 @@ async def _generate_for_model(
                     "parts": [
                         {
                             "text": (
-                                f"Translate this article into {target_lang}:\n"
+                                f"Translate this article from {source_lang} into {target_lang}:\n"
                                 f"{json.dumps({'title': title, 'content': content, 'segments': segments}, ensure_ascii=False)}"
                             )
                         }
@@ -94,6 +111,7 @@ async def generate_translation(
     content: str = "",
     segments: dict[str, str] | None = None,
     target_lang: str,
+    source_lang: str = "English",
 ) -> TranslationContent:
     request_segments = segments or {}
     async with httpx.AsyncClient(timeout=60.0) as client:
@@ -106,6 +124,7 @@ async def generate_translation(
                     content,
                     request_segments,
                     target_lang,
+                    source_lang,
                 )
             except (
                 httpx.HTTPError,
@@ -153,6 +172,7 @@ async def translate_article(request: TranslationRequest):
         content=request.content,
         segments=request.segments,
         target_lang=request.target_lang.strip(),
+        source_lang=request.source_lang.strip(),
     )
     return {
         "success": True,
