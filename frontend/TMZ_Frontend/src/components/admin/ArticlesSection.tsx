@@ -11,9 +11,9 @@ import { Modal } from '@/components/ui/States';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { TextFormattingBar } from '@/components/admin/TextFormattingBar';
-import { translateForManualEditing } from '@/lib/translations';
+import { translateTeluguToEnglish } from '@/lib/translations';
 import {
-  fetchArticles, fetchCategories, createArticle, updateArticle, deleteArticle,
+  fetchArticles, fetchArticleById, fetchCategories, createArticle, updateArticle, deleteArticle,
   fetchArticleBlocks, createArticleBlock, updateArticleBlock, deleteArticleBlock,
   reorderArticleBlocks, fetchQuizzes, fetchOpinions, createQuiz, updateQuiz, createOpinion, updateOpinion, createOpinionOption, replaceOpinionOptions,
   fetchMedia, type ArticleFilters,
@@ -49,6 +49,7 @@ export function ArticlesSection({ editorArticleId, setEditorArticleId }: Article
   const [articles, setArticles] = useState<AdminArticle[]>([]);
   const [categories, setCategories] = useState<AdminCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [articlesError, setArticlesError] = useState<string | null>(null);
 
   const copyArticleId = async (value: string) => {
     try {
@@ -68,6 +69,7 @@ export function ArticlesSection({ editorArticleId, setEditorArticleId }: Article
 
   const loadArticles = useCallback(async () => {
     setLoading(true);
+    setArticlesError(null);
     const requestId = ++requestRef.current;
     try {
       const filters: ArticleFilters = {
@@ -78,33 +80,63 @@ export function ArticlesSection({ editorArticleId, setEditorArticleId }: Article
       const data = await fetchArticles(filters);
       if (requestId !== requestRef.current) return;
       setArticles(data);
-    } catch {
-      /* ignore */
+    } catch (error) {
+      if (requestId !== requestRef.current) return;
+      setArticlesError(error instanceof Error ? error.message : 'Failed to load articles.');
     } finally {
       if (requestId === requestRef.current) setLoading(false);
     }
   }, [activeTab, search, categoryFilter]);
 
   useEffect(() => {
-    fetchCategories().then(setCategories).catch(() => {});
-  }, []);
+    let cancelled = false;
+    fetchCategories()
+      .then((data) => {
+        if (!cancelled) setCategories(data);
+      })
+      .catch((error: unknown) => {
+        console.error('[CMS] Failed to load categories', error);
+        if (!cancelled) {
+          showToast(
+            `Failed to load categories: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            'error',
+          );
+        }
+      });
+    return () => { cancelled = true; };
+  }, [showToast]);
 
   useEffect(() => {
     loadArticles();
   }, [loadArticles]);
 
   useEffect(() => {
-    if (editorArticleId) {
-      fetchArticles().then((all) => {
-        const art = all.find((a) => a.id === editorArticleId);
-        if (art) {
-          setEditingArticle(art);
-          setShowEditor(true);
+    if (!editorArticleId) return;
+    let cancelled = false;
+    const requestedArticleId = editorArticleId;
+    fetchArticleById(requestedArticleId)
+      .then((art) => {
+        if (cancelled) return;
+        setEditorArticleId(null);
+        if (!art) {
+          showToast('Article not found.', 'error');
+          return;
+        }
+        setEditingArticle(art);
+        setShowEditor(true);
+      })
+      .catch((error: unknown) => {
+        console.error('[CMS] Failed to load article for editing', error);
+        if (!cancelled) {
+          setEditorArticleId(null);
+          showToast(
+            `Failed to open article: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            'error',
+          );
         }
       });
-      setEditorArticleId(null);
-    }
-  }, [editorArticleId, setEditorArticleId]);
+    return () => { cancelled = true; };
+  }, [editorArticleId, setEditorArticleId, showToast]);
 
   const handleOpenEditor = (article?: AdminArticle) => {
     setEditingArticle(article ?? null);
@@ -122,8 +154,11 @@ export function ArticlesSection({ editorArticleId, setEditorArticleId }: Article
     try {
       await deleteArticle(deleteTarget.id);
       setDeleteTarget(null);
+      showToast('Article deleted', 'success');
       loadArticles();
-    } catch { /* ignore */ }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to delete article.', 'error');
+    }
   };
 
   if (showEditor) {
@@ -184,6 +219,13 @@ export function ArticlesSection({ editorArticleId, setEditorArticleId }: Article
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-8 h-8 animate-spin text-brand-primary" />
         </div>
+      ) : articlesError ? (
+        <GlassCard hover={false} className="p-8 text-center">
+          <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-3" />
+          <p className="text-sm text-primary mb-2">Articles could not be loaded.</p>
+          <p className="text-sm text-muted mb-4">{articlesError}</p>
+          <Button variant="secondary" size="sm" onClick={() => void loadArticles()}>Retry</Button>
+        </GlassCard>
       ) : articles.length === 0 ? (
         <GlassCard hover={false} className="p-10 text-center">
           <FileText className="w-10 h-10 text-muted mx-auto mb-3" />
@@ -320,7 +362,7 @@ interface EditorBlock {
   quiz_options: { id: string; label: string; is_correct: boolean; explanation: string }[];
   opinion_question: string;
   opinion_options: string[];
-  opinion_xp: number;
+  allow_custom_text: boolean;
   podcast_title: string;
   podcast_audio_url: string;
   podcast_description: string;
@@ -344,7 +386,7 @@ function createEmptyBlock(type: BlockType, order: number): EditorBlock {
     ],
     opinion_question: '',
     opinion_options: ['', ''],
-    opinion_xp: 5,
+    allow_custom_text: false,
     podcast_title: '',
     podcast_audio_url: '',
     podcast_description: '',
@@ -382,7 +424,7 @@ function ArticleEditor({
   const [title, setTitle] = useState(article?.title ?? '');
   const [subtitle, setSubtitle] = useState(article?.subtitle ?? '');
   const [summary, setSummary] = useState(article?.summary ?? '');
-  const [activeLanguageTab, setActiveLanguageTab] = useState<'EN' | 'TE' | 'HI'>('EN');
+  const [activeLanguageTab, setActiveLanguageTab] = useState<'EN' | 'TE' | 'HI'>('TE');
   const [titleTe, setTitleTe] = useState(article?.title_te ?? '');
   const [contentTe, setContentTe] = useState(article?.content_te ?? '');
   const [titleHi, setTitleHi] = useState(article?.title_hi ?? '');
@@ -397,6 +439,9 @@ function ArticleEditor({
   const [articleId] = useState(article?.id ?? crypto.randomUUID());
   const [status] = useState<ArticleStatus>(article?.status ?? 'DRAFT');
   const [blocks, setBlocks] = useState<EditorBlock[]>([]);
+  const [blocksLoading, setBlocksLoading] = useState(Boolean(article));
+  const [blocksLoadError, setBlocksLoadError] = useState<string | null>(null);
+  const [blocksLoadAttempt, setBlocksLoadAttempt] = useState(0);
   const [showBlockPicker, setShowBlockPicker] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [scheduleAt, setScheduleAt] = useState(article?.scheduled_at?.slice(0, 16) ?? '');
@@ -423,16 +468,14 @@ function ArticleEditor({
     if (!article) return;
     let cancelled = false;
     const loadBlocks = async () => {
+      setBlocksLoading(true);
+      setBlocksLoadError(null);
       try {
         const serverBlocks = await fetchArticleBlocks(article.id);
-        const [quizResult, opinionResult] = await Promise.allSettled([
+        const [quizzes, opinions] = await Promise.all([
           fetchQuizzes(),
           fetchOpinions(),
         ]);
-        const quizzes = quizResult.status === 'fulfilled' ? quizResult.value : [];
-        const opinions = opinionResult.status === 'fulfilled' ? opinionResult.value : [];
-        if (quizResult.status === 'rejected') console.error('[CMS] Failed loading quizzes for article blocks', quizResult.reason);
-        if (opinionResult.status === 'rejected') console.error('[CMS] Failed loading opinions for article blocks', opinionResult.reason);
         if (cancelled) return;
         const articleQuiz = quizzes.find((item) => item.article_id === article.id);
         const hasQuizBlock = serverBlocks.some((serverBlock) => (
@@ -460,7 +503,7 @@ function ArticleEditor({
             })) ?? createEmptyBlock('QUIZ', serverBlock.order_index).quiz_options,
             opinion_question: opinion?.question ?? '',
             opinion_options: opinion?.options ?? ['', ''],
-            opinion_xp: opinion?.allow_custom_text ? 1 : 0,
+            allow_custom_text: Boolean(opinion?.allow_custom_text),
             podcast_title: serverBlock.title ?? '',
             podcast_audio_url: serverBlock.external_url ?? serverBlock.media_url ?? '',
             podcast_description: serverBlock.content ?? '',
@@ -485,13 +528,20 @@ function ArticleEditor({
         }
 
         setBlocks(hydratedBlocks);
-      } catch {
-        showToast('Failed to load article blocks', 'error');
+      } catch (error) {
+        console.error('[CMS] Failed loading article blocks', error);
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          setBlocksLoadError(message);
+          showToast(`Failed to load article content: ${message}`, 'error');
+        }
+      } finally {
+        if (!cancelled) setBlocksLoading(false);
       }
     };
     void loadBlocks();
     return () => { cancelled = true; };
-  }, [article, showToast]);
+  }, [article, showToast, blocksLoadAttempt]);
 
   const addBlock = (type: BlockType) => {
     setBlocks((prev) => [...prev, createEmptyBlock(type, prev.length)]);
@@ -517,35 +567,54 @@ function ArticleEditor({
   };
 
   const handleAutoTranslate = async () => {
-    const englishContent = blocks
-      .filter((block) => block.block_type === 'TEXT' && block.content.trim())
-      .map((block) => block.content.trim())
-      .join('\n\n');
-    if (!title.trim() && !englishContent) {
-      showToast('Add an English title or text block before translating', 'error');
+    if (!titleTe.trim()) {
+      showToast('Add the original Telugu title before creating the English draft', 'error');
+      return;
+    }
+    if (!contentTe.trim()) {
+      showToast('Add the original Telugu story before creating the English draft', 'error');
       return;
     }
 
     setTranslating(true);
     try {
-      const [telugu, hindi] = await Promise.all([
-        translateForManualEditing({ title, content: englishContent }, 'TE'),
-        translateForManualEditing({ title, content: englishContent }, 'HI'),
-      ]);
-      setTitleTe(telugu.title);
-      setContentTe(telugu.content);
-      setTitleHi(hindi.title);
-      setContentHi(hindi.content);
-      showToast('Telugu and Hindi drafts generated. Review them before saving.', 'success');
+      const english = await translateTeluguToEnglish({
+        title: titleTe,
+        content: contentTe,
+      });
+      setTitle(english.title);
+      setBlocks((currentBlocks) => {
+        const firstTextIndex = currentBlocks.findIndex((block) => block.block_type === 'TEXT');
+        if (firstTextIndex === -1) {
+          return [
+            ...currentBlocks,
+            { ...createEmptyBlock('TEXT', currentBlocks.length), content: english.content },
+          ];
+        }
+
+        return currentBlocks
+          .filter((block, index) => block.block_type !== 'TEXT' || index === firstTextIndex)
+          .map((block, index) => ({
+            ...block,
+            content: block.block_type === 'TEXT' ? english.content : block.content,
+            order_index: index,
+          }));
+      });
+      setActiveLanguageTab('EN');
+      showToast('English draft created from the Telugu source. Review it before saving.', 'success');
     } catch (error) {
-      console.error('[CMS] Failed to auto-translate article', error);
-      showToast(error instanceof Error ? error.message : 'Auto-translation failed', 'error');
+      console.error('[CMS] Failed to create English draft from Telugu', error);
+      showToast(error instanceof Error ? error.message : 'English draft generation failed', 'error');
     } finally {
       setTranslating(false);
     }
   };
 
   const handleSave = async (newStatus?: ArticleStatus) => {
+    if (blocksLoading || blocksLoadError) {
+      showToast('Wait for article content to load successfully before saving.', 'error');
+      return;
+    }
     if (newStatus === 'SCHEDULED' && !scheduleAt) {
       showToast('Choose a scheduled publish date and time', 'error');
       return;
@@ -555,7 +624,11 @@ function ArticleEditor({
       return;
     }
     if (!categoryId) {
-      showToast('Category is required', 'error');
+      showToast('Select a category before saving. Articles require a category.', 'error');
+      return;
+    }
+    if (newStatus && newStatus !== 'DRAFT' && newStatus !== 'UNPUBLISHED' && blocks.length === 0) {
+      showToast('Add at least one content block before publishing or scheduling this article.', 'error');
       return;
     }
     if (!coverMediaId && coverImage.trim() && !isSafeMediaUrl(coverImage.trim())) {
@@ -659,7 +732,7 @@ function ArticleEditor({
           const opinionData = {
             article_id: savedArticle.id,
             question: block.opinion_question || 'Opinion question',
-            allow_custom_text: Boolean(block.opinion_xp),
+            allow_custom_text: block.allow_custom_text,
             options: block.opinion_options.map((option) => option.trim()).filter(Boolean),
           };
           const opinion = existingBlock?.opinion_id
@@ -736,8 +809,8 @@ function ArticleEditor({
       await deleteArticle(article.id);
       showToast('Article deleted', 'success');
       onClose();
-    } catch {
-      showToast('Failed to delete', 'error');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to delete article.', 'error');
     }
   };
 
@@ -768,7 +841,7 @@ function ArticleEditor({
                 if (action.key === 'delete') setShowDeleteConfirm(true);
                 else handleSave(action.status);
               }}
-              disabled={saving}
+              disabled={saving || (action.key !== 'delete' && (blocksLoading || Boolean(blocksLoadError)))}
             >
               {action.icon && <action.icon className="w-3.5 h-3.5" />}
               {action.label}
@@ -777,13 +850,34 @@ function ArticleEditor({
         </div>
       </div>
 
+      {blocksLoading && (
+        <GlassCard hover={false} className="flex items-center gap-3 p-4 text-sm text-secondary" role="status">
+          <Loader2 className="h-5 w-5 animate-spin text-brand-primary" />
+          Loading article content and interactive blocks...
+        </GlassCard>
+      )}
+      {blocksLoadError && (
+        <GlassCard hover={false} className="flex flex-wrap items-center justify-between gap-3 p-4" role="alert">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+            <div>
+              <p className="text-sm text-primary">Article content could not be loaded. Saving is disabled to protect existing content.</p>
+              <p className="mt-1 text-xs text-muted">{blocksLoadError}</p>
+            </div>
+          </div>
+          <Button type="button" variant="secondary" size="sm" onClick={() => setBlocksLoadAttempt((attempt) => attempt + 1)}>
+            Retry
+          </Button>
+        </GlassCard>
+      )}
+
       {/* Article Metadata */}
       <GlassCard hover={false} className="p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2" role="tablist" aria-label="Article language">
             {([
-              ['EN', 'English'],
-              ['TE', 'Telugu'],
+              ['TE', 'Telugu source'],
+              ['EN', 'English draft'],
               ['HI', 'Hindi'],
             ] as const).map(([language, label]) => (
               <button
@@ -802,21 +896,23 @@ function ArticleEditor({
               </button>
             ))}
           </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={() => void handleAutoTranslate()}
-            disabled={translating || saving}
-          >
-            {translating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            Auto-Translate with AI
-          </Button>
+          {activeLanguageTab === 'TE' && (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => void handleAutoTranslate()}
+              disabled={translating || saving}
+            >
+              {translating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              Create English Draft
+            </Button>
+          )}
         </div>
 
         {activeLanguageTab === 'EN' ? (
           <div className="space-y-4" role="tabpanel">
-            <Input label="Title (English)" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Article title" />
+            <Input label="Refined Title (English)" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="English title, refined from the Telugu source" />
             <Input label="Subtitle (English)" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder="Article subtitle" />
             <div>
               <label className="block text-sm text-secondary font-body mb-1.5">Summary (English)</label>
@@ -828,21 +924,22 @@ function ArticleEditor({
                 placeholder="Brief summary for cards and previews"
               />
             </div>
-            <p className="text-xs text-muted">English body prose is managed in the Content Blocks section below.</p>
+            <p className="text-xs text-muted">Review and refine the English story in Content Blocks below. Generating a new draft replaces existing text blocks while keeping image and interactive blocks.</p>
           </div>
         ) : activeLanguageTab === 'TE' ? (
           <div className="space-y-4" role="tabpanel" lang="te">
-            <Input label="Title (Telugu)" value={titleTe} onChange={(e) => setTitleTe(e.target.value)} placeholder="తెలుగు శీర్షిక" />
+            <Input label="Original Title (Telugu)" value={titleTe} onChange={(e) => setTitleTe(e.target.value)} placeholder="తెలుగు శీర్షిక" />
             <div>
-              <label className="block text-sm text-secondary font-body mb-1.5">Content (Telugu)</label>
+            <label className="block text-sm text-secondary font-body mb-1.5">Original Story (Telugu)</label>
               <textarea
                 className="input-field min-h-64 resize-y"
                 rows={10}
                 value={contentTe}
                 onChange={(e) => setContentTe(e.target.value)}
-                placeholder="తెలుగు కథనం"
+                placeholder="మీ కథను సహజమైన తెలుగు సంభాషణా శైలిలో ఇక్కడ రాయండి"
               />
             </div>
+            <p className="text-xs text-muted">Start with the Telugu draft. AI preserves its local voice, cultural nuances, and emotional core while preparing polished English for global readers. Review and edit the English version before publishing.</p>
           </div>
         ) : (
           <div className="space-y-4" role="tabpanel" lang="hi">
@@ -861,14 +958,14 @@ function ArticleEditor({
         )}
         <div className="flex items-center gap-2 text-xs text-muted">
           <Languages className="h-4 w-4" />
-          Translation drafts remain editable; changes are saved with the English article.
+          Telugu source and editable English draft are saved together.
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-secondary font-body mb-1.5">Category</label>
+            <label className="block text-sm text-secondary font-body mb-1.5">Category <span className="text-red-500">*</span></label>
             <select className="input-field" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-              <option value="">No category</option>
+              <option value="">Select a category (required)</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
@@ -945,30 +1042,32 @@ function ArticleEditor({
           <span className="text-xs text-muted">{blocks.length} block{blocks.length !== 1 ? 's' : ''}</span>
         </div>
 
-        {blocks.length === 0 && (
+        {!blocksLoading && !blocksLoadError && blocks.length === 0 && (
           <GlassCard hover={false} className="p-8 text-center">
             <FileText className="w-8 h-8 text-muted mx-auto mb-2" />
             <p className="text-sm text-muted mb-4">No content blocks yet. Add your first block to start writing.</p>
           </GlassCard>
         )}
 
-        <div className="space-y-3">
-          {blocks.map((block, index) => (
-            <BlockEditor
-              key={block.id}
-              block={block}
-              mediaItems={mediaItems}
-              index={index}
-              total={blocks.length}
-              onUpdate={(updates) => updateBlock(block.id, updates)}
-              onRemove={() => removeBlock(block.id)}
-              onMove={(dir) => moveBlock(index, dir)}
-            />
-          ))}
-        </div>
+        {!blocksLoading && !blocksLoadError && (
+          <div className="space-y-3">
+            {blocks.map((block, index) => (
+              <BlockEditor
+                key={block.id}
+                block={block}
+                mediaItems={mediaItems}
+                index={index}
+                total={blocks.length}
+                onUpdate={(updates) => updateBlock(block.id, updates)}
+                onRemove={() => removeBlock(block.id)}
+                onMove={(dir) => moveBlock(index, dir)}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Add Block */}
-        {showBlockPicker ? (
+        {!blocksLoading && !blocksLoadError && showBlockPicker ? (
           <GlassCard hover={false} className="p-4 mt-3">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm text-secondary font-body">Add a block</span>
@@ -990,7 +1089,7 @@ function ArticleEditor({
               ))}
             </div>
           </GlassCard>
-        ) : (
+        ) : !blocksLoading && !blocksLoadError ? (
           <button
             onClick={() => setShowBlockPicker(true)}
             className="w-full mt-3 py-3 rounded-xl border-2 border-dashed flex items-center justify-center gap-2 text-secondary hover:text-primary transition-all"
@@ -999,7 +1098,7 @@ function ArticleEditor({
             <Plus className="w-4 h-4" />
             <span className="text-sm font-body">Add Block</span>
           </button>
-        )}
+        ) : null}
       </div>
 
       {/* Delete Confirmation */}
@@ -1166,7 +1265,7 @@ function BlockEditor({
         <div className="space-y-3">
           <Input label="Question" value={block.opinion_question} onChange={(e) => onUpdate({ opinion_question: e.target.value })} placeholder="Opinion question" />
           <label className="flex items-center gap-2 text-sm text-secondary font-body">
-            <input type="checkbox" checked={Boolean(block.opinion_xp)} onChange={(e) => onUpdate({ opinion_xp: e.target.checked ? 1 : 0 })} />
+            <input type="checkbox" checked={block.allow_custom_text} onChange={(e) => onUpdate({ allow_custom_text: e.target.checked })} />
             Allow custom text box
           </label>
           <div>
@@ -1270,7 +1369,13 @@ interface ArticleAction {
 
 function getAvailableActions(status: ArticleStatus): ArticleAction[] {
   const actions: ArticleAction[] = [
-    { key: 'save', label: 'Save Draft', status: status, variant: 'secondary', icon: Save },
+    {
+      key: 'save',
+      label: status === 'DRAFT' ? 'Save Draft' : 'Save Changes',
+      status: status === 'SCHEDULED' ? 'SCHEDULED' : undefined,
+      variant: 'secondary',
+      icon: Save,
+    },
   ];
 
   if (status === 'DRAFT' || status === 'UNPUBLISHED') {
