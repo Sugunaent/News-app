@@ -29,6 +29,7 @@ export default function cardPreviewHandler(request, response) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${title}</title>
   <meta name="description" content="${description}">
+  <meta name="robots" content="noindex, follow, max-image-preview:large">
   <link rel="canonical" href="${escapedCardUrl}">
   <meta property="og:type" content="article">
   <meta property="og:site_name" content="The Modern Stories">

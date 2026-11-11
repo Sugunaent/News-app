@@ -1,4 +1,4 @@
-const SITE_URL = 'https://themodernstories.in';
+const SITE_URL = 'https://www.themodernstories.in';
 const CARD_TYPES = new Set(['completion', 'opinion', 'quiz']);
 
 function getText(params, key, fallback, maxLength) {

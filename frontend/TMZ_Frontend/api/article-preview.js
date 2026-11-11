@@ -54,19 +54,24 @@ export default async function articlePreviewHandler(request, response) {
   const articleUrl = getArticleUrl(request, slug);
   const image = getArticleImage(article, backendUrl);
   const imageUrl = image
-    ? new URL(`/api/article-image?slug=${encodeURIComponent(slug)}`, 'https://themodernstories.in').toString()
-    : '';
+    ? new URL(`/api/article-image?slug=${encodeURIComponent(slug)}`, articleUrl).toString()
+    : 'https://www.themodernstories.in/modern_stories_hero.jpg';
   const title = escapeArticleHtml(getArticleTitle(article));
   const description = escapeArticleHtml(getArticleDescription(article));
+  const publishedAt = typeof article.published_at === 'string'
+    && !Number.isNaN(Date.parse(article.published_at))
+    ? new Date(article.published_at).toISOString()
+    : '';
+  const authorName = typeof article.author_name === 'string' && article.author_name.trim()
+    ? escapeArticleHtml(article.author_name.trim().slice(0, 120))
+    : '';
   const escapedArticleUrl = escapeArticleHtml(articleUrl);
   const escapedImageUrl = escapeArticleHtml(imageUrl);
-  const imageMetadata = image
-    ? `
+  const imageMetadata = `
   <meta property="og:image" content="${escapedImageUrl}">
   <meta property="og:image:secure_url" content="${escapedImageUrl}">
-  ${image.mimeType ? `<meta property="og:image:type" content="${escapeArticleHtml(image.mimeType)}">` : ''}
-  <meta property="og:image:alt" content="${title}">`
-    : '';
+  ${image?.mimeType ? `<meta property="og:image:type" content="${escapeArticleHtml(image.mimeType)}">` : '<meta property="og:image:type" content="image/jpeg">'}
+  <meta property="og:image:alt" content="${title}">`;
 
   const body = `<!doctype html>
 <html lang="en">
@@ -81,11 +86,15 @@ export default async function articlePreviewHandler(request, response) {
   <meta property="og:url" content="${escapedArticleUrl}">
   <meta property="og:title" content="${title}">
   <meta property="og:description" content="${description}">
+  <meta property="og:locale" content="en_US">
   ${imageMetadata}
+  ${publishedAt ? `<meta property="article:published_time" content="${escapeArticleHtml(publishedAt)}">` : ''}
+  ${authorName ? `<meta property="article:author" content="${authorName}">` : ''}
+  ${article.category?.name ? `<meta property="article:section" content="${escapeArticleHtml(String(article.category.name).slice(0, 120))}">` : ''}
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${title}">
   <meta name="twitter:description" content="${description}">
-  ${image ? `<meta name="twitter:image" content="${escapedImageUrl}">` : ''}
+  <meta name="twitter:image" content="${escapedImageUrl}">
 </head>
 <body>
   <main>

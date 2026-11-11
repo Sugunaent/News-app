@@ -28,7 +28,7 @@ export default function cardImageHandler(request: Request) {
           padding: 34,
           background: 'linear-gradient(135deg, #eaf8f1 0%, #e8f4fb 100%)',
           color: '#102a43',
-          fontFamily: 'Arial, Helvetica, sans-serif',
+          fontFamily: 'Noto Sans, sans-serif',
         }}
       >
         <div

@@ -45,6 +45,12 @@ export function CompletionCard({
   const isOpinionCard = cardType === 'opinion';
   const isQuizCard = cardType === 'quiz';
   const isAlreadyOnCardPage = location.pathname === '/card';
+  const articleCardImageUrl = articleId
+    && typeof window !== 'undefined'
+    && window.location.hostname !== 'localhost'
+    && window.location.hostname !== '127.0.0.1'
+    ? `/api/article-image?slug=${encodeURIComponent(articleId)}`
+    : articleImageUrl;
   const shareText = isOpinionCard
     ? `${username} shared an opinion on "${articleTitle}" on The Modern Stories${activityTitle ? ` in response to "${activityTitle}"` : ''}: "${opinionText || ''}" (+${xpGained} XP).`
     : isQuizCard
@@ -270,9 +276,9 @@ export function CompletionCard({
           </div>
         </div>
 
-        {articleImageUrl && (
+        {articleCardImageUrl && (
           <img
-            src={articleImageUrl}
+            src={articleCardImageUrl}
             alt=""
             crossOrigin="anonymous"
             className="mb-5 h-36 w-full rounded-2xl object-cover sm:h-44"

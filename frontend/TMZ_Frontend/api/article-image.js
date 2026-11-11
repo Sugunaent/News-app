@@ -1,8 +1,23 @@
-import { fetchArticle, getArticleImage, getArticleSlug, getBackendBaseUrl } from './_article-share.js';
+import {
+  fetchArticle,
+  getArticleImage,
+  getArticleSlug,
+  getBackendBaseUrl,
+  isAllowedArticleImageUrl,
+} from './_article-share.js';
 
 export default async function articleImageHandler(request, response) {
+  response
+    .setHeader('Access-Control-Allow-Origin', '*')
+    .setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
+    .setHeader('X-Content-Type-Options', 'nosniff');
+
+  if (request.method === 'OPTIONS') {
+    response.status(204).end();
+    return;
+  }
   if (request.method !== 'GET' && request.method !== 'HEAD') {
-    response.setHeader('Allow', 'GET, HEAD');
+    response.setHeader('Allow', 'GET, HEAD, OPTIONS');
     response.status(405).send('Method not allowed');
     return;
   }
@@ -48,9 +63,84 @@ export default async function articleImageHandler(request, response) {
     return;
   }
 
+  let imageResponse;
+  try {
+    imageResponse = await fetch(image.url, {
+      method: request.method,
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (error) {
+    console.error('[article-image] Cover image request failed:', error);
+    response.status(502).send('Article image is temporarily unavailable');
+    return;
+  }
+
+  const resolvedImageUrl = imageResponse.url || image.url;
+  if (!isAllowedArticleImageUrl(resolvedImageUrl)) {
+    response.status(502).send('Article image resolved to an unsupported host');
+    return;
+  }
+  if (!imageResponse.ok) {
+    response.status(502).send('Article image could not be retrieved');
+    return;
+  }
+
+  const contentType = imageResponse.headers.get('content-type')?.split(';')[0].trim().toLowerCase()
+    || image.mimeType;
+  const allowedImageTypes = new Set([
+    'image/avif',
+    'image/gif',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+  ]);
+  if (!allowedImageTypes.has(contentType)) {
+    response.status(415).send('Article image has an unsupported media type');
+    return;
+  }
+
+  const maxImageBytes = 8 * 1024 * 1024;
+  const declaredLength = Number(imageResponse.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > maxImageBytes) {
+    response.status(413).send('Article image exceeds the maximum supported size');
+    return;
+  }
+
+  let imageBuffer;
+  if (request.method === 'HEAD') {
+    imageBuffer = null;
+  } else {
+    try {
+      const reader = imageResponse.body?.getReader();
+      if (!reader) {
+        response.status(502).send('Article image response had no body');
+        return;
+      }
+      const chunks = [];
+      let totalBytes = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        totalBytes += value.byteLength;
+        if (totalBytes > maxImageBytes) {
+          await reader.cancel();
+          response.status(413).send('Article image exceeds the maximum supported size');
+          return;
+        }
+        chunks.push(Buffer.from(value));
+      }
+      imageBuffer = Buffer.concat(chunks, totalBytes);
+    } catch (error) {
+      console.error('[article-image] Cover image body could not be read:', error);
+      response.status(502).send('Article image is temporarily unavailable');
+      return;
+    }
+  }
+
   response
-    .status(302)
-    .setHeader('Location', image.url)
-    .setHeader('Cache-Control', 'no-store')
-    .end();
+    .status(200)
+    .setHeader('Content-Type', contentType)
+    .setHeader('Cache-Control', 'public, max-age=300, s-maxage=300, stale-while-revalidate=600')
+    .setHeader('Content-Length', imageBuffer?.byteLength ?? imageResponse.headers.get('content-length') ?? '0')
+    .send(imageBuffer || '');
 }

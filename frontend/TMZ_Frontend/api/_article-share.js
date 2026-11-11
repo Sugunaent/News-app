@@ -1,4 +1,26 @@
-const SITE_URL = 'https://themodernstories.in';
+const SITE_URL = 'https://www.themodernstories.in';
+const ALLOWED_IMAGE_HOSTS = [
+  'themodernstories.in',
+  'supabase.co',
+  'images.pexels.com',
+  'images.unsplash.com',
+];
+
+export function isAllowedArticleImageUrl(value) {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    const allowedHost = ALLOWED_IMAGE_HOSTS.some((host) => hostname === host || hostname.endsWith(`.${host}`));
+    const isLocalHttp = (hostname === 'localhost' || hostname === '127.0.0.1') && url.protocol === 'http:';
+    return (url.protocol === 'https:' || isLocalHttp)
+      && !url.username
+      && !url.password
+      && !url.port
+      && allowedHost;
+  } catch {
+    return false;
+  }
+}
 
 export function getArticleSlug(request) {
   const rawSlug = request.query?.slug;
@@ -26,7 +48,7 @@ export function getBackendBaseUrl() {
 export async function fetchArticle(slug, backendUrl) {
   return fetch(
     `${backendUrl}/api/v1/articles/${encodeURIComponent(slug)}?lang=en`,
-    { headers: { Accept: 'application/json' } },
+    { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000) },
   );
 }
 
@@ -47,13 +69,7 @@ export function getArticleImage(article, backendUrl) {
 
   try {
     const url = new URL(rawUrl, `${backendUrl}/`);
-    const hostname = url.hostname.toLowerCase();
-    const allowedHost = hostname === 'themodernstories.in'
-      || hostname.endsWith('.themodernstories.in')
-      || hostname.endsWith('.supabase.co')
-      || hostname === 'images.pexels.com'
-      || hostname === 'images.unsplash.com';
-    if (url.protocol !== 'https:' || url.username || url.password || url.port || !allowedHost) return null;
+    if (!isAllowedArticleImageUrl(url.toString())) return null;
 
     return {
       url: url.toString(),
