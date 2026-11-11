@@ -2,6 +2,8 @@ const SITE_URL = 'https://www.themodernstories.in';
 const ALLOWED_IMAGE_HOSTS = [
   'themodernstories.in',
   'supabase.co',
+  'images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com',
+  'encrypted-tbn0.gstatic.com',
   'images.pexels.com',
   'images.unsplash.com',
 ];

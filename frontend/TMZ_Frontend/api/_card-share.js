@@ -15,6 +15,8 @@ function getSafeImageUrl(value) {
     const allowedHost = hostname === 'themodernstories.in'
       || hostname.endsWith('.themodernstories.in')
       || hostname.endsWith('.supabase.co')
+      || hostname === 'images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com'
+      || hostname === 'encrypted-tbn0.gstatic.com'
       || hostname === 'images.pexels.com'
       || hostname === 'images.unsplash.com';
 
