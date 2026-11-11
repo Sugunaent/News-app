@@ -6,6 +6,9 @@ export const config = { runtime: 'edge' };
 export default function cardImageHandler(request: Request) {
   const url = new URL(request.url);
   const card = parseCardQuery(url.searchParams);
+  const articleImageUrl = card.articleId
+    ? new URL(`/api/article-image?slug=${encodeURIComponent(card.articleId)}`, url.origin).toString()
+    : card.articleImageUrl;
   const metadata = getCardPreviewMetadata(card);
   const label = card.cardType === 'opinion'
     ? 'READER PERSPECTIVE'
@@ -25,7 +28,7 @@ export default function cardImageHandler(request: Request) {
           padding: 34,
           background: 'linear-gradient(135deg, #eaf8f1 0%, #e8f4fb 100%)',
           color: '#102a43',
-          fontFamily: 'Noto Sans, sans-serif',
+          fontFamily: 'Arial, Helvetica, sans-serif',
         }}
       >
         <div
@@ -41,9 +44,9 @@ export default function cardImageHandler(request: Request) {
             background: '#ffffff',
           }}
         >
-          {card.articleImageUrl && (
+          {articleImageUrl && (
             <img
-              src={card.articleImageUrl}
+              src={articleImageUrl}
               alt=""
               width={360}
               height={562}

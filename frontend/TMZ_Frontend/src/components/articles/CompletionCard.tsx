@@ -105,10 +105,29 @@ export function CompletionCard({
     if (!cardRef.current) return null;
     try {
       const { getFontEmbedCSS, toBlob } = await import('html-to-image');
+      await Promise.all([
+        document.fonts.load('400 16px Alata').catch((error) => {
+          console.warn('[CompletionCard] Alata font could not be loaded; using the CSS fallback:', error);
+        }),
+        document.fonts.load('400 16px "Momo Trust Display"').catch((error) => {
+          console.warn('[CompletionCard] Display font could not be loaded; using the CSS fallback:', error);
+        }),
+      ]);
       await document.fonts.ready;
       const images = Array.from(cardRef.current.querySelectorAll('img'));
-      await Promise.all(images.map((image) => image.decode()));
-      const fontEmbedCSS = await getFontEmbedCSS(cardRef.current);
+      const imageResults = await Promise.allSettled(images.map((image) => image.decode()));
+      imageResults.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.warn('[CompletionCard] Card image could not be decoded and will be omitted:', result.reason);
+          images[index].dataset.excludeFromExport = 'true';
+        }
+      });
+      let fontEmbedCSS = '';
+      try {
+        fontEmbedCSS = await getFontEmbedCSS(cardRef.current);
+      } catch (error) {
+        console.warn('[CompletionCard] Font embedding failed; using rendered font fallbacks:', error);
+      }
 
       return await toBlob(cardRef.current, {
         filter: (node) => {

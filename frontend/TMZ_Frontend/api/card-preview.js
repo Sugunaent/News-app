@@ -30,7 +30,7 @@ export default function cardPreviewHandler(request, response) {
   <title>${title}</title>
   <meta name="description" content="${description}">
   <link rel="canonical" href="${escapedCardUrl}">
-  <meta property="og:type" content="website">
+  <meta property="og:type" content="article">
   <meta property="og:site_name" content="The Modern Stories">
   <meta property="og:url" content="${escapedCardUrl}">
   <meta property="og:title" content="${title}">
@@ -45,6 +45,7 @@ export default function cardPreviewHandler(request, response) {
   <meta name="twitter:title" content="${title}">
   <meta name="twitter:description" content="${description}">
   <meta name="twitter:image" content="${escapedImageUrl}">
+  <meta name="twitter:image:alt" content="${title}">
 </head>
 <body>
   <main>
