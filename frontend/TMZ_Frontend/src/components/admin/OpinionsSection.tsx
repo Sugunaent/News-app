@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, Loader2, MessageCircleQuestion } from 'lucide-react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Modal } from '@/components/ui/States';
@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input, Textarea } from '@/components/ui/Input';
 import { useToast } from '@/lib/toast';
 import {
-  fetchOpinions, createOpinion, updateOpinion, deleteOpinion, replaceOpinionOptions,
+  fetchArticles, fetchOpinions, createOpinion, updateOpinion, deleteOpinion, replaceOpinionOptions,
 } from '@/lib/admin/api';
 import type { AdminOpinion } from '@/lib/admin/adminTypes';
 
@@ -31,23 +31,24 @@ export function OpinionsSection() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AdminOpinion | null>(null);
   const [articles, setArticles] = useState<{ id: string; title: string }[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const load = () => {
+  const load = useCallback(async () => {
     setLoading(true);
-    Promise.all([
-      fetchOpinions(),
-      fetch('/api/placeholder').catch(() => null),
-    ]).then(([opinionsResult]) => {
+    setLoadError(null);
+    try {
+      const [opinionsResult, articleResult] = await Promise.all([fetchOpinions(), fetchArticles()]);
       setOpinions(opinionsResult);
-      const articleList = Array.from(new Set(opinionsResult.map((op) => op.article_id))).map((articleId) => ({
-        id: articleId,
-        title: opinionsResult.find((op) => op.article_id === articleId)?.article_title || articleId,
-      }));
-      setArticles(articleList);
-    }).finally(() => setLoading(false));
-  };
+      setArticles(articleResult.map((article) => ({ id: article.id, title: article.title })));
+    } catch (error) {
+      console.error('[SuperAdmin] Failed to load opinions and articles', error);
+      setLoadError(error instanceof Error ? error.message : 'Failed to load opinions.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  useEffect(load, []);
+  useEffect(() => { void load(); }, [load]);
 
   const openAdd = () => {
     setEditingId(null);
@@ -78,9 +79,17 @@ export function OpinionsSection() {
       showToast('Question is required', 'error');
       return;
     }
+    if (!form.article_id) {
+      showToast('Select the article this opinion belongs to', 'error');
+      return;
+    }
     const cleanOptions = form.options.map((o) => o.trim()).filter(Boolean);
     if (cleanOptions.length < 2) {
       showToast('At least 2 options are required', 'error');
+      return;
+    }
+    if (new Set(cleanOptions.map((option) => option.toLocaleLowerCase())).size !== cleanOptions.length) {
+      showToast('Opinion options cannot contain duplicates', 'error');
       return;
     }
     setSaving(true);
@@ -98,8 +107,10 @@ export function OpinionsSection() {
     op.then(() => {
       showToast(editingId ? 'Opinion updated' : 'Opinion created', 'success');
       setModalOpen(false);
-      load();
-    }).catch(() => showToast('Operation failed', 'error')).finally(() => setSaving(false));
+      void load();
+    }).catch((error: unknown) => {
+      showToast(error instanceof Error ? error.message : 'Opinion could not be saved.', 'error');
+    }).finally(() => setSaving(false));
   };
 
   const handleDelete = () => {
@@ -108,7 +119,7 @@ export function OpinionsSection() {
       showToast('Opinion deleted', 'success');
       setDeleteTarget(null);
       load();
-    }).catch(() => showToast('Delete failed', 'error'));
+    }).catch((error: unknown) => showToast(error instanceof Error ? error.message : 'Opinion could not be deleted.', 'error'));
   };
 
   if (loading) {
@@ -126,10 +137,17 @@ export function OpinionsSection() {
         <h2 className="font-display text-2xl md:text-3xl" style={{ color: 'var(--text-primary)' }}>
           Opinions
         </h2>
-        <Button onClick={openAdd}><Plus className="w-4 h-4" /> Add Opinion</Button>
+        <Button onClick={openAdd} disabled={Boolean(loadError)}><Plus className="w-4 h-4" /> Add Opinion</Button>
       </div>
 
-      {opinions.length === 0 ? (
+      {loadError ? (
+        <GlassCard hover={false} className="p-8 text-center" role="alert">
+          <p className="font-body text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+            Opinions could not be loaded: {loadError}
+          </p>
+          <Button variant="secondary" size="sm" onClick={() => void load()}>Retry</Button>
+        </GlassCard>
+      ) : opinions.length === 0 ? (
         <GlassCard hover={false} className="p-12 text-center">
           <MessageCircleQuestion className="w-12 h-12 mx-auto mb-3" style={{ color: 'var(--text-muted)' }} />
           <p className="font-body text-sm" style={{ color: 'var(--text-muted)' }}>No opinions yet.</p>
@@ -182,10 +200,15 @@ export function OpinionsSection() {
             {editingId ? (
               <Input value={opinions.find((opinion) => opinion.id === editingId)?.article_title || form.article_id} readOnly />
             ) : (
-              <select className="input-field" value={form.article_id} onChange={(e) => setForm({ ...form, article_id: e.target.value })}>
-                <option value="">Select article</option>
-                {articles.map((article) => <option key={article.id} value={article.id}>{article.title}</option>)}
-              </select>
+              <>
+                <select className="input-field" value={form.article_id} onChange={(e) => setForm({ ...form, article_id: e.target.value })}>
+                  <option value="">Select article (required)</option>
+                  {articles.map((article) => <option key={article.id} value={article.id}>{article.title}</option>)}
+                </select>
+                {articles.length === 0 && (
+                  <p className="mt-1 text-xs text-muted">Create an article before adding an opinion prompt.</p>
+                )}
+              </>
             )}
           </div>
           <label className="flex items-center gap-2 text-sm text-secondary font-body">
@@ -214,7 +237,7 @@ export function OpinionsSection() {
         </div>
         <div className="flex justify-end gap-3 mt-6">
           <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} disabled={saving || (!editingId && articles.length === 0)}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             {editingId ? 'Save Changes' : 'Create'}
           </Button>

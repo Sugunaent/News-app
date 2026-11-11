@@ -415,6 +415,30 @@ export async function translateForManualEditing(
   }
 }
 
+export async function translateTeluguToEnglish(
+  fields: Pick<TranslationFields, 'title' | 'content'>,
+): Promise<Pick<TranslationFields, 'title' | 'content'>> {
+  const response = await apiFetchJson<TranslationResponse>('/api/v1/translate', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...fields,
+      segments: {},
+      sourceLang: 'Telugu',
+      targetLang: 'English',
+    }),
+  });
+  if (!response.success || !response.data) {
+    throw new Error('Translation service returned an invalid response');
+  }
+  if (
+    (fields.title.trim() && !response.data.title.trim())
+    || (fields.content.trim() && !response.data.content.trim())
+  ) {
+    throw new Error('English draft is incomplete; the Telugu source was not changed');
+  }
+  return { title: response.data.title, content: response.data.content };
+}
+
 async function requestArticleTranslation(
   articleId: string,
   language: Language,

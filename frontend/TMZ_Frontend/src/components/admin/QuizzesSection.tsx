@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, Loader2, HelpCircle, Check, X } from 'lucide-react';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Modal } from '@/components/ui/States';
@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input, Textarea } from '@/components/ui/Input';
 import { useToast } from '@/lib/toast';
 import {
-  fetchQuizzes, createQuiz, updateQuiz, deleteQuiz,
+  fetchArticles, fetchQuizzes, createQuiz, updateQuiz, deleteQuiz,
 } from '@/lib/admin/api';
 import type { AdminQuiz, AdminQuizOption } from '@/lib/admin/adminTypes';
 
@@ -25,7 +25,10 @@ interface QuizFormData {
 }
 
 const emptyForm: QuizFormData = {
-  title: '', question: '', article_id: '', options: [{ id: '', label: '', is_correct: true, explanation: '' }],
+  title: '', question: '', article_id: '', options: [
+    { id: '', label: '', is_correct: true, explanation: '' },
+    { id: '', label: '', is_correct: false, explanation: '' },
+  ],
 };
 
 const newOption = (): QuizOptionDraft => ({
@@ -42,23 +45,24 @@ export function QuizzesSection() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AdminQuiz | null>(null);
   const [articles, setArticles] = useState<{ id: string; title: string }[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const load = () => {
+  const load = useCallback(async () => {
     setLoading(true);
-    Promise.all([
-      fetchQuizzes(),
-      fetch('/api/placeholder').catch(() => null),
-    ]).then(([quizzesResult]) => {
+    setLoadError(null);
+    try {
+      const [quizzesResult, articleResult] = await Promise.all([fetchQuizzes(), fetchArticles()]);
       setQuizzes(quizzesResult);
-      const articleList = Array.from(new Set(quizzesResult.map((quiz) => quiz.article_id))).map((articleId) => ({
-        id: articleId,
-        title: quizzesResult.find((quiz) => quiz.article_id === articleId)?.article_title || articleId,
-      }));
-      setArticles(articleList);
-    }).finally(() => setLoading(false));
-  };
+      setArticles(articleResult.map((article) => ({ id: article.id, title: article.title })));
+    } catch (error) {
+      console.error('[SuperAdmin] Failed to load quizzes and articles', error);
+      setLoadError(error instanceof Error ? error.message : 'Failed to load quizzes.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  useEffect(load, []);
+  useEffect(() => { void load(); }, [load]);
 
   const openAdd = () => {
     setEditingId(null);
@@ -102,8 +106,16 @@ export function QuizzesSection() {
       showToast('Title and question are required', 'error');
       return;
     }
-    if (form.options.length < 2) {
-      showToast('At least 2 options are required', 'error');
+    if (!form.article_id) {
+      showToast('Select the article this quiz belongs to', 'error');
+      return;
+    }
+    if (form.options.length < 2 || form.options.some((option) => !option.label.trim())) {
+      showToast('Add at least two options and fill in each option', 'error');
+      return;
+    }
+    if (form.options.filter((option) => option.is_correct).length !== 1) {
+      showToast('Choose exactly one correct answer', 'error');
       return;
     }
     setSaving(true);
@@ -120,8 +132,10 @@ export function QuizzesSection() {
     op.then(() => {
       showToast(editingId ? 'Quiz updated' : 'Quiz created', 'success');
       setModalOpen(false);
-      load();
-    }).catch(() => showToast('Operation failed', 'error')).finally(() => setSaving(false));
+      void load();
+    }).catch((error: unknown) => {
+      showToast(error instanceof Error ? error.message : 'Quiz could not be saved.', 'error');
+    }).finally(() => setSaving(false));
   };
 
   const handleDelete = () => {
@@ -130,7 +144,7 @@ export function QuizzesSection() {
       showToast('Quiz deleted', 'success');
       setDeleteTarget(null);
       load();
-    }).catch(() => showToast('Delete failed', 'error'));
+    }).catch((error: unknown) => showToast(error instanceof Error ? error.message : 'Quiz could not be deleted.', 'error'));
   };
 
   if (loading) {
@@ -148,10 +162,17 @@ export function QuizzesSection() {
         <h2 className="font-display text-2xl md:text-3xl" style={{ color: 'var(--text-primary)' }}>
           Quizzes
         </h2>
-        <Button onClick={openAdd}><Plus className="w-4 h-4" /> Add Quiz</Button>
+        <Button onClick={openAdd} disabled={Boolean(loadError)}><Plus className="w-4 h-4" /> Add Quiz</Button>
       </div>
 
-      {quizzes.length === 0 ? (
+      {loadError ? (
+        <GlassCard hover={false} className="p-8 text-center" role="alert">
+          <p className="font-body text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+            Quizzes could not be loaded: {loadError}
+          </p>
+          <Button variant="secondary" size="sm" onClick={() => void load()}>Retry</Button>
+        </GlassCard>
+      ) : quizzes.length === 0 ? (
         <GlassCard hover={false} className="p-12 text-center">
           <HelpCircle className="w-12 h-12 mx-auto mb-3" style={{ color: 'var(--text-muted)' }} />
           <p className="font-body text-sm" style={{ color: 'var(--text-muted)' }}>No quizzes yet.</p>
@@ -221,10 +242,15 @@ export function QuizzesSection() {
             {editingId ? (
               <Input value={quizzes.find((quiz) => quiz.id === editingId)?.article_title || form.article_id} readOnly />
             ) : (
-              <select className="input-field" value={form.article_id} onChange={(e) => setForm({ ...form, article_id: e.target.value })}>
-                <option value="">Select article</option>
-                {articles.map((article) => <option key={article.id} value={article.id}>{article.title}</option>)}
-              </select>
+              <>
+                <select className="input-field" value={form.article_id} onChange={(e) => setForm({ ...form, article_id: e.target.value })}>
+                  <option value="">Select article (required)</option>
+                  {articles.map((article) => <option key={article.id} value={article.id}>{article.title}</option>)}
+                </select>
+                {articles.length === 0 && (
+                  <p className="mt-1 text-xs text-muted">Create an article before adding a quiz.</p>
+                )}
+              </>
             )}
           </div>
           <div>
@@ -263,7 +289,7 @@ export function QuizzesSection() {
         </div>
         <div className="flex justify-end gap-3 mt-6">
           <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} disabled={saving || (!editingId && articles.length === 0)}>
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             {editingId ? 'Save Changes' : 'Create'}
           </Button>

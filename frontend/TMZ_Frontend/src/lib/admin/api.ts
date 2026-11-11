@@ -1,19 +1,8 @@
 /*
  * Admin API layer for the Superadmin CMS.
  *
- * BACKEND INTEGRATION GUIDE:
- * Every function here currently returns mock data with a simulated delay.
- * To integrate with your backend, replace the mock data retrieval with
- * real fetch/supabase calls. The function signatures and return types
- * should stay the same so the UI doesn't need to change.
- *
- * Example integration:
- *
- * export async function fetchArticles(filters?: ArticleFilters): Promise<AdminArticle[]> {
- *   const res = await fetch('/api/v1/superadmin/articles');
- *   if (!res.ok) throw new Error('Failed to fetch articles');
- *   return res.json();
- * }
+ * Superadmin data is loaded from the authenticated backend API. Functions
+ * normalize server responses for the CMS and throw when a request fails.
  */
 
 import type {
@@ -373,12 +362,8 @@ export async function updateAuthorsPicksOrder(orderedIds: string[]): Promise<voi
 }
 
 export async function fetchArticleById(id: string): Promise<AdminArticle | null> {
-  try {
-    const row = await apiFetchJson<any>(`/api/v1/superadmin/articles/${id}`);
-    return toAdminArticle(row);
-  } catch {
-    return null;
-  }
+  const row = await apiFetchJson<any>(`/api/v1/superadmin/articles/${id}`);
+  return row ? toAdminArticle(row) : null;
 }
 
 export async function createArticle(data: Partial<AdminArticle>): Promise<AdminArticle> {

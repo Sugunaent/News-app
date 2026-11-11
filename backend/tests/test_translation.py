@@ -12,6 +12,7 @@ from app.dependencies.auth import get_current_user
 from app.main import app
 from app.routers.translation import (
     TRANSLATION_SYSTEM_PROMPT,
+    TELUGU_TO_ENGLISH_SYSTEM_PROMPT,
     TranslationContent,
     _generate_for_model,
 )
@@ -72,6 +73,62 @@ def test_gemini_request_uses_native_translation_system_prompt():
     assert "సహజమైన, వాడుక భాషా శైలి లో వార్తా శైలి" in TRANSLATION_SYSTEM_PROMPT
 
 
+def test_gemini_request_adapts_telugu_source_for_english_readers():
+    captured_payload = {}
+
+    async def capture_request(request):
+        captured_payload.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {
+                                    "text": json.dumps(
+                                        {
+                                            "title": "A story from home",
+                                            "content": "The story, in natural English.",
+                                            "segments": {},
+                                        }
+                                    )
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+        )
+
+    async def generate():
+        transport = httpx.MockTransport(capture_request)
+        async with httpx.AsyncClient(transport=transport) as http_client:
+            return await _generate_for_model(
+                http_client,
+                "gemini-2.5-flash",
+                "ఇంటి కథ",
+                "ఒక చిన్న కథ.",
+                {},
+                "English",
+                "Telugu",
+            )
+
+    result = asyncio.run(generate())
+
+    assert result.title == "A story from home"
+    assert result.content == "The story, in natural English."
+    assert (
+        captured_payload["systemInstruction"]["parts"][0]["text"]
+        == TELUGU_TO_ENGLISH_SYSTEM_PROMPT
+    )
+    assert "from Telugu into English" in captured_payload["contents"][0]["parts"][0]["text"]
+    assert "local voice, cultural context, idioms, emotional subtext" in TELUGU_TO_ENGLISH_SYSTEM_PROMPT
+    assert "themodernstories.in" in TELUGU_TO_ENGLISH_SYSTEM_PROMPT
+    assert "ready to publish" in TELUGU_TO_ENGLISH_SYSTEM_PROMPT
+    assert "do not include a cultural analysis" in TELUGU_TO_ENGLISH_SYSTEM_PROMPT
+
+
 @pytest.fixture
 def authenticated_user():
     original = app.dependency_overrides.get(get_current_user)
@@ -122,6 +179,32 @@ def test_translate_article_uses_fallback_model(monkeypatch):
     assert generate.await_count == 2
     assert generate.await_args_list[0].args[1] == "gemini-2.5-flash"
     assert generate.await_args_list[1].args[1] == "gemini-2.5-pro"
+
+
+@pytest.mark.usefixtures("authenticated_user")
+def test_translate_article_accepts_telugu_source_and_english_target(monkeypatch):
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    generated = TranslationContent(
+        title="An English title",
+        content="An adapted English story.",
+    )
+    generate = AsyncMock(return_value=generated)
+    monkeypatch.setattr("app.routers.translation.generate_translation", generate)
+
+    response = client.post(
+        "/api/v1/translate",
+        json={
+            "title": "తెలుగు శీర్షిక",
+            "content": "తెలుగు కథ",
+            "sourceLang": "Telugu",
+            "targetLang": "English",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["title"] == "An English title"
+    assert generate.await_args.kwargs["source_lang"] == "Telugu"
+    assert generate.await_args.kwargs["target_lang"] == "English"
 
 
 @pytest.mark.usefixtures("authenticated_user")
