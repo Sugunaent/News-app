@@ -171,6 +171,7 @@ class ArticleDetailResponse(BaseModel):
     category: ArticleCategory | None = None
     category_id: UUID | None = None
     published_at: datetime | None = None
+    updated_at: datetime | None = None
     cover_image_url: str | None = None
     is_author_pick: bool = False
     is_featured: bool = False

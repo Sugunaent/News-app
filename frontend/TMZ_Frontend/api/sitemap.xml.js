@@ -1,5 +1,5 @@
 const SITE_URL = 'https://themodernstories.in';
-const PUBLIC_PATHS = ['/', '/about', '/latest', '/authors-picks', '/privacy', '/legal'];
+const PUBLIC_PATHS = ['/', '/about', '/latest', '/authors-picks', '/privacy', '/compliance', '/legal'];
 const SITEMAP_NS = 'http://www.sitemaps.org/schemas/sitemap/0.9';
 
 function sendFallbackSitemap(response) {
@@ -8,7 +8,7 @@ function sendFallbackSitemap(response) {
   response
     .status(200)
     .setHeader('Content-Type', 'application/xml; charset=utf-8')
-    .setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=3600')
+    .setHeader('Cache-Control', 'no-cache, max-age=0, must-revalidate')
     .send(body);
 }
 
@@ -31,7 +31,7 @@ export default async function sitemapHandler(_request, response) {
     response
       .status(200)
       .setHeader('Content-Type', upstream.headers.get('content-type') || 'application/xml; charset=utf-8')
-      .setHeader('Cache-Control', upstream.headers.get('cache-control') || 'public, max-age=300, stale-while-revalidate=3600')
+      .setHeader('Cache-Control', upstream.headers.get('cache-control') || 'no-cache, max-age=0, must-revalidate')
       .send(body);
   } catch {
     sendFallbackSitemap(response);

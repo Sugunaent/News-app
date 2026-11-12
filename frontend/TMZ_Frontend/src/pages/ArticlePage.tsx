@@ -61,6 +61,17 @@ function conciseDescription(value: string): string {
   return `${normalized.slice(0, boundary > 120 ? boundary : 197).trimEnd()}…`;
 }
 
+function extractExplicitFaq(text: string): Array<{ question: string; answer: string }> {
+  return [...text.matchAll(
+    /(?:^|\n)\s*(?:Q|Question):\s*(.+?)\s*\n\s*(?:A|Answer):\s*(.+?)(?=\n\s*(?:Q|Question):|$)/gims,
+  )]
+    .map((match) => ({
+      question: match[1].replace(/\s+/g, ' ').trim(),
+      answer: match[2].replace(/\s+/g, ' ').trim(),
+    }))
+    .filter((item) => item.question && item.answer);
+}
+
 export function ArticlePage() {
   const { slug = '' } = useParams<{ slug: string }>();
   const slugOrId = (() => {
@@ -396,6 +407,7 @@ export function ArticlePage() {
       robots: 'noindex, nofollow',
     });
     removeJsonLd('article-jsonld');
+    removeJsonLd('article-faq-jsonld');
   }, [error]);
 
   useEffect(() => {
@@ -426,6 +438,13 @@ export function ArticlePage() {
     const publishedDate = article.published_at && !Number.isNaN(Date.parse(article.published_at))
       ? new Date(article.published_at).toISOString()
       : undefined;
+    const modifiedDate = article.updated_at && !Number.isNaN(Date.parse(article.updated_at))
+      ? new Date(article.updated_at).toISOString()
+      : publishedDate;
+    const faq = extractExplicitFaq(displayBlocks
+      .filter((block) => block.block_type === 'TEXT')
+      .map((block) => block.content || '')
+      .join('\n'));
 
     upsertJsonLd('site-jsonld', SITE_ENTITY_SCHEMA);
     setPageMetadata({
@@ -434,10 +453,11 @@ export function ArticlePage() {
       keywords: keywords.join(', '),
       canonicalPath: canonical,
       image,
-      robots: 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1',
+      robots: 'index, follow, max-image-preview:large',
       ogType: 'article',
       ogTitle: `${title} | ${SITE_NAME}`,
       author: article.author_name || SITE_NAME,
+      articleSection: article.category?.name || undefined,
     });
 
     upsertJsonLd('page-jsonld', {
@@ -460,11 +480,12 @@ export function ArticlePage() {
       description,
       image: [image],
       ...(publishedDate ? { datePublished: publishedDate } : {}),
+      ...(modifiedDate ? { dateModified: modifiedDate } : {}),
       author: article.author_name
         ? { '@type': 'Person', name: article.author_name }
         : { '@type': 'Organization', name: SITE_NAME },
       publisher: { '@id': `${canonicalUrl('/')}#organization` },
-      articleSection: article.category?.name || 'Editorial Stories',
+      articleSection: article.category?.name || undefined,
       keywords,
       about: article.category?.name
         ? { '@type': 'Thing', name: article.category.name }
@@ -474,7 +495,24 @@ export function ArticlePage() {
       inLanguage: currentLang.toLowerCase(),
     });
 
-    return () => removeJsonLd('article-jsonld');
+    if (faq.length) {
+      upsertJsonLd('article-faq-jsonld', {
+        '@context': 'https://schema.org',
+        '@type': 'FAQPage',
+        mainEntity: faq.map((item) => ({
+          '@type': 'Question',
+          name: item.question,
+          acceptedAnswer: { '@type': 'Answer', text: item.answer },
+        })),
+      });
+    } else {
+      removeJsonLd('article-faq-jsonld');
+    }
+
+    return () => {
+      removeJsonLd('article-jsonld');
+      removeJsonLd('article-faq-jsonld');
+    };
   }, [
     article,
     slugOrId,
@@ -760,39 +798,41 @@ export function ArticlePage() {
 
     return splitTakeaways;
   }, [article, displayTakeaways, displaySummary, displaySubtitle]);
+  const articleShareUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return new URL(window.location.pathname, window.location.origin).toString();
+  }, [article?.slug]);
+  const articleShareMessage = useMemo(
+    () => `${displayTitle}\n\nRead this story on The Modern Stories:`,
+    [displayTitle],
+  );
   const handleShare = useCallback(async () => {
     if (!article) return;
-
-    const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
-    const shareMessage = `${displayTitle}${displaySummary ? ` — ${displaySummary}` : ''}`;
 
     try {
       if (navigator.share) {
         await navigator.share({
           title: displayTitle,
-          text: shareMessage,
-          url: shareUrl,
+          text: articleShareMessage,
+          url: articleShareUrl,
         });
         setShareCopyState('shared');
         setShareMenuOpen(false);
         return;
       }
-    } catch {
-      // Native share is unavailable or user cancelled; fall through to manual share options.
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
     }
 
     setShareMenuOpen((open) => !open);
-  }, [article, displayTitle, displaySummary]);
+  }, [article, displayTitle, articleShareMessage, articleShareUrl]);
 
   const handleShareTarget = useCallback(async (target: 'copy' | 'x' | 'facebook' | 'linkedin' | 'whatsapp') => {
     if (!article) return;
 
-    const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
-    const shareMessage = `${displayTitle}${displaySummary ? ` — ${displaySummary}` : ''}`;
-
     if (target === 'copy') {
       if (navigator.clipboard) {
-        await navigator.clipboard.writeText(`${shareMessage}\n${shareUrl}`);
+        await navigator.clipboard.writeText(`${articleShareMessage}\n${articleShareUrl}`);
         setShareCopyState('copied');
       }
       setShareMenuOpen(false);
@@ -801,17 +841,17 @@ export function ArticlePage() {
     }
 
     const targetUrlMap = {
-      x: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`,
-      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
-      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`,
-      whatsapp: `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${shareUrl}`)}`,
+      x: `https://twitter.com/intent/tweet?text=${encodeURIComponent(articleShareMessage)}&url=${encodeURIComponent(articleShareUrl)}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(articleShareUrl)}`,
+      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(articleShareUrl)}`,
+      whatsapp: `https://wa.me/?text=${encodeURIComponent(`${articleShareMessage}\n${articleShareUrl}`)}`,
     } satisfies Record<'x' | 'facebook' | 'linkedin' | 'whatsapp', string>;
 
     window.open(targetUrlMap[target], '_blank', 'noopener,noreferrer');
     setShareCopyState('shared');
     setShareMenuOpen(false);
     window.setTimeout(() => setShareCopyState('idle'), 2000);
-  }, [article, displayTitle, displaySummary]);
+  }, [article, articleShareMessage, articleShareUrl]);
 
   if (loading) return <LoadingState message="Loading article..." />;
   if (error || !article) {

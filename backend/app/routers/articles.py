@@ -298,6 +298,7 @@ def redirect_legacy_article(article_id: str):
 async def get_article(
     slug: str,
     lang: Literal["en", "te", "hi"] = Query(default="en"),
+    analytics_consent: bool = False,
 ):
     logger.info("Fetching published article detail for slug=%s language=%s", slug, lang)
     client = supabase_admin
@@ -313,6 +314,7 @@ async def get_article(
             summary,
             article_type,
             published_at,
+            updated_at,
             category_id,
             is_author_pick,
             is_featured,
@@ -556,12 +558,16 @@ async def get_article(
                 }
             )
 
-    try:
-        record_article_view(
-            article_id=article["id"],
-        )
-    except Exception:
-        pass
+    if analytics_consent:
+        try:
+            record_article_view(
+                article_id=article["id"],
+            )
+        except Exception:
+            logger.exception(
+                "Could not record opted-in article view for article_id=%s",
+                article["id"],
+            )
 
     cover = attach_signed_url(article.get("cover"))
     cover_url = article.get("cover_image_url")
@@ -678,6 +684,7 @@ async def get_article(
         "category": category,
         "category_id": article.get("category_id") or (category or {}).get("id"),
         "published_at": article["published_at"],
+        "updated_at": article.get("updated_at"),
         "cover_image_url": cover_url,
         "is_author_pick": bool(article.get("is_author_pick")),
         "is_featured": bool(article.get("is_featured")),

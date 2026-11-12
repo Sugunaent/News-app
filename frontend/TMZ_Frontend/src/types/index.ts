@@ -49,6 +49,7 @@ export interface Article {
   author_id: string | null;
   author_name: string | null;
   published_at: string | null;
+  updated_at?: string | null;
   created_at?: string | null;
   is_published: boolean;
   is_featured: boolean;

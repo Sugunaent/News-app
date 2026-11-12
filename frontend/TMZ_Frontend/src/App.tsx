@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { canonicalUrl, setPageMetadata, upsertJsonLd } from '@/lib/seo';
 import { ThemeProvider } from '@/lib/theme';
 import { LanguageProvider } from '@/lib/language';
@@ -10,6 +10,8 @@ import { CursorFollower } from '@/components/layout/CursorFollower';
 import { ScrollToTop } from '@/components/layout/ScrollToTop';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
+import { PrivacyConsentProvider } from '@/lib/privacyConsent';
+import { usePrivacyConsent } from '@/lib/usePrivacyConsent';
 
 const oneSignalAppId = import.meta.env.VITE_ONESIGNAL_APP_ID
   || '2003e8e9-3d0d-466e-9744-eecce89b5822';
@@ -19,7 +21,8 @@ let oneSignalInitialization: Promise<OneSignalClient> | undefined;
 function initializeOneSignal() {
   if (!oneSignalInitialization) {
     oneSignalInitialization = import('react-onesignal').then(async ({ default: OneSignal }) => {
-      await OneSignal.init({
+    await OneSignal.setConsentRequired(true);
+    await OneSignal.init({
         appId: oneSignalAppId,
         allowLocalhostAsSecureOrigin: true,
         serviceWorkerPath: '/OneSignalSDKWorker.js',
@@ -40,7 +43,11 @@ function initializeOneSignal() {
           },
         },
       });
+      await OneSignal.setConsentGiven(true);
       return OneSignal;
+    }).catch((error: unknown) => {
+      oneSignalInitialization = undefined;
+      throw error;
     });
   }
 
@@ -57,6 +64,7 @@ const ProfilePage = lazy(() => import('@/pages/ProfilePage').then((module) => ({
 const SettingsPage = lazy(() => import('@/pages/SettingsPage').then((module) => ({ default: module.SettingsPage })));
 const SuperAdminPage = lazy(() => import('@/pages/SuperAdminPage').then((module) => ({ default: module.SuperAdminPage })));
 const PrivacyPage = lazy(() => import('@/pages/PrivacyPage').then((module) => ({ default: module.PrivacyPage })));
+const CompliancePage = lazy(() => import('@/pages/CompliancePage').then((module) => ({ default: module.CompliancePage })));
 const LegalPage = lazy(() => import('@/pages/LegalPage').then((module) => ({ default: module.LegalPage })));
 const ProfileListPage = lazy(() => import('@/pages/ProfileListPage').then((module) => ({ default: module.ProfileListPage })));
 const CardPage = lazy(() => import('@/pages/CardPage').then((module) => ({ default: module.CardPage })));
@@ -66,6 +74,8 @@ const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((module) => 
 
 function AppLayout() {
   const location = useLocation();
+  const { consent } = usePrivacyConsent();
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const isAuthPage = ['/auth', '/login', '/auth/callback'].includes(location.pathname);
   const usesPageSpacing = !isAuthPage && location.pathname !== '/superadmin';
   const pageSpacing = location.pathname === '/'
@@ -73,6 +83,15 @@ function AppLayout() {
     : 'pt-[50px] md:pt-[100px] pb-[50px] md:pb-[100px]';
 
   useEffect(() => {
+    if (!consent?.pushNotifications) {
+      if (oneSignalInitialization) {
+        void oneSignalInitialization
+          .then((OneSignal) => OneSignal.setConsentGiven(false))
+          .catch((error: unknown) => console.error('OneSignal consent withdrawal failed:', error));
+      }
+      return;
+    }
+
     let isActive = true;
     let promptTimer: number | undefined;
     const initializationTimer = window.setTimeout(() => {
@@ -102,7 +121,7 @@ function AppLayout() {
       window.clearTimeout(initializationTimer);
       if (promptTimer !== undefined) window.clearTimeout(promptTimer);
     };
-  }, []);
+  }, [consent?.pushNotifications]);
 
   useEffect(() => {
     const pageMeta: Record<string, { title: string; description: string; ogTitle?: string; ogDescription?: string }> = {
@@ -116,6 +135,7 @@ function AppLayout() {
       '/latest': { title: 'Latest Stories | The Modern Stories', description: 'Browse the newest articles, features, and editorial content.' },
       '/authors-picks': { title: 'Author\'s Picks | The Modern Stories', description: 'Explore hand-picked stories selected by the editorial team.' },
       '/privacy': { title: 'Privacy Policy | The Modern Stories', description: 'Read The Modern Stories privacy policy and data protection information.' },
+      '/compliance': { title: 'Compliance & AI Transparency | The Modern Stories', description: 'Learn about privacy choices, data rights, and the use of AI-assisted features at The Modern Stories.' },
       '/legal': { title: 'Legal | The Modern Stories', description: 'Review the legal policies and terms for The Modern Stories platform.' },
       '/profile': { title: 'Your Profile | The Modern Stories', description: 'Manage your reading history, saved stories, and achievement data.' },
       '/settings': { title: 'Settings | The Modern Stories', description: 'Manage account settings and preferences.' },
@@ -156,8 +176,25 @@ function AppLayout() {
     });
   }, [location.pathname]);
 
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   return (
     <div className="relative flex min-h-screen w-full max-w-[100vw] min-w-0 flex-col">
+      {isOffline && (
+        <div className="fixed inset-x-0 top-0 z-[90] flex items-center justify-center gap-3 bg-amber-100 px-4 py-2 text-center text-sm text-amber-950" role="status">
+          <span>You are offline. Previously loaded stories may still be available.</span>
+          <button type="button" className="font-semibold underline" onClick={() => window.location.reload()}>Retry</button>
+        </div>
+      )}
       {!isAuthPage && <Header />}
       <main className={`w-full max-w-[100vw] min-w-0 min-h-screen flex-1 ${usesPageSpacing ? pageSpacing : ''}`}>
         <Suspense fallback={<div className="flex min-h-[50vh] items-center justify-center text-sm text-muted" role="status">Loading page…</div>}>
@@ -176,6 +213,7 @@ function AppLayout() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/superadmin" element={<SuperAdminPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/compliance" element={<CompliancePage />} />
             <Route path="/legal" element={<LegalPage />} />
             <Route path="/card" element={<CardPage />} />
             <Route path="*" element={<NotFoundPage />} />
@@ -189,21 +227,23 @@ function AppLayout() {
 
 function App() {
   return (
-    <ThemeProvider>
-      <LanguageProvider>
-        <AuthProvider>
-          <ToastProvider>
-            <BrowserRouter>
-              <AuthPromptProvider>
-                <ScrollToTop />
-                <CursorFollower />
-                <AppLayout />
-              </AuthPromptProvider>
-            </BrowserRouter>
-          </ToastProvider>
-        </AuthProvider>
-      </LanguageProvider>
-    </ThemeProvider>
+    <PrivacyConsentProvider>
+      <ThemeProvider>
+        <LanguageProvider>
+          <AuthProvider>
+            <ToastProvider>
+              <BrowserRouter>
+                <AuthPromptProvider>
+                  <ScrollToTop />
+                  <CursorFollower />
+                  <AppLayout />
+                </AuthPromptProvider>
+              </BrowserRouter>
+            </ToastProvider>
+          </AuthProvider>
+        </LanguageProvider>
+      </ThemeProvider>
+    </PrivacyConsentProvider>
   );
 }
 

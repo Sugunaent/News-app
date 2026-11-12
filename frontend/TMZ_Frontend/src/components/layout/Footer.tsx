@@ -4,10 +4,12 @@ import { Instagram, Linkedin, Youtube } from 'lucide-react';
 import { TMSLogo } from '@/components/brand/TMSLogo';
 import { useAuth } from '@/lib/useAuth';
 import { fetchCategories } from '@/lib/api';
+import { usePrivacyConsent } from '@/lib/usePrivacyConsent';
 import type { Category } from '@/types';
 
 export function Footer() {
   const { user } = useAuth();
+  const { openPrivacySettings } = usePrivacyConsent();
   const navigate = useNavigate();
   const [categories, setCategories] = useState<Category[]>([]);
 
@@ -110,7 +112,9 @@ export function Footer() {
             <h3 className="text-sm font-bold text-primary mb-4">Legal</h3>
             <ul className="space-y-2.5">
               <li><Link to="/privacy" onClick={() => window.scrollTo(0, 0)} className="text-sm text-muted hover:text-brand-primary transition-colors">Privacy Policy</Link></li>
+              <li><Link to="/compliance" onClick={() => window.scrollTo(0, 0)} className="text-sm text-muted hover:text-brand-primary transition-colors">Compliance &amp; AI transparency</Link></li>
               <li><Link to="/legal" onClick={() => window.scrollTo(0, 0)} className="text-sm text-muted hover:text-brand-primary transition-colors">Terms &amp; Legal</Link></li>
+              <li><button type="button" onClick={openPrivacySettings} className="text-left text-sm text-muted hover:text-brand-primary transition-colors">Privacy choices</button></li>
             </ul>
           </div>
         </div>

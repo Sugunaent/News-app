@@ -263,7 +263,7 @@ export function AboutPage() {
                     style={{ objectPosition: member.object_position || 'center top' }}
                     loading="lazy"
                     decoding="async"
-                    fetchPriority="low"
+                    {...{ fetchpriority: 'low' }}
                   />
                 )}
               </div>

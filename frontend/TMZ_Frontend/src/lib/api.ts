@@ -11,6 +11,7 @@ import type { Language } from '@/lib/language';
 
 import { apiFetchJson } from './backendClient';
 import { supabase } from './supabase';
+import { hasAnalyticsConsent } from './privacyConsentStorage';
 
 import {
   ARTICLES, ARTICLES_WITH_BLOCKS,
@@ -104,6 +105,7 @@ function normalizeArticle(item: any, language: Language = 'EN'): Article {
     author_id: null,
     author_name: item.author_name ?? null,
     published_at: item.published_at ?? item.created_at ?? null,
+    updated_at: item.updated_at ?? null,
     created_at: item.created_at ?? null,
     is_published: item.is_published ?? true,
     is_featured: Boolean(item.is_featured),
@@ -662,8 +664,12 @@ export async function fetchArticleById(id: string, language: Language = 'EN'): P
   const englishFallback = mockArticle
     ? ARTICLES_WITH_BLOCKS[mockArticle.id] ?? generateArticleWithBlocks(mockArticle)
     : null;
+  const analyticsConsent = hasAnalyticsConsent();
   const request = withEnglishFallback(
-    apiFetchJson<any>(`/api/v1/articles/${encodeURIComponent(id)}?lang=${language.toLowerCase()}`, { skipAuth: true })
+    apiFetchJson<any>(
+      `/api/v1/articles/${encodeURIComponent(id)}?lang=${language.toLowerCase()}&analytics_consent=${analyticsConsent}`,
+      { skipAuth: true },
+    )
       .then((item) => {
         if (!item) {
           console.warn(`[api] Article detail endpoint returned no article for "${id}".`);

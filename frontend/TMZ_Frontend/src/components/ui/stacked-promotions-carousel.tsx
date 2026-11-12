@@ -130,7 +130,7 @@ export function StackedPromotionsCarousel({
                     alt={item.titleLine1}
                     className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
                     loading={isActive ? 'eager' : 'lazy'}
-                    fetchPriority={isActive ? 'high' : 'auto'}
+                    {...{ fetchpriority: isActive ? 'high' : 'auto' }}
                     decoding="async"
                     onError={(event) => { event.currentTarget.style.display = 'none'; }}
                   />
