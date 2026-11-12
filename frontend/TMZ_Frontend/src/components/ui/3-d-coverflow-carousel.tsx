@@ -164,7 +164,7 @@ export function CoverFlowCarousel({
                       alt={item.titleLine1}
                       className="h-full w-full object-cover object-center transform hover:scale-105 transition-transform duration-500"
                       loading={isCenter ? 'eager' : 'lazy'}
-                      fetchPriority={isCenter ? 'high' : 'auto'}
+                      {...{ fetchpriority: isCenter ? 'high' : 'auto' }}
                       decoding="async"
                       onError={(event) => { event.currentTarget.style.display = 'none'; }}
                     />

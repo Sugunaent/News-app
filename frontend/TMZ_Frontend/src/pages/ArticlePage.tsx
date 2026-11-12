@@ -782,8 +782,8 @@ export function ArticlePage() {
         setShareMenuOpen(false);
         return;
       }
-    } catch {
-      // Native share is unavailable or user cancelled; fall through to manual share options.
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
     }
 
     setShareMenuOpen((open) => !open);

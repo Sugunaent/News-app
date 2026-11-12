@@ -118,6 +118,14 @@
     transition: background-color 0.4s ease, color 0.4s ease;
   }
 
+  :lang(te) body {
+    font-family: 'Noto Sans Telugu', 'Alata', sans-serif;
+  }
+
+  :lang(hi) body {
+    font-family: 'Noto Sans Devanagari', 'Alata', sans-serif;
+  }
+
   .font-display {
     font-family: 'Momo Trust Display', serif;
   }

@@ -103,7 +103,7 @@ export function HeroBanner({
             width={1376}
             height={768}
             loading="eager"
-            fetchPriority="high"
+            {...{ fetchpriority: 'high' }}
             decoding="async"
             className="w-full h-full object-cover object-center transition-transform duration-700 ease-out group-hover/hero:scale-[1.03]"
             onError={(e) => {
