@@ -85,7 +85,7 @@
       "has": [
         {
           "type": "host",
-          "value": "^tmz-frontend-git-.*\\.vercel\\.app$"
+          "value": "^tmz-frontend-.*\\.vercel\\.app$"
         }
       ],
       "headers": [
