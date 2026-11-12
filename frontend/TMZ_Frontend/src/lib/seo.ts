@@ -25,11 +25,19 @@ export const SITE_ENTITY_SCHEMA = {
       publisher: { '@id': SITE_ORGANIZATION_ID },
     },
     {
-      '@type': 'Organization',
+      '@type': 'NewsMediaOrganization',
       '@id': SITE_ORGANIZATION_ID,
       name: SITE_NAME,
-      alternateName: 'TMS News',
+      alternateName: 'TMS',
       url: `${SITE_URL}/`,
+      knowsAbout: [
+        'Mindfulness',
+        'Health and Wellness',
+        'Artificial Intelligence',
+        'Cybersecurity',
+        'Modern Literature',
+        'Personal Growth',
+      ],
       sameAs: [
         'https://www.instagram.com/themodernstories_official/',
         'https://www.youtube.com/@THEMODERNSTORIES-c6n',
@@ -72,6 +80,7 @@ export interface PageMetadata {
   twitterTitle?: string;
   twitterDescription?: string;
   author?: string;
+  articleSection?: string;
 }
 
 function upsertMeta(selector: string, identifyingAttribute: 'name' | 'property', key: string, content: string): void {
@@ -99,7 +108,10 @@ export function setPageMetadata(metadata: PageMetadata): void {
   upsertMeta('meta[name="description"]', 'name', 'description', metadata.description);
   upsertMeta('meta[name="keywords"]', 'name', 'keywords', metadata.keywords || '');
   upsertMeta('meta[name="author"]', 'name', 'author', metadata.author || SITE_NAME);
-  upsertMeta('meta[name="robots"]', 'name', 'robots', metadata.robots || 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1');
+  upsertMeta('meta[name="classification"]', 'name', 'classification', 'News, Media, Health & Wellness, Technology, Lifestyle');
+  upsertMeta('meta[name="category"]', 'name', 'category', 'Digital Publishing & Storytelling');
+  upsertMeta('meta[name="rating"]', 'name', 'rating', 'General');
+  upsertMeta('meta[name="robots"]', 'name', 'robots', metadata.robots || 'index, follow, max-image-preview:large');
   upsertMeta('meta[property="og:type"]', 'property', 'og:type', metadata.ogType || 'website');
   upsertMeta('meta[property="og:site_name"]', 'property', 'og:site_name', SITE_NAME);
   upsertMeta('meta[property="og:url"]', 'property', 'og:url', canonical);
@@ -108,6 +120,11 @@ export function setPageMetadata(metadata: PageMetadata): void {
   upsertMeta('meta[property="og:image"]', 'property', 'og:image', image);
   upsertMeta('meta[property="og:image:alt"]', 'property', 'og:image:alt', metadata.imageAlt || 'The Modern Stories brand cover with contemporary editorial storytelling');
   upsertMeta('meta[property="og:locale"]', 'property', 'og:locale', 'en_US');
+  if (metadata.articleSection) {
+    upsertMeta('meta[property="article:section"]', 'property', 'article:section', metadata.articleSection);
+  } else {
+    document.head.querySelector('meta[property="article:section"]')?.remove();
+  }
 
   upsertMeta('meta[name="twitter:card"]', 'name', 'twitter:card', 'summary_large_image');
   upsertMeta('meta[name="twitter:site"]', 'name', 'twitter:site', '@TheModernStories');

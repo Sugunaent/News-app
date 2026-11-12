@@ -16,7 +16,11 @@ User-agent: PerplexityBot
 User-agent: GPTBot
 User-agent: ClaudeBot
 User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: Google-Extended
+User-agent: Applebot-Extended
 Allow: /
+Allow: /article/
 Allow: /card
 Allow: /api/card-image
 Allow: /api/article-image
@@ -28,3 +32,5 @@ Disallow: /superadmin
 Disallow: /api/v1/superadmin/
 
 Sitemap: https://themodernstories.in/sitemap.xml
+# LLM content index: https://themodernstories.in/llms.txt
+# Full LLM content index: https://themodernstories.in/llms-full.txt

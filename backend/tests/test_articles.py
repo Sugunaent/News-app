@@ -86,6 +86,7 @@ def test_get_article_returns_all_text_blocks_for_full_article():
         "summary": "Full summary",
         "article_type": "STANDARD",
         "published_at": datetime(2026, 8, 23, 10, tzinfo=timezone.utc),
+        "updated_at": datetime(2026, 8, 24, 10, tzinfo=timezone.utc),
         "categories": None,
         "cover": None,
     }
@@ -107,15 +108,25 @@ def test_get_article_returns_all_text_blocks_for_full_article():
 
     with (
         patch.object(articles_router, "supabase_admin", supabase),
-        patch.object(articles_router, "record_article_view"),
+        patch.object(articles_router, "record_article_view") as record_view,
         patch.object(articles_router, "attach_signed_url", side_effect=lambda media: media),
     ):
         response = asyncio.run(
             articles_router.get_article(article_id, lang="en")
         )
+        record_view.assert_not_called()
+        asyncio.run(
+            articles_router.get_article(
+                article_id,
+                lang="en",
+                analytics_consent=True,
+            )
+        )
+        record_view.assert_called_once_with(article_id=article_id)
 
     article_query.eq.assert_any_call("id", article_id)
     assert response["title"] == "Complete article"
+    assert response["updated_at"] == article["updated_at"]
     assert [block["text"] for block in response["blocks"]] == [
         "The complete article body.",
         "The final article paragraph.",
