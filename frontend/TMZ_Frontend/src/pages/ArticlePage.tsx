@@ -760,18 +760,23 @@ export function ArticlePage() {
 
     return splitTakeaways;
   }, [article, displayTakeaways, displaySummary, displaySubtitle]);
+  const articleShareUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return new URL(window.location.pathname, window.location.origin).toString();
+  }, [article?.slug]);
+  const articleShareMessage = useMemo(
+    () => `${displayTitle}\n\nRead this story on The Modern Stories:`,
+    [displayTitle],
+  );
   const handleShare = useCallback(async () => {
     if (!article) return;
-
-    const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
-    const shareMessage = `${displayTitle}${displaySummary ? ` — ${displaySummary}` : ''}`;
 
     try {
       if (navigator.share) {
         await navigator.share({
           title: displayTitle,
-          text: shareMessage,
-          url: shareUrl,
+          text: articleShareMessage,
+          url: articleShareUrl,
         });
         setShareCopyState('shared');
         setShareMenuOpen(false);
@@ -782,17 +787,14 @@ export function ArticlePage() {
     }
 
     setShareMenuOpen((open) => !open);
-  }, [article, displayTitle, displaySummary]);
+  }, [article, displayTitle, articleShareMessage, articleShareUrl]);
 
   const handleShareTarget = useCallback(async (target: 'copy' | 'x' | 'facebook' | 'linkedin' | 'whatsapp') => {
     if (!article) return;
 
-    const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
-    const shareMessage = `${displayTitle}${displaySummary ? ` — ${displaySummary}` : ''}`;
-
     if (target === 'copy') {
       if (navigator.clipboard) {
-        await navigator.clipboard.writeText(`${shareMessage}\n${shareUrl}`);
+        await navigator.clipboard.writeText(`${articleShareMessage}\n${articleShareUrl}`);
         setShareCopyState('copied');
       }
       setShareMenuOpen(false);
@@ -801,17 +803,17 @@ export function ArticlePage() {
     }
 
     const targetUrlMap = {
-      x: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}&url=${encodeURIComponent(shareUrl)}`,
-      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
-      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`,
-      whatsapp: `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${shareUrl}`)}`,
+      x: `https://twitter.com/intent/tweet?text=${encodeURIComponent(articleShareMessage)}&url=${encodeURIComponent(articleShareUrl)}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(articleShareUrl)}`,
+      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(articleShareUrl)}`,
+      whatsapp: `https://wa.me/?text=${encodeURIComponent(`${articleShareMessage}\n${articleShareUrl}`)}`,
     } satisfies Record<'x' | 'facebook' | 'linkedin' | 'whatsapp', string>;
 
     window.open(targetUrlMap[target], '_blank', 'noopener,noreferrer');
     setShareCopyState('shared');
     setShareMenuOpen(false);
     window.setTimeout(() => setShareCopyState('idle'), 2000);
-  }, [article, displayTitle, displaySummary]);
+  }, [article, articleShareMessage, articleShareUrl]);
 
   if (loading) return <LoadingState message="Loading article..." />;
   if (error || !article) {
