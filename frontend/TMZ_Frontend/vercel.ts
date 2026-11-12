@@ -1,3 +1,5 @@
+import type { VercelConfig } from '@vercel/config/v1';
+
 declare const process: { env: { VERCEL_ENV?: string } };
 
 const isPreview = process.env.VERCEL_ENV === 'preview';
@@ -23,7 +25,7 @@ const contentSecurityPolicy = [
   'upgrade-insecure-requests',
 ].join('; ');
 
-export const config = {
+export const config: VercelConfig = {
   rewrites: [
     {
       source: '/article/:articleId([0-9a-fA-F-]{36})',
